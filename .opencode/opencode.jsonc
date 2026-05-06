@@ -1,0 +1,10 @@
+{
+  "$schema": "./schema.json",
+  "mcp": {
+    "aws": {
+      "type": "local",
+      "enabled": true,
+      "command": ["uvx", "awslabs.aws-api-mcp-server@latest"]
+    }
+  }
+}
