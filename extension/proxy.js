@@ -35,4 +35,8 @@ awsMcpServer.stdout.on('data', (data) => {
 });
 
 // Handle graceful shutdown
-process.on('SIGINT', () => awsMcpServer.kill('SIGINT'));
+process.on('SIGINT', () => {
+    ws.close(); // Notify the extension
+    awsMcpServer.kill(); // Kill the actual AWS server
+    process.exit();
+});
