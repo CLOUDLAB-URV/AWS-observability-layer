@@ -1,0 +1,39 @@
+[
+  {
+    "timestamp": "2026-05-07T16:52:52.151Z",
+    "raw_request": {
+      "jsonrpc": "2.0",
+      "id": 404,
+      "method": "tools/call",
+      "params": {
+        "name": "aws_call",
+        "arguments": {
+          "prompt": "IA payload final",
+          "messages": [
+            {
+              "role": "system",
+              "content": "sistema"
+            },
+            {
+              "role": "user",
+              "content": "consulta"
+            }
+          ],
+          "metadata": {
+            "source": "ai-sim"
+          }
+        }
+      }
+    }
+  },
+  {
+    "timestamp": "2026-05-07T16:53:04.100Z",
+    "event": "PROXY_INTERRUPTED",
+    "details": "The connection was closed by the proxy script."
+  },
+  {
+    "timestamp": "2026-05-07T17:09:50.463Z",
+    "event": "PROXY_INTERRUPTED",
+    "details": "The connection was closed by the proxy script."
+  }
+]

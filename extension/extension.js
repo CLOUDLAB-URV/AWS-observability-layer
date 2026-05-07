@@ -12,6 +12,8 @@ let wss;
 function activate(context) {
     const logFilePath = path.join(context.extensionPath, '..', 'test.json');
 
+    console.log('MCP Logger Extension: activate() called');
+
     // Ensure the file exists
     if (!fs.existsSync(logFilePath)) {
         fs.writeFileSync(logFilePath, JSON.stringify([], null, 2));
@@ -27,7 +29,8 @@ function activate(context) {
             try {
                 const msg = JSON.parse(message.toString());
                 if (msg.type === 'mcp_intercept') {
-                    updateJsonLog(logFilePath, msg.data.params.name, msg.data.params.arguments);
+                    console.log('[MCP_INTERCEPT_FULL_BODY]', JSON.stringify(msg.data, null, 2));
+                    updateJsonLog(logFilePath, msg.data);
                 }
             } catch (error) {
                 console.error('Error parsing MCP message:', error);
@@ -51,16 +54,14 @@ function activate(context) {
 /**
  * Appends a new tool call to the JSON log
  */
-function updateJsonLog(filePath, tool, args) {
+function updateJsonLog(filePath, msgData) {
     try {
         const fileContent = fs.readFileSync(filePath, 'utf8');
         const logs = JSON.parse(fileContent);
 
         logs.push({
             timestamp: new Date().toISOString(),
-            tool: tool,
-            parameters: args,
-            status: "active"
+            raw_request: msgData,
         });
 
         fs.writeFileSync(filePath, JSON.stringify(logs, null, 2), 'utf8');
