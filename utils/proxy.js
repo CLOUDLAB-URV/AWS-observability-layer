@@ -1,6 +1,4 @@
-// proxy.js - MCP Server que actúa como proxy e interceptor
-// proxy.js - MCP Server que actúa como proxy e interceptor
-const { spawn } = require('child_process');
+// proxy.js - MCP forwarder que intercepta por WebSocket y habla MCP por stdio
 let WebSocket;
 try {
     WebSocket = require('ws');
@@ -9,7 +7,9 @@ try {
 }
 const readline = require('readline');
 
-// Estado del WebSocket
+const WS_URL = process.env.PROXY_WS_URL || 'ws://127.0.0.1:8765';
+
+// Estado del WebSocket de la extensión
 let wsConnected = false;
 const messageQueue = [];
 
@@ -19,15 +19,23 @@ let reconnectDelay = 1000; // start 1s
 const RECONNECT_MAX = 30000; // 30s
 let reconnectTimer = null;
 
-// AWS MCP server handling: start after WS connected (with fallback)
-let awsMcpServer = null;
-const pendingLines = [];
-let awsStartTimer = null;
-const AWS_START_FALLBACK = 5000; // ms
-
 function logWsError(err) {
     const text = err && (err.stack || err.message || String(err));
     console.error('⚠️  [MCP Server] Error WebSocket:', text || '<no error message>');
+}
+
+function writeJsonRpc(message) {
+    process.stdout.write(JSON.stringify(message) + '\n');
+}
+
+function sendJsonRpcResult(id, result) {
+    writeJsonRpc({ jsonrpc: '2.0', id, result });
+}
+
+function sendJsonRpcError(id, code, message, data) {
+    const error = { code, message };
+    if (data !== undefined) error.data = data;
+    writeJsonRpc({ jsonrpc: '2.0', id, error });
 }
 
 function scheduleReconnect() {
@@ -41,9 +49,9 @@ function scheduleReconnect() {
 
 function connectToExtension() {
     if (extensionWs && extensionWs.readyState === WebSocket.OPEN) return;
-    console.error(`[MCP Server] Intentando conectar a ws://localhost:8765 (delay ${reconnectDelay}ms)`);
+    console.error(`[MCP Server] Intentando conectar a ${WS_URL} (delay ${reconnectDelay}ms)`);
     try {
-        extensionWs = new WebSocket('ws://localhost:8765');
+        extensionWs = new WebSocket(WS_URL);
     } catch (err) {
         logWsError(err);
         scheduleReconnect();
@@ -54,7 +62,7 @@ function connectToExtension() {
         wsConnected = true;
         reconnectDelay = 1000;
         if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
-        console.error('✅ [MCP Server] Conectado a la extensión de logging en puerto 8765');
+        console.error(`✅ [MCP Server] Conectado a la extensión de logging en ${WS_URL}`);
 
         // send queued messages
         while (messageQueue.length > 0) {
@@ -62,10 +70,6 @@ function connectToExtension() {
             try { extensionWs.send(JSON.stringify(msg)); console.error('✅ [MCP Server] Mensaje de cola enviado a extensión'); }
             catch (e) { logWsError(e); messageQueue.unshift(msg); break; }
         }
-
-        // start aws server now that extension is available
-        if (!awsMcpServer) startAwsMcpServer();
-        if (awsStartTimer) { clearTimeout(awsStartTimer); awsStartTimer = null; }
     });
 
     extensionWs.on('error', (err) => { logWsError(err); wsConnected = false; });
@@ -78,26 +82,21 @@ function connectToExtension() {
     });
 }
 
-function startAwsMcpServer() {
-    if (awsMcpServer) return;
-    console.error('🚀 [MCP Server] Iniciando AWS MCP Server...');
-    try {
-        awsMcpServer = spawn('uvx', ['awslabs.aws-api-mcp-server@latest']);
-    } catch (err) {
-        console.error('❌ [MCP Server] Error al iniciar AWS server:', err && (err.message || err));
-        process.exit(1);
-    }
+function forwardToExtension(request) {
+    const msg = { type: 'mcp_intercept', data: request };
 
-    // Flush pending lines
-    while (pendingLines.length > 0) {
-        const l = pendingLines.shift();
-        try { awsMcpServer.stdin.write(l + '\n'); } catch (e) { console.error('❌ [MCP Server] Error al escribir a stdin de AWS server:', e && e.message); }
+    if (wsConnected && extensionWs && extensionWs.readyState === WebSocket.OPEN) {
+        try {
+            extensionWs.send(JSON.stringify(msg));
+            console.error('✅ [MCP Server] Mensaje enviado a extensión');
+        } catch (err) {
+            console.error('⚠️  [MCP Server] Falló envío a extensión:', err && (err.message || err));
+            messageQueue.push(msg);
+        }
+    } else {
+        messageQueue.push(msg);
+        console.error('⏳ [MCP Server] Mensaje encolado (esperando WebSocket)');
     }
-
-    awsMcpServer.stdout.on('data', (data) => { process.stdout.write(data); });
-    awsMcpServer.stderr.on('data', (data) => { console.error(`[AWS Server] ${data}`); });
-    awsMcpServer.on('error', (err) => { console.error('❌ [MCP Server] Error en AWS server:', err && (err.message || err)); });
-    awsMcpServer.on('exit', (code, signal) => { console.error(`[MCP Server] AWS server exited (code=${code} signal=${signal})`); });
 }
 
 // Crear interface para leer stdin
@@ -109,39 +108,60 @@ rl.on('line', (line) => {
         if (!line.trim()) return;
         const request = JSON.parse(line);
         console.error(`📝 [MCP Server] Mensaje interceptado (id: ${request.id || 'N/A'}, método: ${request.method || 'N/A'})`);
-        const msg = { type: 'mcp_intercept', data: request };
+        forwardToExtension(request);
 
-        if (wsConnected && extensionWs && extensionWs.readyState === WebSocket.OPEN) {
-            try { extensionWs.send(JSON.stringify(msg)); console.error('✅ [MCP Server] Mensaje enviado a extensión'); }
-            catch (err) { console.error('⚠️  [MCP Server] Falló envío a extensión:', err && (err.message || err)); messageQueue.push(msg); }
-        } else { messageQueue.push(msg); console.error('⏳ [MCP Server] Mensaje encolado (esperando conexión WebSocket)'); }
+        if (!request || typeof request !== 'object') {
+            if (request && request.id !== undefined) sendJsonRpcError(request.id, -32600, 'Invalid Request');
+            return;
+        }
 
-        if (awsMcpServer && awsMcpServer.stdin && !awsMcpServer.killed) { awsMcpServer.stdin.write(line + '\n'); }
-        else { pendingLines.push(line); console.error('⏳ [MCP Server] Línea almacenada hasta que AWS server inicie'); }
+        const isNotification = request.id === undefined || request.id === null;
+        if (isNotification) return;
+
+        switch (request.method) {
+            case 'initialize':
+                sendJsonRpcResult(request.id, {
+                    protocolVersion: (request.params && request.params.protocolVersion) || '2024-11-05',
+                    serverInfo: {
+                        name: 'mcp-forwarder-proxy',
+                        version: '1.0.0'
+                    },
+                    capabilities: {
+                        tools: { listChanged: false },
+                        resources: { listChanged: false },
+                        prompts: { listChanged: false }
+                    }
+                });
+                break;
+            case 'tools/list':
+                sendJsonRpcResult(request.id, { tools: [] });
+                break;
+            case 'resources/list':
+                sendJsonRpcResult(request.id, { resources: [] });
+                break;
+            case 'prompts/list':
+                sendJsonRpcResult(request.id, { prompts: [] });
+                break;
+            case 'ping':
+                sendJsonRpcResult(request.id, {});
+                break;
+            default:
+                sendJsonRpcError(request.id, -32601, `Method not implemented: ${request.method || '<unknown>'}`);
+                break;
+        }
 
     } catch (e) {
         console.error(`❌ [MCP Server] Error al parsear JSON:`, e && (e.message || e));
-        if (awsMcpServer && awsMcpServer.stdin && !awsMcpServer.killed) awsMcpServer.stdin.write(line + '\n');
-        else pendingLines.push(line);
     }
 });
 
-// If WS doesn't connect, start AWS after a short fallback delay
-function ensureAwsStartedSoon() {
-    if (awsMcpServer) return;
-    if (awsStartTimer) return;
-    awsStartTimer = setTimeout(() => { awsStartTimer = null; if (!awsMcpServer) startAwsMcpServer(); }, AWS_START_FALLBACK);
-}
-
-// Start connect attempts and fallback
+// Start connect attempts
 connectToExtension();
-ensureAwsStartedSoon();
 
 // Apagado graceful
 process.on('SIGINT', () => {
     console.error('\n[MCP Server] Señal SIGINT recibida, cerrando...');
     try { if (extensionWs) extensionWs.close(); } catch (e) {}
-    try { if (awsMcpServer) awsMcpServer.kill(); } catch (e) {}
     try { rl.close(); } catch (e) {}
     process.exit(0);
 });
@@ -149,7 +169,6 @@ process.on('SIGINT', () => {
 process.on('SIGTERM', () => {
     console.error('[MCP Server] Señal SIGTERM recibida, cerrando');
     try { if (extensionWs) extensionWs.close(); } catch (e) {}
-    try { if (awsMcpServer) awsMcpServer.kill(); } catch (e) {}
     try { rl.close(); } catch (e) {}
     process.exit(0);
 });
