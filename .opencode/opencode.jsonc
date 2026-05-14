@@ -4,12 +4,7 @@
     "aws": {
       "type": "local",
       "enabled": true,
-      "command": ["node", "../utils/proxy.js"]
-    },
-    "aws_direct": {
-      "type": "local",
-      "enabled": true,
-      "command": ["uvx", "awslabs.aws-api-mcp-server@latest"]
+      "command": ["node", "./utils/proxy.js"]
     }
   }
 }
