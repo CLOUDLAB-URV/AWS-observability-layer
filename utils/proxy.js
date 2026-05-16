@@ -1,4 +1,4 @@
-const { appendFileSync, mkdirSync } = require('fs');
+const { appendFileSync, mkdirSync, writeFileSync } = require('fs');
 const { join } = require('path');
 const { spawn } = require('child_process');
 const readline = require('readline');
@@ -25,8 +25,15 @@ function ensureDataDir() {
   try { mkdirSync(llmCallsDir, { recursive: true }); } catch (e) { /* ignore */ }
 }
 
-// Ensure data directory exists before writing logs
+function resetLogs() {
+  try { writeFileSync(logFilePath, ''); } catch (e) { /* ignore */ }
+  try { writeFileSync(llmCallsPath, ''); } catch (e) { /* ignore */ }
+  try { writeFileSync(responsesPath, ''); } catch (e) { /* ignore */ }
+}
+
+// Ensure data directory exists and clean old logs before writing new ones
 ensureDataDir();
+resetLogs();
 
 log(`starting proxy process in cwd=${process.cwd()}`);
 log(`launching child command: ${childCommand} ${childArgs.join(' ')}`);
