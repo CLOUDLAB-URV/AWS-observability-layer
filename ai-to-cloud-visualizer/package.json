@@ -1,0 +1,42 @@
+{
+  "name": "ai-to-cloud-visualizer",
+  "displayName": "AI-to-cloud-visualizer",
+  "description": "A VSCode extension which parses the json requests provided to the AWS MCP for creating and deleting AWS resources and translates the result in real time to a visuali iaaram.",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.118.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "ai-to-cloud.toggleServer",
+        "title": "Cloud Visualizer: Start/Stop Server"
+      }
+    ]
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "pretest": "pnpm run lint",
+    "test": "NODE_NO_WARNINGS=1 vscode-test"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "22.x",
+    "@types/vscode": "^1.120.0",
+    "@types/ws": "^8.18.1",
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2",
+    "eslint": "^9.39.3",
+    "globals": "^16.5.0"
+  },
+  "dependencies": {
+    "ws": "^8.20.1"
+  }
+}
