@@ -153,30 +153,60 @@ function getWebviewContent() {
         <pre id="commands"></pre>
         <script>
             const commandsEl = document.getElementById('commands');
-            commandsEl.textContent = "Listening for AWS commands...\\n";
+            commandsEl.textContent = "Listening for AWS structured content...\\n";
 
             window.addEventListener('message', event => {
                 try {
-                    const message = event.data;
-                    const request = message && message.data ? message.data : message;
+                    const structuredContent = event.data;
 
-                    if (request && request.method === 'tools/call' && request.params && request.params.name === 'call_aws') {
-                        const args = request.params.arguments || {};
-                        const cliCommand = args.cli_command;
+                    // Ignorar suggestions (suggest_aws_commands) si vienen como tales
+                    if (structuredContent && structuredContent.suggestions) {
+                        return;
+                    }
+
+                    // Iterar el array 'result' (sabiendo que nos llega estructurado directo del proxy)
+                    if (structuredContent && Array.isArray(structuredContent.result)) {
+                        const resultsArray = structuredContent.result;
                         
-                        let cmds = [];
-                        if (Array.isArray(cliCommand)) {
-                            cmds = cliCommand.filter(Boolean).map(c => String(c));
-                        } else if (typeof cliCommand === 'string' && cliCommand.trim()) {
-                            cmds = [cliCommand.trim()];
-                        }
-                        
-                        cmds.forEach(cmd => {
-                            commandsEl.textContent += '\\n> ' + cmd;
+                        resultsArray.forEach(res => {
+                            // Ignoramos si no es una respuesta válida que tenga el comando a enseñar
+                            if (res.cli_command) {
+                                let resourceState = {};
+                                
+                                // Intentar extraer un payload as_json si lo tiene
+                                if (res.response) {
+                                    if (typeof res.response.as_json !== 'undefined') {
+                                        try {
+                                            const parsedJson = typeof res.response.as_json === 'string' ? 
+                                                JSON.parse(res.response.as_json) : res.response.as_json;
+                                                
+                                            if (parsedJson.ResponseMetadata) {
+                                                delete parsedJson.ResponseMetadata;
+                                            }
+                                            resourceState = parsedJson;
+                                        } catch (e) {
+                                            resourceState = res.response; // fallback al original
+                                        }
+                                    } else {
+                                        resourceState = res.response; // fallback donde la respuesta no es json estricto (ej bucket creation)
+                                    }
+                                }
+
+                                const outputMessage = {
+                                    action: res.cli_command,
+                                    resource_state: resourceState
+                                };
+                                
+                                if (res.error) {
+                                    outputMessage.error = res.error;
+                                }
+
+                                commandsEl.textContent += '\\n\\n' + JSON.stringify(outputMessage, null, 2);
+                            }
                         });
                     }
                 } catch (err) {
-                    commandsEl.textContent += '\\n[Error: ' + err.message + ']';
+                    commandsEl.textContent += '\\n\\n[Error de parseo: ' + err.message + ']';
                 }
             });
         </script>

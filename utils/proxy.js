@@ -131,8 +131,6 @@ rlIn.on('line', (line) => {
     const parsed = JSON.parse(line);
     const record = { ts: now(), request: parsed };
     try { appendFileSync(llmCallsPath, JSON.stringify(record) + '\n'); log(`appended LLM call to ${llmCallsPath}`); } catch (e) { log(`failed to write LLM call: ${e && e.message}`); }
-    // Forward structured message to extension (non-fatal)
-    try { forwardToExtension(parsed); } catch (e) { log(`forwardToExtension error: ${e && e.message}`); }
   } catch (e) {
     log(`stdin line is not JSON: ${e && e.message}`);
   }
@@ -161,6 +159,11 @@ rlOut.on('line', (line) => {
     const parsed = JSON.parse(line);
     const record = { ts: now(), response: parsed };
     try { appendFileSync(responsesPath, JSON.stringify(record) + '\n'); log(`appended MCP response to ${responsesPath}`); } catch (e) { log(`failed to write MCP response: ${e && e.message}`); }
+    
+    // Si la respuesta tiene structuredContent, enviamos solo eso por el websocket
+    if (parsed.result && parsed.result.structuredContent) {
+        try { forwardToExtension(parsed.result.structuredContent); } catch (e) { log(`forwardToExtension error: ${e && e.message}`); }
+    }
   } catch (e) {
     const rawRecord = { ts: now(), raw: line };
     try { appendFileSync(responsesPath, JSON.stringify(rawRecord) + '\n'); log(`appended raw MCP line to ${responsesPath}`); } catch (err) { log(`failed to write raw MCP line: ${err && err.message}`); }
