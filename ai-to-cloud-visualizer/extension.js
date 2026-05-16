@@ -2,31 +2,45 @@ const vscode = require('vscode');
 const { WebSocketServer } = require('ws');
 const path = require('path');
 
+const PROJECT_FOLDERS = {
+    fullWorkflow: 'full-workflow',
+    queue: 'queue',
+    diagrams: 'diagrams'
+};
+
 /** @type {vscode.StatusBarItem} */
 let myStatusBarItem;
 /** @type {import('ws').WebSocketServer | null} */
 let server = null;
-/** @type {vscode.Uri | null} */
-let currentOutputFileUri = null;
+/** @type {ProjectFiles | null} */
+let currentProjectFiles = null;
 /** @type {Promise<void>} */
 let writeQueue = Promise.resolve();
 
 /**
- * @typedef {Object} ExistingJsonFilePick
- * @property {string} label
- * @property {string} description
- * @property {'existing'} mode
- * @property {vscode.Uri} uri
+ * @typedef {Object} ProjectFiles
+ * @property {string} name
+ * @property {vscode.Uri} fullWorkflowUri
+ * @property {vscode.Uri} queueUri
+ * @property {vscode.Uri} diagramUri
  */
 
 /**
- * @typedef {Object} CreateJsonFilePick
+ * @typedef {Object} ExistingProjectPick
+ * @property {string} label
+ * @property {string} description
+ * @property {'existing'} mode
+ * @property {ProjectFiles} project
+ */
+
+/**
+ * @typedef {Object} CreateProjectPick
  * @property {string} label
  * @property {string} description
  * @property {'create'} mode
  */
 
-/** @typedef {ExistingJsonFilePick | CreateJsonFilePick} OutputFilePickItem */
+/** @typedef {ExistingProjectPick | CreateProjectPick} ProjectPickItem */
 
 /**
  * @typedef {Object} OutputMessage
@@ -62,21 +76,21 @@ function activate(context) {
 }
 
 /**
- * Starts the WebSocket server and configures persistent JSON output file
+ * Starts the WebSocket server and configures persistent project output files
  * @param {vscode.ExtensionContext} context
  */
 async function startServer(context) {
     const port = 8080;
 
     try {
-        const selectedFileUri = await pickOrCreateJsonFile(context);
-        if (!selectedFileUri) {
+        const selectedProject = await pickOrCreateProject(context);
+        if (!selectedProject) {
             return;
         }
 
-        currentOutputFileUri = selectedFileUri;
+        currentProjectFiles = selectedProject;
 
-        const document = await vscode.workspace.openTextDocument(selectedFileUri);
+        const document = await vscode.workspace.openTextDocument(selectedProject.fullWorkflowUri);
         await vscode.window.showTextDocument(document, { preview: false });
 
         server = new WebSocketServer({ port: port });
@@ -96,7 +110,9 @@ async function startServer(context) {
         });
 
         updateStatusBar(true);
-        vscode.window.showInformationMessage(`AWS Visualizer Server started on port ${port}. Writing to ${path.basename(selectedFileUri.fsPath)}`);
+        vscode.window.showInformationMessage(
+            `AWS Visualizer Server started on port ${port}. Project: ${selectedProject.name} (${path.basename(selectedProject.fullWorkflowUri.fsPath)})`
+        );
 
     } catch (error) {
         server = null;
@@ -113,7 +129,7 @@ function stopServer() {
         server.close();
         server = null;
     }
-    currentOutputFileUri = null;
+    currentProjectFiles = null;
     updateStatusBar(false);
     vscode.window.showInformationMessage('AWS Visualizer Server stopped.');
 }
@@ -134,37 +150,43 @@ function updateStatusBar(running) {
 }
 
 /**
- * Shows a QuickPick to choose/create a persistent JSON output file.
+ * Shows a QuickPick to choose/create a persistent project.
  * @param {vscode.ExtensionContext} context
- * @returns {Promise<vscode.Uri | null>}
+ * @returns {Promise<ProjectFiles | null>}
  */
-async function pickOrCreateJsonFile(context) {
-    await vscode.workspace.fs.createDirectory(context.globalStorageUri);
+async function pickOrCreateProject(context) {
+    const folders = await ensureProjectFolders(context);
 
-    const entries = await vscode.workspace.fs.readDirectory(context.globalStorageUri);
-    /** @type {ExistingJsonFilePick[]} */
-    const existingJsonFiles = entries
+    const entries = await vscode.workspace.fs.readDirectory(folders.fullWorkflowDir);
+    /** @type {ExistingProjectPick[]} */
+    const existingProjects = entries
         .filter(([name, type]) => type === vscode.FileType.File && name.toLowerCase().endsWith('.json'))
-        .map(([name]) => ({
-            label: name,
-            description: 'Existing JSON file',
-            uri: vscode.Uri.joinPath(context.globalStorageUri, name),
-            mode: 'existing'
+        .map(([name]) => name.slice(0, -5))
+        .map((projectName) => ({
+            label: projectName,
+            description: 'Existing project',
+            mode: 'existing',
+            project: {
+                name: projectName,
+                fullWorkflowUri: getProjectFileUri(folders.fullWorkflowDir, projectName, '.json'),
+                queueUri: getProjectFileUri(folders.queueDir, projectName, '.json'),
+                diagramUri: getProjectFileUri(folders.diagramsDir, projectName, '.d2')
+            }
         }));
 
-    /** @type {CreateJsonFilePick} */
+    /** @type {CreateProjectPick} */
     const createItem = {
-        label: '$(add) Create new JSON file',
-        description: 'Create a new persistent JSON file in global storage',
+        label: '$(add) Create new project',
+        description: 'Create full-workflow, queue, and diagrams files',
         mode: 'create'
     };
 
-    /** @type {OutputFilePickItem[]} */
-    const quickPickItems = [...existingJsonFiles, createItem];
+    /** @type {ProjectPickItem[]} */
+    const quickPickItems = [...existingProjects, createItem];
 
-    /** @type {OutputFilePickItem | undefined} */
+    /** @type {ProjectPickItem | undefined} */
     const pick = await vscode.window.showQuickPick(quickPickItems, {
-        placeHolder: 'Select a persistent JSON file for live WebSocket output',
+        placeHolder: 'Select an existing project or create a new project',
         ignoreFocusOut: true
     });
 
@@ -173,41 +195,112 @@ async function pickOrCreateJsonFile(context) {
     }
 
     if (pick.mode === 'existing') {
-        return pick.uri;
+        return pick.project;
     }
 
-    const inputName = await vscode.window.showInputBox({
-        prompt: 'Enter a name for the new JSON file',
-        placeHolder: 'session-log.json',
-        ignoreFocusOut: true,
-        validateInput: (value) => {
-            const trimmed = value.trim();
-            if (!trimmed) {
-                return 'File name is required.';
-            }
-            if (trimmed.includes('/') || trimmed.includes('\\')) {
-                return 'Use a file name only, without path separators.';
-            }
-            return null;
-        }
-    });
-
-    if (!inputName) {
+    const projectName = await promptForProjectName();
+    if (!projectName) {
         return null;
     }
 
-    const normalizedName = inputName.trim().toLowerCase().endsWith('.json')
-        ? inputName.trim()
-        : `${inputName.trim()}.json`;
-    const fileUri = vscode.Uri.joinPath(context.globalStorageUri, normalizedName);
+    const project = {
+        name: projectName,
+        fullWorkflowUri: getProjectFileUri(folders.fullWorkflowDir, projectName, '.json'),
+        queueUri: getProjectFileUri(folders.queueDir, projectName, '.json'),
+        diagramUri: getProjectFileUri(folders.diagramsDir, projectName, '.d2')
+    };
 
-    try {
-        await vscode.workspace.fs.stat(fileUri);
-    } catch {
-        await vscode.workspace.fs.writeFile(fileUri, Buffer.from('[]', 'utf8'));
+    const projectExists = await fileExists(project.fullWorkflowUri);
+    if (projectExists) {
+        vscode.window.showErrorMessage(`Project "${projectName}" already exists. Please choose it from the list.`);
+        return null;
     }
 
-    return fileUri;
+    await Promise.all([
+        vscode.workspace.fs.writeFile(project.fullWorkflowUri, Buffer.from('[]', 'utf8')),
+        vscode.workspace.fs.writeFile(project.queueUri, Buffer.from('[]', 'utf8')),
+        vscode.workspace.fs.writeFile(project.diagramUri, Buffer.from('', 'utf8'))
+    ]);
+
+    return project;
+}
+
+/**
+ * @param {vscode.ExtensionContext} context
+ * @returns {Promise<{fullWorkflowDir: vscode.Uri, queueDir: vscode.Uri, diagramsDir: vscode.Uri}>}
+ */
+async function ensureProjectFolders(context) {
+    await vscode.workspace.fs.createDirectory(context.globalStorageUri);
+
+    const fullWorkflowDir = vscode.Uri.joinPath(context.globalStorageUri, PROJECT_FOLDERS.fullWorkflow);
+    const queueDir = vscode.Uri.joinPath(context.globalStorageUri, PROJECT_FOLDERS.queue);
+    const diagramsDir = vscode.Uri.joinPath(context.globalStorageUri, PROJECT_FOLDERS.diagrams);
+
+    await Promise.all([
+        vscode.workspace.fs.createDirectory(fullWorkflowDir),
+        vscode.workspace.fs.createDirectory(queueDir),
+        vscode.workspace.fs.createDirectory(diagramsDir)
+    ]);
+
+    return { fullWorkflowDir, queueDir, diagramsDir };
+}
+
+/**
+ * @returns {Promise<string | null>}
+ */
+async function promptForProjectName() {
+    while (true) {
+        const input = await vscode.window.showInputBox({
+            prompt: 'Enter Project Name (base name only, no extension)',
+            placeHolder: 'myProject',
+            ignoreFocusOut: true,
+            validateInput: (value) => {
+                const trimmed = value.trim();
+                if (!trimmed) {
+                    return 'Project name is required.';
+                }
+                if (trimmed.includes('/') || trimmed.includes('\\')) {
+                    return 'Use a project name only, without path separators.';
+                }
+                return null;
+            }
+        });
+
+        if (!input) {
+            return null;
+        }
+
+        const projectName = input.trim();
+        if (projectName.includes('.')) {
+            vscode.window.showErrorMessage('Project name must not include extensions. Do not use dots (.).');
+            continue;
+        }
+
+        return projectName;
+    }
+}
+
+/**
+ * @param {vscode.Uri} directoryUri
+ * @param {string} projectName
+ * @param {string} extension
+ * @returns {vscode.Uri}
+ */
+function getProjectFileUri(directoryUri, projectName, extension) {
+    return vscode.Uri.joinPath(directoryUri, `${projectName}${extension}`);
+}
+
+/**
+ * @param {vscode.Uri} fileUri
+ * @returns {Promise<boolean>}
+ */
+async function fileExists(fileUri) {
+    try {
+        await vscode.workspace.fs.stat(fileUri);
+        return true;
+    } catch {
+        return false;
+    }
 }
 
 /**
@@ -215,7 +308,7 @@ async function pickOrCreateJsonFile(context) {
  * @returns {Promise<void>}
  */
 async function appendPayloadToSelectedFile(payload) {
-    if (!currentOutputFileUri) {
+    if (!currentProjectFiles) {
         return;
     }
 
@@ -224,10 +317,21 @@ async function appendPayloadToSelectedFile(payload) {
         return;
     }
 
-    const existingContent = await readJsonFile(currentOutputFileUri);
-    existingContent.push(...outputMessages);
-    const updatedContent = `${JSON.stringify(existingContent, null, 2)}\n`;
-    await vscode.workspace.fs.writeFile(currentOutputFileUri, Buffer.from(updatedContent, 'utf8'));
+    const [fullWorkflowContent, queueContent] = await Promise.all([
+        readJsonFile(currentProjectFiles.fullWorkflowUri),
+        readJsonFile(currentProjectFiles.queueUri)
+    ]);
+
+    fullWorkflowContent.push(...outputMessages);
+    queueContent.push(...outputMessages);
+
+    const fullWorkflowUpdatedContent = `${JSON.stringify(fullWorkflowContent, null, 2)}\n`;
+    const queueUpdatedContent = `${JSON.stringify(queueContent, null, 2)}\n`;
+
+    await Promise.all([
+        vscode.workspace.fs.writeFile(currentProjectFiles.fullWorkflowUri, Buffer.from(fullWorkflowUpdatedContent, 'utf8')),
+        vscode.workspace.fs.writeFile(currentProjectFiles.queueUri, Buffer.from(queueUpdatedContent, 'utf8'))
+    ]);
 }
 
 /**
