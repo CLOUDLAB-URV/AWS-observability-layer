@@ -14,6 +14,12 @@ let myStatusBarItem;
 let server = null;
 /** @type {ProjectFiles | null} */
 let currentProjectFiles = null;
+/** @type {vscode.WebviewPanel | null} */
+let currentDiagramPanel = null;
+/** @type {boolean} */
+let diagramWebviewReady = false;
+/** @type {Promise<any> | null} */
+let d2RendererPromise = null;
 /** @type {Promise<void>} */
 let writeQueue = Promise.resolve();
 
@@ -90,10 +96,9 @@ async function startServer(context) {
 
         currentProjectFiles = selectedProject;
 
-        const document = await vscode.workspace.openTextDocument(selectedProject.fullWorkflowUri);
-        await vscode.window.showTextDocument(document, { preview: false });
+                await openDiagramWorkspace(context, selectedProject);
 
-        server = new WebSocketServer({ port: port });
+    server = new WebSocketServer({ port: port });
         
         server.on('connection', (socket) => {
             socket.on('message', (data) => {
@@ -129,6 +134,7 @@ function stopServer() {
         server.close();
         server = null;
     }
+    disposeDiagramWorkspace();
     currentProjectFiles = null;
     updateStatusBar(false);
     vscode.window.showInformationMessage('AWS Visualizer Server stopped.');
@@ -335,6 +341,151 @@ async function appendPayloadToSelectedFile(payload) {
 }
 
 /**
+ * @param {vscode.ExtensionContext} context
+ * @param {ProjectFiles} project
+ * @returns {Promise<void>}
+ */
+async function openDiagramWorkspace(context, project) {
+    disposeDiagramWorkspace();
+
+    diagramWebviewReady = false;
+    const initialResult = await loadDiagramRenderResult(project.diagramUri);
+
+    currentDiagramPanel = vscode.window.createWebviewPanel(
+        'd2Visualizer',
+        `D2 Visualizer: ${project.name}`,
+        vscode.ViewColumn.Beside,
+        {
+            enableScripts: true,
+            retainContextWhenHidden: true
+        }
+    );
+
+    currentDiagramPanel.onDidDispose(() => {
+        if (currentDiagramPanel === null) {
+            return;
+        }
+
+        currentDiagramPanel = null;
+        diagramWebviewReady = false;
+    }, null, context.subscriptions);
+
+    const document = await vscode.workspace.openTextDocument(project.diagramUri);
+    await vscode.window.showTextDocument(document, { preview: false, viewColumn: vscode.ViewColumn.One });
+
+    currentDiagramPanel.webview.onDidReceiveMessage((message) => {
+        if (message && message.type === 'ready') {
+            diagramWebviewReady = true;
+            if (initialResult.error) {
+                flushDiagramError(initialResult.error);
+                return;
+            }
+            flushDiagramUpdate(initialResult.svg);
+        }
+
+        if (message && message.type === 'reload-diagram') {
+            refreshDiagramFromFile(project).catch((error) => {
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                flushDiagramError(errorMessage);
+            });
+        }
+    }, null, context.subscriptions);
+
+    currentDiagramPanel.webview.html = getDiagramWebviewContent(currentDiagramPanel.webview, initialResult.svg, initialResult.error);
+}
+
+/**
+ * @param {string} svgContent
+ */
+function flushDiagramUpdate(svgContent) {
+    if (!currentDiagramPanel || !diagramWebviewReady) {
+        return;
+    }
+
+    currentDiagramPanel.webview.postMessage({
+        type: 'render-svg',
+        content: svgContent
+    });
+}
+
+/**
+ * @param {string} errorMessage
+ */
+function flushDiagramError(errorMessage) {
+    if (!currentDiagramPanel || !diagramWebviewReady) {
+        return;
+    }
+
+    currentDiagramPanel.webview.postMessage({
+        type: 'render-error',
+        content: errorMessage
+    });
+}
+
+/**
+ * @param {ProjectFiles} project
+ * @returns {Promise<void>}
+ */
+async function refreshDiagramFromFile(project) {
+    const result = await loadDiagramRenderResult(project.diagramUri);
+    if (result.error) {
+        flushDiagramError(result.error);
+        return;
+    }
+
+    flushDiagramUpdate(result.svg);
+}
+
+function disposeDiagramWorkspace() {
+    if (currentDiagramPanel) {
+        currentDiagramPanel.dispose();
+        currentDiagramPanel = null;
+    }
+
+    diagramWebviewReady = false;
+}
+
+async function getD2Renderer() {
+    if (!d2RendererPromise) {
+        d2RendererPromise = import('@terrastruct/d2').then(({ D2 }) => new D2());
+    }
+
+    return d2RendererPromise;
+}
+
+/**
+ * @param {string} diagramText
+ * @returns {Promise<string>}
+ */
+async function renderDiagramSvg(diagramText) {
+    const text = (diagramText ?? '').trim();
+    if (!text) {
+        return '';
+    }
+
+    const d2 = await getD2Renderer();
+    const compiled = await d2.compile(text);
+    const svg = await d2.render(compiled.diagram, compiled.renderOptions);
+    return typeof svg === 'string' ? svg : String(svg);
+}
+
+/**
+ * @param {vscode.Uri} fileUri
+ * @returns {Promise<{svg: string, error: string | null}>}
+ */
+async function loadDiagramRenderResult(fileUri) {
+    const diagramText = await readDiagramText(fileUri);
+
+    try {
+        const svg = await renderDiagramSvg(diagramText);
+        return { svg, error: null };
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return { svg: '', error: message };
+    }
+}
+
+/**
  * @param {vscode.Uri} fileUri
  * @returns {Promise<OutputMessage[]>}
  */
@@ -352,6 +503,227 @@ async function readJsonFile(fileUri) {
     } catch {
         return [];
     }
+}
+
+/**
+ * @param {vscode.Uri} fileUri
+ * @returns {Promise<string>}
+ */
+async function readDiagramText(fileUri) {
+    try {
+        const bytes = await vscode.workspace.fs.readFile(fileUri);
+        return Buffer.from(bytes).toString('utf8');
+    } catch {
+        return '';
+    }
+}
+
+/**
+ * @param {vscode.Webview} webview
+ * @param {string} initialSvg
+ * @param {string | null} initialError
+ * @returns {string}
+ */
+function getDiagramWebviewContent(webview, initialSvg, initialError) {
+    const nonce = getNonce();
+
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource} https: data:; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
+    <title>D2 Visualizer</title>
+    <style>
+        :root {
+            color-scheme: light dark;
+            --bg: #0b1020;
+            --panel: #11172d;
+            --border: rgba(148, 163, 184, 0.22);
+            --text: #dbe4ff;
+            --muted: #8da2c0;
+            --accent: #7dd3fc;
+            --error: #fca5a5;
+        }
+        body {
+            margin: 0;
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+            background: radial-gradient(circle at top left, rgba(125, 211, 252, 0.16), transparent 34%), var(--bg);
+            color: var(--text);
+            font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+        .shell {
+            display: grid;
+            grid-template-rows: auto 1fr;
+            height: 100vh;
+        }
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 14px 18px;
+            border-bottom: 1px solid var(--border);
+            background: rgba(17, 23, 45, 0.9);
+            backdrop-filter: blur(12px);
+        }
+        .title {
+            font-size: 13px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--accent);
+        }
+        .status {
+            color: var(--muted);
+            font-size: 12px;
+        }
+        .toolbar {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .reload-btn {
+            border: 1px solid rgba(125, 211, 252, 0.45);
+            background: linear-gradient(180deg, rgba(125, 211, 252, 0.22), rgba(56, 189, 248, 0.12));
+            color: var(--text);
+            padding: 7px 12px;
+            border-radius: 10px;
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+            cursor: pointer;
+            transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+        }
+        .reload-btn:hover {
+            transform: translateY(-1px);
+            border-color: rgba(125, 211, 252, 0.8);
+            background: linear-gradient(180deg, rgba(125, 211, 252, 0.3), rgba(56, 189, 248, 0.2));
+        }
+        .reload-btn:active {
+            transform: translateY(0);
+        }
+        .stage {
+            position: relative;
+            overflow: auto;
+            background:
+                linear-gradient(rgba(125, 211, 252, 0.05) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(125, 211, 252, 0.05) 1px, transparent 1px);
+            background-size: 32px 32px;
+        }
+        .diagram {
+            min-width: 100%;
+            min-height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            box-sizing: border-box;
+        }
+        .empty,
+        .error {
+            max-width: 680px;
+            padding: 18px 20px;
+            border-radius: 14px;
+            border: 1px solid var(--border);
+            background: rgba(17, 23, 45, 0.82);
+            box-shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
+        }
+        .empty {
+            color: var(--muted);
+        }
+        .error {
+            color: var(--error);
+            white-space: pre-wrap;
+        }
+        .svg-wrap svg {
+            max-width: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="shell">
+        <div class="header">
+            <div>
+                <div class="title">D2 Visualizer</div>
+                <div class="status" id="status">Press Reload / Compile after editing the .d2 file.</div>
+            </div>
+            <div class="toolbar">
+                <button class="reload-btn" id="reloadBtn" type="button">Reload / Compile</button>
+                <div class="status">Manual refresh</div>
+            </div>
+        </div>
+        <div class="stage">
+            <div class="diagram svg-wrap" id="diagram"></div>
+        </div>
+    </div>
+    <script type="module" nonce="${nonce}">
+        const vscode = acquireVsCodeApi();
+        const diagramEl = document.getElementById('diagram');
+        const statusEl = document.getElementById('status');
+        const reloadBtn = document.getElementById('reloadBtn');
+
+        function escapeHtml(value) {
+            return value
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function setEmptyState(message) {
+            diagramEl.innerHTML = '<div class="empty">' + escapeHtml(message) + '</div>';
+            statusEl.textContent = message;
+        }
+
+        function setErrorState(message) {
+            diagramEl.innerHTML = '<div class="error">' + escapeHtml(message) + '</div>';
+            statusEl.textContent = 'Render failed';
+        }
+
+        function requestReload() {
+            statusEl.textContent = 'Compiling latest diagram...';
+            vscode.postMessage({ type: 'reload-diagram' });
+        }
+
+        reloadBtn.addEventListener('click', requestReload);
+
+        window.addEventListener('message', (event) => {
+            const message = event.data;
+            if (message && message.type === 'render-svg') {
+                if (!message.content) {
+                    setEmptyState('The selected .d2 file is empty. Add D2 text to render the diagram.');
+                    return;
+                }
+
+                diagramEl.innerHTML = message.content;
+                statusEl.textContent = 'Compiled from latest file content';
+            }
+
+            if (message && message.type === 'render-error') {
+                setErrorState(message.content || 'Unknown compilation error');
+            }
+        });
+
+        vscode.postMessage({ type: 'ready' });
+        ${initialError ? `setErrorState(${JSON.stringify(initialError)});` : (initialSvg ? `diagramEl.innerHTML = ${JSON.stringify(initialSvg)}; statusEl.textContent = 'Compiled from latest file content';` : `setEmptyState('The selected .d2 file is empty. Add D2 text to render the diagram.');`)}
+    </script>
+</body>
+</html>`;
+}
+
+/**
+ * @returns {string}
+ */
+function getNonce() {
+    const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    let value = '';
+    for (let index = 0; index < 32; index += 1) {
+        value += possible.charAt(Math.floor(Math.random() * possible.length));
+    }
+    return value;
 }
 
 /**

@@ -37,6 +37,7 @@
     "globals": "^16.5.0"
   },
   "dependencies": {
+    "@terrastruct/d2": "^0.1.33",
     "ws": "^8.20.1"
   }
 }
