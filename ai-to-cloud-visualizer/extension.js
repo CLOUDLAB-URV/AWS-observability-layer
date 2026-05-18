@@ -389,6 +389,14 @@ async function openDiagramWorkspace(context, project) {
                 flushDiagramError(errorMessage);
             });
         }
+
+        if (message && message.type === 'update-rendering') {
+            handleUpdateRendering(context, project).catch((error) => {
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                vscode.window.showErrorMessage(`Update Rendering failed: ${errorMessage}`);
+                flushDiagramError(`Update Rendering failed: ${errorMessage}`);
+            });
+        }
     }, null, context.subscriptions);
 
     currentDiagramPanel.webview.html = getDiagramWebviewContent(currentDiagramPanel.webview, initialResult.svg, initialResult.error);
@@ -650,6 +658,7 @@ function getDiagramWebviewContent(webview, initialSvg, initialError) {
                 <div class="status" id="status">Press Reload / Compile after editing the .d2 file.</div>
             </div>
             <div class="toolbar">
+                <button class="reload-btn" id="updateBtn" type="button">Update Rendering</button>
                 <button class="reload-btn" id="reloadBtn" type="button">Reload / Compile</button>
                 <div class="status">Manual refresh</div>
             </div>
@@ -663,6 +672,7 @@ function getDiagramWebviewContent(webview, initialSvg, initialError) {
         const diagramEl = document.getElementById('diagram');
         const statusEl = document.getElementById('status');
         const reloadBtn = document.getElementById('reloadBtn');
+        const updateBtn = document.getElementById('updateBtn');
 
         function escapeHtml(value) {
             return value
@@ -688,7 +698,13 @@ function getDiagramWebviewContent(webview, initialSvg, initialError) {
             vscode.postMessage({ type: 'reload-diagram' });
         }
 
+        function requestUpdate() {
+            statusEl.textContent = 'Gathering queued commands...';
+            vscode.postMessage({ type: 'update-rendering' });
+        }
+
         reloadBtn.addEventListener('click', requestReload);
+        updateBtn.addEventListener('click', requestUpdate);
 
         window.addEventListener('message', (event) => {
             const message = event.data;
@@ -793,6 +809,59 @@ function extractOutputMessages(payload) {
     }
 
     return outputMessages;
+}
+
+/**
+ * Handles the logic for the "Update Rendering" button.
+ * @param {vscode.ExtensionContext} context
+ * @param {ProjectFiles} project
+ * @returns {Promise<void>}
+ */
+async function handleUpdateRendering(context, project) {
+    // 1. Read state-merge.md
+    const templateUri = vscode.Uri.joinPath(context.extensionUri, 'state-merge.md');
+    let templateContent = '';
+    try {
+        const templateBytes = await vscode.workspace.fs.readFile(templateUri);
+        templateContent = Buffer.from(templateBytes).toString('utf8');
+    } catch (err) {
+        throw new Error(`Could not read state-merge.md template: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    // 2. Read current D2 diagram string
+    const d2Content = await readDiagramText(project.diagramUri);
+
+    // 3. Read queued commands
+    const queueContent = await readJsonFile(project.queueUri);
+    const queueString = JSON.stringify(queueContent, null, 2);
+
+    // 4. Interpolate
+    const promptStr = templateContent
+        .replace('[D2_CURRENT_STATE]', d2Content)
+        .replace('[AWS_COMMAND_QUEUE]', queueString);
+
+    // 5. Clear the Queue
+    // We strictly await reading it above, so if it throws, we don't clear.
+    await vscode.workspace.fs.writeFile(project.queueUri, Buffer.from('[]', 'utf8'));
+
+    // 6. Save the generated prompt for history
+    const promptsDir = vscode.Uri.joinPath(context.globalStorageUri, 'prompts');
+    try {
+        await vscode.workspace.fs.createDirectory(promptsDir);
+    } catch {
+        // Ignored if it already exists
+    }
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const promptFileName = `${timestamp}_${project.name}.md`;
+    const promptUri = vscode.Uri.joinPath(promptsDir, promptFileName);
+
+    await vscode.workspace.fs.writeFile(promptUri, Buffer.from(promptStr, 'utf8'));
+
+    vscode.window.showInformationMessage(`Prompt generated and saved to prompts/${promptFileName}`);
+    
+    // Optionally refresh view state if needed (just reinstates the previous UI state)
+    await refreshDiagramFromFile(project);
 }
 
 function deactivate() {
