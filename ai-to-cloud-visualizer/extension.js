@@ -840,10 +840,6 @@ async function handleUpdateRendering(context, project) {
         .replace('[D2_CURRENT_STATE]', d2Content)
         .replace('[AWS_COMMAND_QUEUE]', queueString);
 
-    // 5. Clear the Queue
-    // We strictly await reading it above, so if it throws, we don't clear.
-    await vscode.workspace.fs.writeFile(project.queueUri, Buffer.from('[]', 'utf8'));
-
     // 6. Save the generated prompt for history
     const promptsDir = vscode.Uri.joinPath(context.globalStorageUri, 'prompts');
     try {
@@ -858,10 +854,43 @@ async function handleUpdateRendering(context, project) {
 
     await vscode.workspace.fs.writeFile(promptUri, Buffer.from(promptStr, 'utf8'));
 
-    vscode.window.showInformationMessage(`Prompt generated and saved to prompts/${promptFileName}`);
-    
-    // Optionally refresh view state if needed (just reinstates the previous UI state)
-    await refreshDiagramFromFile(project);
+    vscode.window.showInformationMessage(`Prompt saved to ${promptFileName}, requesting new diagram from LLM...`);
+
+    // 7. Request LLM Inference via proxy server
+    try {
+        const response = await fetch('http://127.0.0.1:8081/api/generate-d2', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt: promptStr })
+        });
+
+        if (!response.ok) {
+            throw new Error(`Proxy responded with status ${response.status}: ${await response.text()}`);
+        }
+
+        const data = await response.json();
+        
+        if (!response.ok || !data.success) {
+            throw new Error(`Proxy/LLM Error: ${data.error || response.statusText}`);
+        }
+
+        if (!data.d2Code) {
+            throw new Error("Proxy succeeded but returned empty D2 code");
+        }
+
+        // 8. Overwrite existing .d2 file
+        await vscode.workspace.fs.writeFile(project.diagramUri, Buffer.from(data.d2Code, 'utf8'));
+
+        // 9. Now safely clear the queue
+        await vscode.workspace.fs.writeFile(project.queueUri, Buffer.from('[]', 'utf8'));
+
+        // 10. Re-render UI
+        vscode.window.showInformationMessage('D2 Diagram updated successfully.');
+        await refreshDiagramFromFile(project);
+
+    } catch (err) {
+        throw new Error(`LLM Update failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
 }
 
 function deactivate() {

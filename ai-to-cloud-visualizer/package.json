@@ -37,7 +37,9 @@
     "globals": "^16.5.0"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@terrastruct/d2": "^0.1.33",
+    "express": "^5.2.1",
     "ws": "^8.20.1"
   }
 }

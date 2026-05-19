@@ -2,6 +2,7 @@ const { appendFileSync, mkdirSync, writeFileSync } = require('fs');
 const { join } = require('path');
 const { spawn } = require('child_process');
 const readline = require('readline');
+const http = require('http');
 
 const DEBUG_PREFIX = '[proxy]';
 const childCommand = 'uvx';
@@ -58,6 +59,58 @@ const messageQueue = [];
 let reconnectDelay = 1000;
 const RECONNECT_MAX = 30000;
 let reconnectTimer = null;
+
+let samplingIdCounter = 1;
+const pendingSamplingRequests = new Map();
+
+// HTTP server for extension to request sampling/createMessage
+const httpServer = http.createServer((req, res) => {
+  if (req.method === 'POST' && req.url === '/api/generate-d2') {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+      try {
+        const payload = JSON.parse(body);
+        const prompt = payload.prompt;
+        
+        const id = `sampling_${Date.now()}_${samplingIdCounter++}`;
+        pendingSamplingRequests.set(id, { res, timer: setTimeout(() => {
+          if (pendingSamplingRequests.has(id)) {
+            pendingSamplingRequests.get(id).res.writeHead(504, { 'Content-Type': 'application/json' });
+            pendingSamplingRequests.get(id).res.end(JSON.stringify({ error: 'Timeout waiting for LLM response' }));
+            pendingSamplingRequests.delete(id);
+          }
+        }, 60000) });
+
+        const mcpReq = {
+          jsonrpc: "2.0",
+          id: id,
+          method: "sampling/createMessage",
+          params: {
+            messages: [
+              {
+                role: "user",
+                content: { type: "text", text: prompt }
+              }
+            ],
+            maxTokens: 4000
+          }
+        };
+
+        const outLine = JSON.stringify(mcpReq) + '\n';
+        process.stdout.write(outLine);
+        log(`Sent sampling/createMessage request to client (id=${id})`);
+      } catch (e) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: "Bad request payload" }));
+      }
+    });
+  } else {
+    res.writeHead(404);
+    res.end();
+  }
+});
+httpServer.listen(8081, '127.0.0.1', () => log('HTTP server for sampling listening on 8081'));
 
 function logWsError(err) {
   const text = err && (err.stack || err.message || String(err));
@@ -129,6 +182,34 @@ rlIn.on('line', (line) => {
   log(`received stdin line preview=${line.length > 200 ? line.slice(0,200)+'…' : line}`);
   try {
     const parsed = JSON.parse(line);
+
+    // Intercept LLM sampling response
+    if (parsed.jsonrpc === "2.0" && parsed.id && pendingSamplingRequests.has(parsed.id)) {
+      log(`Intercepted sampling response for id=${parsed.id}`);
+      const entry = pendingSamplingRequests.get(parsed.id);
+      clearTimeout(entry.timer);
+      pendingSamplingRequests.delete(parsed.id);
+      
+      if (parsed.error) {
+        log(`Sampling error from client: ${JSON.stringify(parsed.error)}`);
+        entry.res.writeHead(502, { 'Content-Type': 'application/json' });
+        entry.res.end(JSON.stringify({ success: false, error: parsed.error.message || 'Client returned an error' }));
+        return;
+      }
+
+      let d2Code = "";
+      if (parsed.result && parsed.result.content && parsed.result.content.type === "text") {
+         d2Code = parsed.result.content.text;
+      } else if (parsed.result && parsed.result.modelMessage && parsed.result.modelMessage.content && parsed.result.modelMessage.content.type === "text") {
+         d2Code = parsed.result.modelMessage.content.text;
+      }
+      
+      entry.res.writeHead(200, { 'Content-Type': 'application/json' });
+      entry.res.end(JSON.stringify({ success: true, d2Code: d2Code }));
+      
+      return; // Do not forward this back to child!
+    }
+
     const record = { ts: now(), request: parsed };
     try { appendFileSync(llmCallsPath, JSON.stringify(record) + '\n'); log(`appended LLM call to ${llmCallsPath}`); } catch (e) { log(`failed to write LLM call: ${e && e.message}`); }
   } catch (e) {
@@ -185,6 +266,7 @@ function shutdown(signal) {
     try { child.kill(signal); } catch (err) { log(`shutdown error: ${err && (err.stack || err.message || String(err))}`); }
   }
   try { if (extensionWs) extensionWs.close(); } catch (e) {}
+  try { httpServer.close(); } catch (e) {}
 }
 
 process.on('SIGINT', () => shutdown('SIGINT'));
