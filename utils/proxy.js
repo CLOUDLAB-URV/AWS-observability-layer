@@ -99,7 +99,7 @@ const httpServer = http.createServer((req, res) => {
 
         const outLine = JSON.stringify(mcpReq) + '\n';
         process.stdout.write(outLine);
-        log(`Sent sampling/createMessage request to client (id=${id})`);
+        log(`Sent sampling/createMessage request to client (id=${id}) with prompt:\n-----BEGIN PROMPT-----\n${prompt}\n-----END PROMPT-----`);
       } catch (e) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: "Bad request payload" }));

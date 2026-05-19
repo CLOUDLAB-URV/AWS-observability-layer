@@ -397,6 +397,14 @@ async function openDiagramWorkspace(context, project) {
                 flushDiagramError(`Update Rendering failed: ${errorMessage}`);
             });
         }
+
+        if (message && message.type === 'update-rendering-vscode') {
+            handleUpdateRenderingVSCode(context, project).catch((error) => {
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                vscode.window.showErrorMessage(`Copilot Update failed: ${errorMessage}`);
+                flushDiagramError(`Copilot Update failed: ${errorMessage}`);
+            });
+        }
     }, null, context.subscriptions);
 
     currentDiagramPanel.webview.html = getDiagramWebviewContent(currentDiagramPanel.webview, initialResult.svg, initialResult.error);
@@ -658,7 +666,8 @@ function getDiagramWebviewContent(webview, initialSvg, initialError) {
                 <div class="status" id="status">Press Reload / Compile after editing the .d2 file.</div>
             </div>
             <div class="toolbar">
-                <button class="reload-btn" id="updateBtn" type="button">Update Rendering</button>
+                <button class="reload-btn" id="updateBtn" type="button">Update (MCP)</button>
+                <button class="reload-btn" id="updateVscodeBtn" type="button">Update (Copilot)</button>
                 <button class="reload-btn" id="reloadBtn" type="button">Reload / Compile</button>
                 <div class="status">Manual refresh</div>
             </div>
@@ -673,6 +682,7 @@ function getDiagramWebviewContent(webview, initialSvg, initialError) {
         const statusEl = document.getElementById('status');
         const reloadBtn = document.getElementById('reloadBtn');
         const updateBtn = document.getElementById('updateBtn');
+        const updateVscodeBtn = document.getElementById('updateVscodeBtn');
 
         function escapeHtml(value) {
             return value
@@ -699,12 +709,18 @@ function getDiagramWebviewContent(webview, initialSvg, initialError) {
         }
 
         function requestUpdate() {
-            statusEl.textContent = 'Gathering queued commands...';
+            statusEl.textContent = 'Gathering queued commands (MCP)...';
             vscode.postMessage({ type: 'update-rendering' });
+        }
+
+        function requestUpdateVSCode() {
+            statusEl.textContent = 'Generating with Copilot...';
+            vscode.postMessage({ type: 'update-rendering-vscode' });
         }
 
         reloadBtn.addEventListener('click', requestReload);
         updateBtn.addEventListener('click', requestUpdate);
+        updateVscodeBtn.addEventListener('click', requestUpdateVSCode);
 
         window.addEventListener('message', (event) => {
             const message = event.data;
@@ -890,6 +906,101 @@ async function handleUpdateRendering(context, project) {
 
     } catch (err) {
         throw new Error(`LLM Update failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+}
+
+/**
+ * Handles the logic for the "Update (Copilot)" button using Native VS Code Copilot API.
+ * @param {vscode.ExtensionContext} context
+ * @param {ProjectFiles} project
+ * @returns {Promise<void>}
+ */
+async function handleUpdateRenderingVSCode(context, project) {
+    // 1. Read state-merge.md
+    const templateUri = vscode.Uri.joinPath(context.extensionUri, 'state-merge.md');
+    let templateContent = '';
+    try {
+        const templateBytes = await vscode.workspace.fs.readFile(templateUri);
+        templateContent = Buffer.from(templateBytes).toString('utf8');
+    } catch (err) {
+        throw new Error(`Could not read state-merge.md template: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    // 2. Read current D2 diagram string
+    const d2Content = await readDiagramText(project.diagramUri);
+
+    // 3. Read queued commands
+    const queueContent = await readJsonFile(project.queueUri);
+    const queueString = JSON.stringify(queueContent, null, 2);
+
+    // 4. Interpolate
+    const promptStr = templateContent
+        .replace('[D2_CURRENT_STATE]', d2Content)
+        .replace('[AWS_COMMAND_QUEUE]', queueString);
+
+    // 5. Save the generated prompt for history
+    const promptsDir = vscode.Uri.joinPath(context.globalStorageUri, 'prompts');
+    try {
+        await vscode.workspace.fs.createDirectory(promptsDir);
+    } catch {
+        // Ignored if it already exists
+    }
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const promptFileName = `${timestamp}_${project.name}_vscode.md`;
+    const promptUri = vscode.Uri.joinPath(promptsDir, promptFileName);
+
+    await vscode.workspace.fs.writeFile(promptUri, Buffer.from(promptStr, 'utf8'));
+
+    vscode.window.showInformationMessage(`Prompt saved to ${promptFileName}, requesting new diagram from VS Code Copilot...`);
+
+    // 6. Request VS Code Language Models
+    try {
+        const models = await vscode.lm.selectChatModels({ family: 'gpt-4o' });
+        let model = models[0];
+        
+        if (!model) {
+            // fallback to general models if gpt-4o is missing
+            const allModels = await vscode.lm.selectChatModels({});
+            if (allModels.length === 0) {
+                 throw new Error("No VS Code Language Models available. Is GitHub Copilot extension active?");
+            }
+            model = allModels[0];
+        }
+
+        const messages = [
+            vscode.LanguageModelChatMessage.User(promptStr)
+        ];
+
+        const chatResponse = await model.sendRequest(messages, {}, new vscode.CancellationTokenSource().token);
+        
+        let d2Code = '';
+        for await (const fragment of chatResponse.text) {
+            d2Code += fragment;
+        }
+
+        // Cleanup potential markdown wrappers
+        d2Code = d2Code.replace(/^```d2\n/im, '').replace(/\n```$/im, '').trim();
+        if (d2Code.startsWith('```')) {
+             d2Code = d2Code.split('\n').slice(1, -1).join('\n');
+        }
+
+        if (!d2Code) {
+            throw new Error("Copilot succeeded but returned an empty response.");
+        }
+
+        // 7. Overwrite existing .d2 file
+        await vscode.workspace.fs.writeFile(project.diagramUri, Buffer.from(d2Code, 'utf8'));
+
+        // 8. Safely clear the queue
+        await vscode.workspace.fs.writeFile(project.queueUri, Buffer.from('[]', 'utf8'));
+
+        // 9. Re-render UI
+        vscode.window.showInformationMessage('D2 Diagram updated successfully via Copilot.');
+        await refreshDiagramFromFile(project);
+
+    } catch (err) {
+        throw new Error(`Copilot Inference failed: ${err instanceof Error ? err.message : String(err)}`);
     }
 }
 
