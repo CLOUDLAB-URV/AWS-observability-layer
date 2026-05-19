@@ -956,17 +956,28 @@ async function handleUpdateRenderingVSCode(context, project) {
 
     // 6. Request VS Code Language Models
     try {
-        const models = await vscode.lm.selectChatModels({ family: 'gpt-4o' });
-        let model = models[0];
-        
-        if (!model) {
-            // fallback to general models if gpt-4o is missing
-            const allModels = await vscode.lm.selectChatModels({});
-            if (allModels.length === 0) {
-                 throw new Error("No VS Code Language Models available. Is GitHub Copilot extension active?");
-            }
-            model = allModels[0];
+        const allModels = await vscode.lm.selectChatModels({});
+        if (allModels.length === 0) {
+             throw new Error("No VS Code Language Models available. Is GitHub Copilot extension active?");
         }
+
+        const modelItems = allModels.map(m => ({
+            label: m.name,
+            description: `Family: ${m.family} | Vendor: ${m.vendor}`,
+            model: m
+        }));
+
+        const selectedPick = await vscode.window.showQuickPick(modelItems, {
+            placeHolder: 'Select a Language Model for Copilot Inference',
+            ignoreFocusOut: true
+        });
+
+        if (!selectedPick) {
+            vscode.window.showInformationMessage('Model selection cancelled.');
+            return;
+        }
+
+        const model = selectedPick.model;
 
         const messages = [
             vscode.LanguageModelChatMessage.User(promptStr)
