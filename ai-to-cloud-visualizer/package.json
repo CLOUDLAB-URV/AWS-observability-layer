@@ -36,6 +36,10 @@
         "title": "Cloud Visualizer: Change Active Project"
       },
       {
+        "command": "ai-to-cloud.deleteProject",
+        "title": "Cloud Visualizer: Delete Project"
+      },
+      {
         "command": "ai-to-cloud.openProjectAll",
         "title": "Cloud Visualizer: Open Project (All)"
       },

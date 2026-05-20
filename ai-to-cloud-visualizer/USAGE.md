@@ -20,6 +20,7 @@ All commands utilize our **Smart Project Selection UI**. If the server is active
 | **Cloud Visualizer: Stop Server** | Explicitly stops the WebSocket server without toggling it back on. |
 | **Cloud Visualizer: Create New Project** | Swiftly scaffold a completely new project workspace, bypassing the connection dialog. |
 | **Cloud Visualizer: Change Active Project** | Hot-swaps the active project the WebSocket server writes to (and updates the Webview) without having to stop and restart the connection. |
+| **Cloud Visualizer: Delete Project** | Prompts you to select a project and asks for confirmation before permanently deleting the entire project folder and all its contents (diagrams, queue, workflow history, and prompts). |
 | **Cloud Visualizer: Open Project (All)** | Prompts for a project and opens the `.d2` Diagram, `_queue.json`, and `_workflow.json` files in adjacent columns side-by-side. It also opens the live Webview for the D2 diagram. |
 | **Cloud Visualizer: Open Project Diagram** | Opens the declarative `.d2` text file for the selected project in the active editor column. |
 | **Cloud Visualizer: Open Project Queue** | Opens the `_queue.json` file for the selected project, revealing any pending/unprocessed AWS commands. |

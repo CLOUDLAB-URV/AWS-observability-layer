@@ -135,6 +135,36 @@ function activate(context) {
         }
     }));
 
+    context.subscriptions.push(vscode.commands.registerCommand('ai-to-cloud.deleteProject', async () => {
+        const project = await pickExistingProject(context);
+        if (!project) return;
+
+        const confirmation = await vscode.window.showWarningMessage(
+            `Are you sure you want to delete the project "${project.name}"? This action cannot be undone.`,
+            { modal: true },
+            'Delete',
+            'Cancel'
+        );
+
+        if (confirmation !== 'Delete') {
+            return;
+        }
+
+        try {
+            await vscode.workspace.fs.delete(project.dirUri, { recursive: true });
+            
+            // If the deleted project was the active one, clear it
+            if (currentProjectFiles && currentProjectFiles.name === project.name) {
+                currentProjectFiles = null;
+                disposeDiagramWorkspace();
+            }
+            
+            vscode.window.showInformationMessage(`Project "${project.name}" has been deleted successfully.`);
+        } catch (err) {
+            vscode.window.showErrorMessage(`Failed to delete project: ${err instanceof Error ? err.message : String(err)}`);
+        }
+    }));
+
     // 3. Register the Project opening commands
     context.subscriptions.push(vscode.commands.registerCommand('ai-to-cloud.openProjectAll', async () => {
         const project = await pickExistingProject(context);
