@@ -2,12 +2,6 @@ const vscode = require('vscode');
 const { WebSocketServer } = require('ws');
 const path = require('path');
 
-const PROJECT_FOLDERS = {
-    fullWorkflow: 'full-workflow',
-    queue: 'queue',
-    diagrams: 'diagrams'
-};
-
 /** @type {vscode.StatusBarItem} */
 let myStatusBarItem;
 /** @type {import('ws').WebSocketServer | null} */
@@ -26,6 +20,7 @@ let writeQueue = Promise.resolve();
 /**
  * @typedef {Object} ProjectFiles
  * @property {string} name
+ * @property {vscode.Uri} dirUri
  * @property {vscode.Uri} fullWorkflowUri
  * @property {vscode.Uri} queueUri
  * @property {vscode.Uri} diagramUri
@@ -77,8 +72,147 @@ function activate(context) {
             await startServer(context);
         }
     });
-
     context.subscriptions.push(toggleCommand);
+
+    context.subscriptions.push(vscode.commands.registerCommand('ai-to-cloud.startServer', async () => {
+        if (!server) {
+            await startServer(context);
+        } else {
+            vscode.window.showInformationMessage('AWS Visualizer Server is already running.');
+        }
+    }));
+
+    context.subscriptions.push(vscode.commands.registerCommand('ai-to-cloud.stopServer', () => {
+        if (server) {
+            stopServer();
+        } else {
+            vscode.window.showInformationMessage('AWS Visualizer Server is not running.');
+        }
+    }));
+
+    context.subscriptions.push(vscode.commands.registerCommand('ai-to-cloud.createProject', async () => {
+        const projectName = await promptForProjectName();
+        if (!projectName) return;
+        
+        const dirUri = vscode.Uri.joinPath(context.globalStorageUri, projectName);
+        const projectExists = await fileExists(dirUri);
+        
+        if (projectExists) {
+            vscode.window.showErrorMessage(`Project "${projectName}" already exists.`);
+            return;
+        }
+
+        const project = {
+            name: projectName,
+            dirUri: dirUri,
+            fullWorkflowUri: vscode.Uri.joinPath(dirUri, `${projectName}_workflow.json`),
+            queueUri: vscode.Uri.joinPath(dirUri, `${projectName}_queue.json`),
+            diagramUri: vscode.Uri.joinPath(dirUri, `${projectName}_diagram.d2`)
+        };
+
+        await vscode.workspace.fs.createDirectory(dirUri);
+        await Promise.all([
+            vscode.workspace.fs.writeFile(project.fullWorkflowUri, Buffer.from('[]', 'utf8')),
+            vscode.workspace.fs.writeFile(project.queueUri, Buffer.from('[]', 'utf8')),
+            vscode.workspace.fs.writeFile(project.diagramUri, Buffer.from('', 'utf8'))
+        ]);
+        
+        vscode.window.showInformationMessage(`Project "${projectName}" created successfully!`);
+    }));
+
+    context.subscriptions.push(vscode.commands.registerCommand('ai-to-cloud.changeActiveProject', async () => {
+        const project = await pickExistingProject(context);
+        if (!project) return;
+        
+        currentProjectFiles = project;
+        vscode.window.showInformationMessage(`Active project changed to: ${project.name}`);
+        
+        // If webview is open, re-render it for the new project
+        try {
+            await openDiagramWorkspace(context, project);
+        } catch (err) {
+            console.error('Error switching webview for new project:', err);
+        }
+    }));
+
+    // 3. Register the Project opening commands
+    context.subscriptions.push(vscode.commands.registerCommand('ai-to-cloud.openProjectAll', async () => {
+        const project = await pickExistingProject(context);
+        if (!project) return;
+        
+        try {
+            const diagramExists = await fileExists(project.diagramUri);
+            if (diagramExists) {
+                const doc1 = await vscode.workspace.openTextDocument(project.diagramUri);
+                await vscode.window.showTextDocument(doc1, { viewColumn: vscode.ViewColumn.One, preserveFocus: true });
+            } else {
+                vscode.window.showWarningMessage(`Diagram file not found for ${project.name}`);
+            }
+
+            const queueExists = await fileExists(project.queueUri);
+            if (queueExists) {
+                const doc2 = await vscode.workspace.openTextDocument(project.queueUri);
+                await vscode.window.showTextDocument(doc2, { viewColumn: vscode.ViewColumn.Two, preserveFocus: true });
+            } else {
+                vscode.window.showWarningMessage(`Queue file not found for ${project.name}`);
+            }
+
+            const workflowExists = await fileExists(project.fullWorkflowUri);
+            if (workflowExists) {
+                const doc3 = await vscode.workspace.openTextDocument(project.fullWorkflowUri);
+                await vscode.window.showTextDocument(doc3, { viewColumn: vscode.ViewColumn.Three, preserveFocus: true });
+            } else {
+                vscode.window.showWarningMessage(`Workflow file not found for ${project.name}`);
+            }
+
+            await openDiagramWorkspace(context, project);
+        } catch (err) {
+            vscode.window.showErrorMessage(`Error opening files: ${err instanceof Error ? err.message : String(err)}`);
+        }
+    }));
+
+    context.subscriptions.push(vscode.commands.registerCommand('ai-to-cloud.openProjectQueue', async () => {
+        const project = await pickExistingProject(context);
+        if (!project) return;
+        if (await fileExists(project.queueUri)) {
+            const doc = await vscode.workspace.openTextDocument(project.queueUri);
+            await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Active });
+        } else {
+            vscode.window.showWarningMessage(`Queue file not found for ${project.name}`);
+        }
+    }));
+
+    context.subscriptions.push(vscode.commands.registerCommand('ai-to-cloud.openProjectDiagram', async () => {
+        const project = await pickExistingProject(context);
+        if (!project) return;
+        if (await fileExists(project.diagramUri)) {
+            const doc = await vscode.workspace.openTextDocument(project.diagramUri);
+            await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Active });
+        } else {
+            vscode.window.showWarningMessage(`Diagram file not found for ${project.name}`);
+        }
+    }));
+
+    context.subscriptions.push(vscode.commands.registerCommand('ai-to-cloud.openProjectWorkflow', async () => {
+        const project = await pickExistingProject(context);
+        if (!project) return;
+        if (await fileExists(project.fullWorkflowUri)) {
+            const doc = await vscode.workspace.openTextDocument(project.fullWorkflowUri);
+            await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Active });
+        } else {
+            vscode.window.showWarningMessage(`Workflow file not found for ${project.name}`);
+        }
+    }));
+
+    context.subscriptions.push(vscode.commands.registerCommand('ai-to-cloud.openProjectWebview', async () => {
+        const project = await pickExistingProject(context);
+        if (!project) return;
+        try {
+            await openDiagramWorkspace(context, project);
+        } catch (err) {
+            vscode.window.showErrorMessage(`Error opening webview: ${err instanceof Error ? err.message : String(err)}`);
+        }
+    }));
 }
 
 /**
@@ -96,9 +230,20 @@ async function startServer(context) {
 
         currentProjectFiles = selectedProject;
 
-                await openDiagramWorkspace(context, selectedProject);
+        await openDiagramWorkspace(context, selectedProject);
 
-    server = new WebSocketServer({ port: port });
+        // Abre el resto de archivos en el editor de forma simultánea
+        try {
+            const workflowDoc = await vscode.workspace.openTextDocument(selectedProject.fullWorkflowUri);
+            await vscode.window.showTextDocument(workflowDoc, { preview: false, viewColumn: vscode.ViewColumn.Beside, preserveFocus: true });
+            
+            const queueDoc = await vscode.workspace.openTextDocument(selectedProject.queueUri);
+            await vscode.window.showTextDocument(queueDoc, { preview: false, viewColumn: vscode.ViewColumn.Beside, preserveFocus: true });
+        } catch (err) {
+            console.error('Error opening project files:', err);
+        }
+
+        server = new WebSocketServer({ port: port });
         
         server.on('connection', (socket) => {
             socket.on('message', (data) => {
@@ -156,34 +301,89 @@ function updateStatusBar(running) {
 }
 
 /**
+ * Shows a QuickPick to choose an existing persistent project.
+ * @param {vscode.ExtensionContext} context
+ * @returns {Promise<ProjectFiles | null>}
+ */
+async function pickExistingProject(context) {
+    try {
+        await vscode.workspace.fs.createDirectory(context.globalStorageUri);
+    } catch {}
+
+    const entries = await vscode.workspace.fs.readDirectory(context.globalStorageUri);
+    
+    /** @type {any[]} */
+    const existingProjects = entries
+        .filter(([name, type]) => type === vscode.FileType.Directory && !name.startsWith('.'))
+        .map(([projectName]) => {
+            const dirUri = vscode.Uri.joinPath(context.globalStorageUri, projectName);
+            const isActive = currentProjectFiles && currentProjectFiles.name === projectName;
+            return {
+                label: isActive ? `$(radio-tower) ${projectName}` : projectName,
+                description: isActive ? '(Active / Listening)' : 'Existing project folder',
+                isActive: isActive,
+                project: {
+                    name: projectName,
+                    dirUri: dirUri,
+                    fullWorkflowUri: vscode.Uri.joinPath(dirUri, `${projectName}_workflow.json`),
+                    queueUri: vscode.Uri.joinPath(dirUri, `${projectName}_queue.json`),
+                    diagramUri: vscode.Uri.joinPath(dirUri, `${projectName}_diagram.d2`)
+                }
+            };
+        });
+
+    if (existingProjects.length === 0) {
+        vscode.window.showWarningMessage('No existing projects found.');
+        return null;
+    }
+
+    // Sort active project to the top
+    existingProjects.sort((a, b) => {
+        if (a.isActive && !b.isActive) return -1;
+        if (!a.isActive && b.isActive) return 1;
+        return a.label.localeCompare(b.label);
+    });
+
+    const pick = await vscode.window.showQuickPick(existingProjects, {
+        placeHolder: 'Select an existing project',
+        ignoreFocusOut: true
+    });
+
+    return pick ? pick.project : null;
+}
+
+/**
  * Shows a QuickPick to choose/create a persistent project.
  * @param {vscode.ExtensionContext} context
  * @returns {Promise<ProjectFiles | null>}
  */
 async function pickOrCreateProject(context) {
-    const folders = await ensureProjectFolders(context);
+    await vscode.workspace.fs.createDirectory(context.globalStorageUri);
 
-    const entries = await vscode.workspace.fs.readDirectory(folders.fullWorkflowDir);
+    const entries = await vscode.workspace.fs.readDirectory(context.globalStorageUri);
     /** @type {ExistingProjectPick[]} */
     const existingProjects = entries
-        .filter(([name, type]) => type === vscode.FileType.File && name.toLowerCase().endsWith('.json'))
-        .map(([name]) => name.slice(0, -5))
-        .map((projectName) => ({
-            label: projectName,
-            description: 'Existing project',
-            mode: 'existing',
-            project: {
-                name: projectName,
-                fullWorkflowUri: getProjectFileUri(folders.fullWorkflowDir, projectName, '.json'),
-                queueUri: getProjectFileUri(folders.queueDir, projectName, '.json'),
-                diagramUri: getProjectFileUri(folders.diagramsDir, projectName, '.d2')
-            }
-        }));
+        .filter(([name, type]) => type === vscode.FileType.Directory && !name.startsWith('.'))
+        .map(([projectName]) => {
+            const dirUri = vscode.Uri.joinPath(context.globalStorageUri, projectName);
+            return {
+                label: projectName,
+                description: 'Existing project folder',
+                mode: 'existing',
+                project: {
+                    name: projectName,
+                    dirUri: dirUri,
+                    fullWorkflowUri: vscode.Uri.joinPath(dirUri, `${projectName}_workflow.json`),
+                    queueUri: vscode.Uri.joinPath(dirUri, `${projectName}_queue.json`),
+                    diagramUri: vscode.Uri.joinPath(dirUri, `${projectName}_diagram.d2`)
+                }
+            };
+        });
 
     /** @type {CreateProjectPick} */
     const createItem = {
         label: '$(add) Create new project',
-        description: 'Create full-workflow, queue, and diagrams files',
+        description: 'Create an isolated project folder with workflow, queue, and diagram files',
         mode: 'create'
     };
 
@@ -192,7 +392,7 @@ async function pickOrCreateProject(context) {
 
     /** @type {ProjectPickItem | undefined} */
     const pick = await vscode.window.showQuickPick(quickPickItems, {
-        placeHolder: 'Select an existing project or create a new project',
+        placeHolder: 'Select an existing project folder or create a new project',
         ignoreFocusOut: true
     });
 
@@ -209,19 +409,23 @@ async function pickOrCreateProject(context) {
         return null;
     }
 
+    const dirUri = vscode.Uri.joinPath(context.globalStorageUri, projectName);
+
     const project = {
         name: projectName,
-        fullWorkflowUri: getProjectFileUri(folders.fullWorkflowDir, projectName, '.json'),
-        queueUri: getProjectFileUri(folders.queueDir, projectName, '.json'),
-        diagramUri: getProjectFileUri(folders.diagramsDir, projectName, '.d2')
+        dirUri: dirUri,
+        fullWorkflowUri: vscode.Uri.joinPath(dirUri, `${projectName}_workflow.json`),
+        queueUri: vscode.Uri.joinPath(dirUri, `${projectName}_queue.json`),
+        diagramUri: vscode.Uri.joinPath(dirUri, `${projectName}_diagram.d2`)
     };
 
-    const projectExists = await fileExists(project.fullWorkflowUri);
+    const projectExists = await fileExists(dirUri);
     if (projectExists) {
         vscode.window.showErrorMessage(`Project "${projectName}" already exists. Please choose it from the list.`);
         return null;
     }
 
+    await vscode.workspace.fs.createDirectory(dirUri);
     await Promise.all([
         vscode.workspace.fs.writeFile(project.fullWorkflowUri, Buffer.from('[]', 'utf8')),
         vscode.workspace.fs.writeFile(project.queueUri, Buffer.from('[]', 'utf8')),
@@ -229,26 +433,6 @@ async function pickOrCreateProject(context) {
     ]);
 
     return project;
-}
-
-/**
- * @param {vscode.ExtensionContext} context
- * @returns {Promise<{fullWorkflowDir: vscode.Uri, queueDir: vscode.Uri, diagramsDir: vscode.Uri}>}
- */
-async function ensureProjectFolders(context) {
-    await vscode.workspace.fs.createDirectory(context.globalStorageUri);
-
-    const fullWorkflowDir = vscode.Uri.joinPath(context.globalStorageUri, PROJECT_FOLDERS.fullWorkflow);
-    const queueDir = vscode.Uri.joinPath(context.globalStorageUri, PROJECT_FOLDERS.queue);
-    const diagramsDir = vscode.Uri.joinPath(context.globalStorageUri, PROJECT_FOLDERS.diagrams);
-
-    await Promise.all([
-        vscode.workspace.fs.createDirectory(fullWorkflowDir),
-        vscode.workspace.fs.createDirectory(queueDir),
-        vscode.workspace.fs.createDirectory(diagramsDir)
-    ]);
-
-    return { fullWorkflowDir, queueDir, diagramsDir };
 }
 
 /**
@@ -857,7 +1041,7 @@ async function handleUpdateRendering(context, project) {
         .replace('[AWS_COMMAND_QUEUE]', queueString);
 
     // 6. Save the generated prompt for history
-    const promptsDir = vscode.Uri.joinPath(context.globalStorageUri, 'prompts');
+    const promptsDir = vscode.Uri.joinPath(project.dirUri, 'prompts');
     try {
         await vscode.workspace.fs.createDirectory(promptsDir);
     } catch {
@@ -939,7 +1123,7 @@ async function handleUpdateRenderingVSCode(context, project) {
         .replace('[AWS_COMMAND_QUEUE]', queueString);
 
     // 5. Save the generated prompt for history
-    const promptsDir = vscode.Uri.joinPath(context.globalStorageUri, 'prompts');
+    const promptsDir = vscode.Uri.joinPath(project.dirUri, 'prompts');
     try {
         await vscode.workspace.fs.createDirectory(promptsDir);
     } catch {

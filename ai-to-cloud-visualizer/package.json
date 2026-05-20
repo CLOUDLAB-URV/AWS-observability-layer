@@ -18,6 +18,42 @@
       {
         "command": "ai-to-cloud.toggleServer",
         "title": "Cloud Visualizer: Start/Stop Server"
+      },
+      {
+        "command": "ai-to-cloud.startServer",
+        "title": "Cloud Visualizer: Start Server"
+      },
+      {
+        "command": "ai-to-cloud.stopServer",
+        "title": "Cloud Visualizer: Stop Server"
+      },
+      {
+        "command": "ai-to-cloud.createProject",
+        "title": "Cloud Visualizer: Create New Project"
+      },
+      {
+        "command": "ai-to-cloud.changeActiveProject",
+        "title": "Cloud Visualizer: Change Active Project"
+      },
+      {
+        "command": "ai-to-cloud.openProjectAll",
+        "title": "Cloud Visualizer: Open Project (All)"
+      },
+      {
+        "command": "ai-to-cloud.openProjectQueue",
+        "title": "Cloud Visualizer: Open Project Queue"
+      },
+      {
+        "command": "ai-to-cloud.openProjectDiagram",
+        "title": "Cloud Visualizer: Open Project Diagram"
+      },
+      {
+        "command": "ai-to-cloud.openProjectWorkflow",
+        "title": "Cloud Visualizer: Open Project Workflow"
+      },
+      {
+        "command": "ai-to-cloud.openProjectWebview",
+        "title": "Cloud Visualizer: Open Project Webview"
       }
     ]
   },
