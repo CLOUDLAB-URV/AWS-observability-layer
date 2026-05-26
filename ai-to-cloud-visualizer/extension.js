@@ -836,20 +836,25 @@ function getDiagramWebviewContent(webview, initialSvg, initialError) {
         }
         .stage {
             position: relative;
-            overflow: auto;
+            overflow: hidden;
             background:
                 linear-gradient(rgba(125, 211, 252, 0.05) 1px, transparent 1px),
                 linear-gradient(90deg, rgba(125, 211, 252, 0.05) 1px, transparent 1px);
             background-size: 32px 32px;
+            cursor: grab;
+        }
+        .stage:active {
+            cursor: grabbing;
         }
         .diagram {
-            min-width: 100%;
-            min-height: 100%;
+            width: 100%;
+            height: 100%;
             display: flex;
             align-items: center;
             justify-content: center;
-            padding: 24px;
             box-sizing: border-box;
+            transform-origin: 0 0;
+            will-change: transform;
         }
         .empty,
         .error {
@@ -955,6 +960,56 @@ function getDiagramWebviewContent(webview, initialSvg, initialError) {
 
         vscode.postMessage({ type: 'ready' });
         ${initialError ? `setErrorState(${JSON.stringify(initialError)});` : (initialSvg ? `diagramEl.innerHTML = ${JSON.stringify(initialSvg)}; statusEl.textContent = 'Compiled from latest file content';` : `setEmptyState('The selected .d2 file is empty. Add D2 text to render the diagram.');`)}
+
+        // Zoom and Pan logic for the diagram stage
+        const stage = document.querySelector('.stage');
+        let scale = 1;
+        let pointX = 0;
+        let pointY = 0;
+        let panning = false;
+        let start = { x: 0, y: 0 };
+
+        function updateTransform() {
+            diagramEl.style.transform = \`translate(\${pointX}px, \${pointY}px) scale(\${scale})\`;
+        }
+
+        stage.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            start = { x: e.clientX - pointX, y: e.clientY - pointY };
+            panning = true;
+        });
+
+        window.addEventListener('mouseup', () => {
+            panning = false;
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (!panning) return;
+            e.preventDefault();
+            pointX = e.clientX - start.x;
+            pointY = e.clientY - start.y;
+            updateTransform();
+        });
+
+        stage.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const rect = stage.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+
+            const zoomIntensity = 0.1;
+            const wheel = e.deltaY < 0 ? 1 : -1;
+            const zoomFactor = Math.exp(wheel * zoomIntensity);
+            
+            const newScale = scale * zoomFactor;
+
+            // Adjust translation to effectively zoom into the mouse cursor
+            pointX = mouseX - (mouseX - pointX) * zoomFactor;
+            pointY = mouseY - (mouseY - pointY) * zoomFactor;
+            scale = newScale;
+
+            updateTransform();
+        }, { passive: false });
     </script>
 </body>
 </html>`;
