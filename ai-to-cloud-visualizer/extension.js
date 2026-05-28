@@ -16,6 +16,8 @@ let diagramWebviewReady = false;
 let d2RendererPromise = null;
 /** @type {Promise<void>} */
 let writeQueue = Promise.resolve();
+/** @type {string} */
+let currentPromptTemplate = 'default.md';
 
 /**
  * @typedef {Object} ProjectFiles
@@ -619,6 +621,12 @@ async function openDiagramWorkspace(context, project) {
                 flushDiagramError(`Copilot Update failed: ${errorMessage}`);
             });
         }
+
+        if (message && message.type === 'select-prompt') {
+            selectPromptTemplate(context).catch((error) => {
+                console.error('Failed to select prompt template:', error);
+            });
+        }
     }, null, context.subscriptions);
 
     currentDiagramPanel.webview.html = getDiagramWebviewContent(currentDiagramPanel.webview, initialResult.svg, initialResult.error);
@@ -745,6 +753,44 @@ async function readDiagramText(fileUri) {
         return Buffer.from(bytes).toString('utf8');
     } catch {
         return '';
+    }
+}
+
+/**
+ * @param {vscode.ExtensionContext} context
+ * @returns {Promise<void>}
+ */
+async function selectPromptTemplate(context) {
+    const promptsDir = vscode.Uri.joinPath(context.extensionUri, 'prompts');
+    let entries = [];
+    try {
+        entries = await vscode.workspace.fs.readDirectory(promptsDir);
+    } catch (err) {
+        vscode.window.showErrorMessage('Could not read prompts directory.');
+        return;
+    }
+
+    const mdFiles = entries
+        .filter(([name, type]) => type === vscode.FileType.File && name.endsWith('.md'))
+        .map(([name]) => name.replace('.md', ''));
+
+    if (mdFiles.length === 0) {
+        vscode.window.showWarningMessage('No prompts found.');
+        return;
+    }
+
+    const selected = await vscode.window.showQuickPick(mdFiles, {
+        placeHolder: 'Select a prompt template'
+    });
+
+    if (selected) {
+        currentPromptTemplate = selected + '.md';
+        if (currentDiagramPanel && diagramWebviewReady) {
+            currentDiagramPanel.webview.postMessage({
+                type: 'active-prompt-changed',
+                content: selected
+            });
+        }
     }
 }
 
@@ -888,7 +934,13 @@ function getDiagramWebviewContent(webview, initialSvg, initialError) {
                 <button class="reload-btn" id="updateBtn" type="button">Update (MCP)</button>
                 <button class="reload-btn" id="updateVscodeBtn" type="button">Update (Copilot)</button>
                 <button class="reload-btn" id="reloadBtn" type="button">Reload / Compile</button>
-                <div class="status">Manual refresh</div>
+                <div class="status" id="activePromptDisplay">${currentPromptTemplate.replace('.md', '')}</div>
+                <button class="reload-btn" id="selectPromptBtn" type="button" title="Select Prompt Template" style="padding: 6px 8px; display: flex; align-items: center; justify-content: center;">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="3"></circle>
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 1.65 1.65 0 0 0-1.51 1z"></path>
+                    </svg>
+                </button>
             </div>
         </div>
         <div class="stage">
@@ -902,6 +954,8 @@ function getDiagramWebviewContent(webview, initialSvg, initialError) {
         const reloadBtn = document.getElementById('reloadBtn');
         const updateBtn = document.getElementById('updateBtn');
         const updateVscodeBtn = document.getElementById('updateVscodeBtn');
+        const selectPromptBtn = document.getElementById('selectPromptBtn');
+        const activePromptDisplay = document.getElementById('activePromptDisplay');
 
         function escapeHtml(value) {
             return value
@@ -940,9 +994,16 @@ function getDiagramWebviewContent(webview, initialSvg, initialError) {
         reloadBtn.addEventListener('click', requestReload);
         updateBtn.addEventListener('click', requestUpdate);
         updateVscodeBtn.addEventListener('click', requestUpdateVSCode);
+        selectPromptBtn.addEventListener('click', () => {
+            vscode.postMessage({ type: 'select-prompt' });
+        });
 
         window.addEventListener('message', (event) => {
             const message = event.data;
+            if (message && message.type === 'active-prompt-changed') {
+                activePromptDisplay.textContent = message.content;
+            }
+
             if (message && message.type === 'render-svg') {
                 if (!message.content) {
                     setEmptyState('The selected .d2 file is empty. Add D2 text to render the diagram.');
@@ -1103,14 +1164,14 @@ function extractOutputMessages(payload) {
  * @returns {Promise<void>}
  */
 async function handleUpdateRendering(context, project) {
-    // 1. Read state-merge.md
-    const templateUri = vscode.Uri.joinPath(context.extensionUri, 'state-merge.md');
+    // 1. Read the selected prompt template
+    const templateUri = vscode.Uri.joinPath(context.extensionUri, 'prompts', currentPromptTemplate);
     let templateContent = '';
     try {
         const templateBytes = await vscode.workspace.fs.readFile(templateUri);
         templateContent = Buffer.from(templateBytes).toString('utf8');
     } catch (err) {
-        throw new Error(`Could not read state-merge.md template: ${err instanceof Error ? err.message : String(err)}`);
+        throw new Error(`Could not read ${currentPromptTemplate} template: ${err instanceof Error ? err.message : String(err)}`);
     }
 
     // 2. Read current D2 diagram string
@@ -1185,14 +1246,14 @@ async function handleUpdateRendering(context, project) {
  * @returns {Promise<void>}
  */
 async function handleUpdateRenderingVSCode(context, project) {
-    // 1. Read state-merge.md
-    const templateUri = vscode.Uri.joinPath(context.extensionUri, 'state-merge.md');
+    // 1. Read the selected prompt template
+    const templateUri = vscode.Uri.joinPath(context.extensionUri, 'prompts', currentPromptTemplate);
     let templateContent = '';
     try {
         const templateBytes = await vscode.workspace.fs.readFile(templateUri);
         templateContent = Buffer.from(templateBytes).toString('utf8');
     } catch (err) {
-        throw new Error(`Could not read state-merge.md template: ${err instanceof Error ? err.message : String(err)}`);
+        throw new Error(`Could not read ${currentPromptTemplate} template: ${err instanceof Error ? err.message : String(err)}`);
     }
 
     // 2. Read current D2 diagram string
