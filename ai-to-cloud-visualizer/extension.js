@@ -173,28 +173,29 @@ function activate(context) {
         if (!project) return;
         
         try {
-            const diagramExists = await fileExists(project.diagramUri);
-            if (diagramExists) {
-                const doc1 = await vscode.workspace.openTextDocument(project.diagramUri);
-                await vscode.window.showTextDocument(doc1, { viewColumn: vscode.ViewColumn.One, preserveFocus: true });
+            // Cierra todos los editores previamente abiertos
+            await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+
+            const workflowExists = await fileExists(project.fullWorkflowUri);
+            if (workflowExists) {
+                const doc3 = await vscode.workspace.openTextDocument(project.fullWorkflowUri);
+                // preview en false para que no sea sobreescrito por el siguiente doc
+                await vscode.window.showTextDocument(doc3, { viewColumn: vscode.ViewColumn.One, preserveFocus: true, preview: false });
             } else {
-                vscode.window.showWarningMessage(`Diagram file not found for ${project.name}`);
+                vscode.window.showWarningMessage(`Workflow file not found for ${project.name}`);
             }
 
             const queueExists = await fileExists(project.queueUri);
             if (queueExists) {
                 const doc2 = await vscode.workspace.openTextDocument(project.queueUri);
-                await vscode.window.showTextDocument(doc2, { viewColumn: vscode.ViewColumn.Two, preserveFocus: true });
+                await vscode.window.showTextDocument(doc2, { viewColumn: vscode.ViewColumn.One, preserveFocus: true, preview: false });
             } else {
                 vscode.window.showWarningMessage(`Queue file not found for ${project.name}`);
             }
 
-            const workflowExists = await fileExists(project.fullWorkflowUri);
-            if (workflowExists) {
-                const doc3 = await vscode.workspace.openTextDocument(project.fullWorkflowUri);
-                await vscode.window.showTextDocument(doc3, { viewColumn: vscode.ViewColumn.Three, preserveFocus: true });
-            } else {
-                vscode.window.showWarningMessage(`Workflow file not found for ${project.name}`);
+            const diagramExists = await fileExists(project.diagramUri);
+            if (!diagramExists) {
+                vscode.window.showWarningMessage(`Diagram file not found for ${project.name}`);
             }
 
             await openDiagramWorkspace(context, project);
@@ -208,7 +209,7 @@ function activate(context) {
         if (!project) return;
         if (await fileExists(project.queueUri)) {
             const doc = await vscode.workspace.openTextDocument(project.queueUri);
-            await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Active });
+            await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.One, preserveFocus: false, preview: false });
         } else {
             vscode.window.showWarningMessage(`Queue file not found for ${project.name}`);
         }
@@ -219,7 +220,7 @@ function activate(context) {
         if (!project) return;
         if (await fileExists(project.diagramUri)) {
             const doc = await vscode.workspace.openTextDocument(project.diagramUri);
-            await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Active });
+            await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Two, preserveFocus: false, preview: false });
         } else {
             vscode.window.showWarningMessage(`Diagram file not found for ${project.name}`);
         }
@@ -230,7 +231,7 @@ function activate(context) {
         if (!project) return;
         if (await fileExists(project.fullWorkflowUri)) {
             const doc = await vscode.workspace.openTextDocument(project.fullWorkflowUri);
-            await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Active });
+            await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.One, preserveFocus: false, preview: false });
         } else {
             vscode.window.showWarningMessage(`Workflow file not found for ${project.name}`);
         }
@@ -311,7 +312,7 @@ function stopServer() {
         server.close();
         server = null;
     }
-    disposeDiagramWorkspace();
+    // disposeDiagramWorkspace(); // Removed to keep diagram and webview open
     currentProjectFiles = null;
     updateStatusBar(false);
     vscode.window.showInformationMessage('AWS Visualizer Server stopped.');
@@ -562,74 +563,81 @@ async function appendPayloadToSelectedFile(payload) {
  * @returns {Promise<void>}
  */
 async function openDiagramWorkspace(context, project) {
-    disposeDiagramWorkspace();
-
-    diagramWebviewReady = false;
-    const initialResult = await loadDiagramRenderResult(project.diagramUri);
-
-    currentDiagramPanel = vscode.window.createWebviewPanel(
-        'd2Visualizer',
-        `D2 Visualizer: ${project.name}`,
-        vscode.ViewColumn.Beside,
-        {
-            enableScripts: true,
-            retainContextWhenHidden: true
-        }
-    );
-
-    currentDiagramPanel.onDidDispose(() => {
-        if (currentDiagramPanel === null) {
-            return;
-        }
-
-        currentDiagramPanel = null;
+    if (currentDiagramPanel) {
+        // Reuse existing panel
+        currentDiagramPanel.title = `D2 Visualizer: ${project.name}`;
         diagramWebviewReady = false;
-    }, null, context.subscriptions);
+        const initialResult = await loadDiagramRenderResult(project.diagramUri);
+        currentDiagramPanel.webview.html = getDiagramWebviewContent(currentDiagramPanel.webview, initialResult.svg, initialResult.error);
+        currentDiagramPanel.reveal(vscode.ViewColumn.Two, true);
+    } else {
+        diagramWebviewReady = false;
+        const initialResult = await loadDiagramRenderResult(project.diagramUri);
 
-    const document = await vscode.workspace.openTextDocument(project.diagramUri);
-    await vscode.window.showTextDocument(document, { preview: false, viewColumn: vscode.ViewColumn.One });
+        currentDiagramPanel = vscode.window.createWebviewPanel(
+            'd2Visualizer',
+            `D2 Visualizer: ${project.name}`,
+            { viewColumn: vscode.ViewColumn.Two, preserveFocus: true },
+            {
+                enableScripts: true,
+                retainContextWhenHidden: true
+            }
+        );
 
-    currentDiagramPanel.webview.onDidReceiveMessage((message) => {
-        if (message && message.type === 'ready') {
-            diagramWebviewReady = true;
-            if (initialResult.error) {
-                flushDiagramError(initialResult.error);
+        currentDiagramPanel.onDidDispose(() => {
+            if (currentDiagramPanel === null) {
                 return;
             }
-            flushDiagramUpdate(initialResult.svg);
-        }
 
-        if (message && message.type === 'reload-diagram') {
-            refreshDiagramFromFile(project).catch((error) => {
-                const errorMessage = error instanceof Error ? error.message : String(error);
-                flushDiagramError(errorMessage);
-            });
-        }
+            currentDiagramPanel = null;
+            diagramWebviewReady = false;
+        }, null, context.subscriptions);
 
-        if (message && message.type === 'update-rendering') {
-            handleUpdateRendering(context, project).catch((error) => {
-                const errorMessage = error instanceof Error ? error.message : String(error);
-                vscode.window.showErrorMessage(`Update Rendering failed: ${errorMessage}`);
-                flushDiagramError(`Update Rendering failed: ${errorMessage}`);
-            });
-        }
+        currentDiagramPanel.webview.onDidReceiveMessage((message) => {
+            if (message && message.type === 'ready') {
+                diagramWebviewReady = true;
+                if (initialResult.error) {
+                    flushDiagramError(initialResult.error);
+                    return;
+                }
+                flushDiagramUpdate(initialResult.svg);
+            }
 
-        if (message && message.type === 'update-rendering-vscode') {
-            handleUpdateRenderingVSCode(context, project).catch((error) => {
-                const errorMessage = error instanceof Error ? error.message : String(error);
-                vscode.window.showErrorMessage(`Copilot Update failed: ${errorMessage}`);
-                flushDiagramError(`Copilot Update failed: ${errorMessage}`);
-            });
-        }
+            if (message && message.type === 'reload-diagram') {
+                refreshDiagramFromFile(project).catch((error) => {
+                    const errorMessage = error instanceof Error ? error.message : String(error);
+                    flushDiagramError(errorMessage);
+                });
+            }
 
-        if (message && message.type === 'select-prompt') {
-            selectPromptTemplate(context).catch((error) => {
-                console.error('Failed to select prompt template:', error);
-            });
-        }
-    }, null, context.subscriptions);
+            if (message && message.type === 'update-rendering') {
+                handleUpdateRendering(context, project).catch((error) => {
+                    const errorMessage = error instanceof Error ? error.message : String(error);
+                    vscode.window.showErrorMessage(`Update Rendering failed: ${errorMessage}`);
+                    flushDiagramError(`Update Rendering failed: ${errorMessage}`);
+                });
+            }
 
-    currentDiagramPanel.webview.html = getDiagramWebviewContent(currentDiagramPanel.webview, initialResult.svg, initialResult.error);
+            if (message && message.type === 'update-rendering-vscode') {
+                handleUpdateRenderingVSCode(context, project).catch((error) => {
+                    const errorMessage = error instanceof Error ? error.message : String(error);
+                    vscode.window.showErrorMessage(`Copilot Update failed: ${errorMessage}`);
+                    flushDiagramError(`Copilot Update failed: ${errorMessage}`);
+                });
+            }
+
+            if (message && message.type === 'select-prompt') {
+                selectPromptTemplate(context).catch((error) => {
+                    console.error('Failed to select prompt template:', error);
+                });
+            }
+        }, null, context.subscriptions);
+
+        currentDiagramPanel.webview.html = getDiagramWebviewContent(currentDiagramPanel.webview, initialResult.svg, initialResult.error);
+    }
+
+    const document = await vscode.workspace.openTextDocument(project.diagramUri);
+    await vscode.window.showTextDocument(document, { preview: false, viewColumn: vscode.ViewColumn.Two, preserveFocus: false });
 }
 
 /**
