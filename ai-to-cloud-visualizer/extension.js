@@ -821,22 +821,19 @@ function getDiagramWebviewContent(webview, initialSvg, initialError) {
     <style>
         :root {
             color-scheme: light dark;
-            --bg: #0b1020;
-            --panel: #11172d;
-            --border: rgba(148, 163, 184, 0.22);
-            --text: #dbe4ff;
-            --muted: #8da2c0;
-            --accent: #7dd3fc;
-            --error: #fca5a5;
+            --grid-line: color-mix(in srgb, var(--vscode-foreground) 3%, transparent);
+            --surface-shadow: 0 18px 48px color-mix(in srgb, var(--vscode-editor-foreground) 12%, transparent);
+            --header-shadow: 0 1px 0 var(--vscode-panel-border);
         }
         body {
             margin: 0;
             width: 100vw;
             height: 100vh;
             overflow: hidden;
-            background: radial-gradient(circle at top left, rgba(125, 211, 252, 0.16), transparent 34%), var(--bg);
-            color: var(--text);
-            font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--vscode-editor-background);
+            color: var(--vscode-foreground);
+            font-family: var(--vscode-font-family);
+            font-size: var(--vscode-font-size);
         }
         .shell {
             display: grid;
@@ -847,53 +844,92 @@ function getDiagramWebviewContent(webview, initialSvg, initialError) {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            gap: 12px;
-            padding: 14px 18px;
-            border-bottom: 1px solid var(--border);
-            background: rgba(17, 23, 45, 0.9);
-            backdrop-filter: blur(12px);
+            gap: 16px;
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--vscode-panel-border);
+            box-shadow: var(--header-shadow);
+            background: var(--vscode-editor-background);
+        }
+        .header-left {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            min-width: 0;
+            gap: 2px;
         }
         .title {
+            margin: 0;
             font-size: 13px;
-            letter-spacing: 0.08em;
-            text-transform: uppercase;
-            color: var(--accent);
+            font-weight: 600;
+            line-height: 1.2;
+            color: var(--vscode-foreground);
         }
         .status {
-            color: var(--muted);
+            color: var(--vscode-descriptionForeground);
             font-size: 12px;
+            line-height: 1.3;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
         .toolbar {
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 8px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
         }
         .reload-btn {
-            border: 1px solid rgba(125, 211, 252, 0.45);
-            background: linear-gradient(180deg, rgba(125, 211, 252, 0.22), rgba(56, 189, 248, 0.12));
-            color: var(--text);
-            padding: 7px 12px;
-            border-radius: 10px;
+            border: 1px solid var(--vscode-button-border, transparent);
+            background: var(--vscode-button-secondaryBackground);
+            color: var(--vscode-button-secondaryForeground, var(--vscode-button-foreground));
+            padding: 6px 12px;
+            border-radius: 4px;
             font-size: 12px;
             font-weight: 600;
             letter-spacing: 0.02em;
             cursor: pointer;
-            transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+            transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+            line-height: 1.2;
+            min-height: 28px;
         }
         .reload-btn:hover {
-            transform: translateY(-1px);
-            border-color: rgba(125, 211, 252, 0.8);
-            background: linear-gradient(180deg, rgba(125, 211, 252, 0.3), rgba(56, 189, 248, 0.2));
+            background: var(--vscode-button-secondaryHoverBackground, var(--vscode-button-hoverBackground));
+            border-color: var(--vscode-button-border, transparent);
         }
         .reload-btn:active {
-            transform: translateY(0);
+            background: var(--vscode-button-background);
+            color: var(--vscode-button-foreground);
+        }
+        .reload-btn.primary {
+            background: var(--vscode-button-background);
+            color: var(--vscode-button-foreground);
+        }
+        .reload-btn.primary:hover {
+            background: var(--vscode-button-hoverBackground);
+        }
+        .reload-btn.icon-btn {
+            width: 30px;
+            padding: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex: 0 0 auto;
+        }
+        .reload-btn.icon-btn svg {
+            display: block;
         }
         .stage {
             position: relative;
             overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
             background:
-                linear-gradient(rgba(125, 211, 252, 0.05) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(125, 211, 252, 0.05) 1px, transparent 1px);
+                linear-gradient(var(--grid-line) 1px, transparent 1px),
+                linear-gradient(90deg, var(--grid-line) 1px, transparent 1px),
+                var(--vscode-editor-background);
             background-size: 32px 32px;
             cursor: grab;
         }
@@ -901,12 +937,18 @@ function getDiagramWebviewContent(webview, initialSvg, initialError) {
             cursor: grabbing;
         }
         .diagram {
-            width: 100%;
-            height: 100%;
+            display: inline-flex;
+            width: fit-content;
+            min-width: min(100%, 100%);
             display: flex;
+            padding: 20px;
             align-items: center;
             justify-content: center;
             box-sizing: border-box;
+            border-radius: 8px;
+            border: 1px solid var(--vscode-panel-border);
+            background: var(--vscode-editor-background);
+            box-shadow: var(--surface-shadow);
             transform-origin: 0 0;
             will-change: transform;
         }
@@ -915,35 +957,36 @@ function getDiagramWebviewContent(webview, initialSvg, initialError) {
             max-width: 680px;
             padding: 18px 20px;
             border-radius: 14px;
-            border: 1px solid var(--border);
-            background: rgba(17, 23, 45, 0.82);
-            box-shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
+            border: 1px solid var(--vscode-panel-border);
+            background: var(--vscode-editor-background);
+            box-shadow: var(--surface-shadow);
         }
         .empty {
-            color: var(--muted);
+            color: var(--vscode-descriptionForeground);
         }
         .error {
-            color: var(--error);
+            color: var(--vscode-errorForeground);
             white-space: pre-wrap;
         }
         .svg-wrap svg {
             max-width: none;
+            display: block;
         }
     </style>
 </head>
 <body>
     <div class="shell">
         <div class="header">
-            <div>
+            <div class="header-left">
                 <div class="title">D2 Visualizer</div>
                 <div class="status" id="status">Press Reload / Compile after editing the .d2 file.</div>
             </div>
             <div class="toolbar">
-                <button class="reload-btn" id="updateBtn" type="button">Update (MCP)</button>
-                <button class="reload-btn" id="updateVscodeBtn" type="button">Update (Copilot)</button>
+                <button class="reload-btn primary" id="updateBtn" type="button">Update (MCP)</button>
+                <button class="reload-btn primary" id="updateVscodeBtn" type="button">Update (Copilot)</button>
                 <button class="reload-btn" id="reloadBtn" type="button">Reload / Compile</button>
                 <div class="status" id="activePromptDisplay">${currentPromptTemplate.replace('.md', '')}</div>
-                <button class="reload-btn" id="selectPromptBtn" type="button" title="Select Prompt Template" style="padding: 6px 8px; display: flex; align-items: center; justify-content: center;">
+                <button class="reload-btn icon-btn" id="selectPromptBtn" type="button" title="Select Prompt Template" aria-label="Select Prompt Template">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <circle cx="12" cy="12" r="3"></circle>
                         <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 1.65 1.65 0 0 0-1.51 1z"></path>
