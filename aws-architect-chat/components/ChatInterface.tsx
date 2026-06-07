@@ -244,17 +244,26 @@ export default function ChatInterface() {
         return;
       }
 
-      try {
-        await appendWorkflowEntry(selectedProject, {
-          ...entry,
-          projectName: selectedProject,
-        });
-      } catch (error) {
-        console.error('Failed to persist deployment log:', error);
+      // Filter and clean for workflow.json (following VSCode extension logic)
+      if (entry.type === 'aws-cli-output' && entry.payload && typeof entry.payload === 'object') {
+        const p = entry.payload as any;
+        if (p.action) {
+          try {
+            await appendProjectWorkflow(selectedProject, {
+              action: p.action,
+              resource_state: p.resource_state,
+              error: p.error,
+              ts: entry.ts
+            });
+          } catch (error) {
+            console.error('Failed to persist deployment log:', error);
+          }
+        }
       }
     },
     [selectedProject],
   );
+
 
   const pushDeploymentLog = useCallback(
     (entry: WorkflowEntry) => {
@@ -382,23 +391,52 @@ export default function ChatInterface() {
 
       pushDeploymentLog(createWorkflowEntry('deployment-started', `${actionLabel} project ${selectedProject} ${action === 'deploy' ? 'to' : 'from'} AWS`, 'info', { projectName: selectedProject, action }));
 
-      const response = await fetch('/api/deploy', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          projectName: selectedProject,
-          model: selectedModel,
-          action,
-        }),
-      });
+      let finished = false;
+      let isFirstRun = true;
+      let lastLLMSummary = '';
+      let loopCount = 0;
+      const MAX_LOOPS = 15;
 
-      const responseText = await response.text();
-      if (!response.ok) {
-        throw new Error(responseText || 'Deployment request failed.');
-      }
+      // Multi-agentic loop: continue until the agent signals completion or we reach a safety limit
+      while (!finished && currentRun === deploymentRunRef.current && loopCount < MAX_LOOPS) {
+        loopCount++;
+        const response = await fetch('/api/deploy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            projectName: selectedProject,
+            model: selectedModel,
+            action,
+            continue: !isFirstRun,
+          }),
+        });
 
-      if (responseText.trim()) {
-        pushDeploymentLog(createWorkflowEntry('llm-summary', responseText.trim(), 'success'));
+        const responseText = await response.text();
+        if (!response.ok) {
+          throw new Error(responseText || 'Deployment request failed.');
+        }
+
+        lastLLMSummary = responseText.trim();
+        if (lastLLMSummary) {
+          pushDeploymentLog(createWorkflowEntry('llm-summary', lastLLMSummary, 'success'));
+        }
+
+        // Check for the explicit completion signal
+        if (lastLLMSummary.includes('---DEPLOYMENT_COMPLETE---')) {
+          finished = true;
+        } 
+        // If we reached a point where the LLM is just talking without tools and without the finish signal, 
+        // we keep pushing it unless it's been many loops.
+        // We only stop the loop if the response was completely empty and it wasn't the first run 
+        // (which might happen if only tool calls happened and the SDK didn't stream anything else)
+        // or if we reached MAX_LOOPS.
+        
+        isFirstRun = false;
+        
+        // Small delay between iterations to avoid spamming the API
+        if (!finished) {
+          await new Promise(resolve => setTimeout(resolve, 1500));
+        }
       }
 
       if (currentRun === deploymentRunRef.current) {

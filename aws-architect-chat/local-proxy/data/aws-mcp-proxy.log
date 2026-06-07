@@ -1,8 +1,8 @@
-2026-06-07T13:31:09.122Z [proxy] child spawned: uvx awslabs.aws-api-mcp-server@latest
-2026-06-07T13:31:09.127Z [proxy] proxy listening on http://127.0.0.1:8787
-2026-06-07T13:31:11.763Z [proxy] child stderr: 2026-06-07 15:31:11.762 | INFO     | awslabs.aws_api_mcp_server.server:main:430 - CWD: /run/user/1000/aws-api-mcp/workdir
-2026-06-07T13:31:11.763Z [proxy] child stderr: 2026-06-07 15:31:11.763 | INFO     | awslabs.aws_api_mcp_server.server:main:438 - AWS_REGION: us-east-1
-2026-06-07T13:31:12.198Z [proxy] child stderr: 
+2026-06-07T16:07:27.775Z [proxy] child spawned: uvx awslabs.aws-api-mcp-server@latest
+2026-06-07T16:07:27.781Z [proxy] proxy listening on http://127.0.0.1:8787
+2026-06-07T16:07:30.622Z [proxy] child stderr: 2026-06-07 18:07:30.621 | INFO     | awslabs.aws_api_mcp_server.server:main:430 - CWD: /run/user/1000/aws-api-mcp/workdir
+2026-06-07T16:07:30.622Z [proxy] child stderr: 2026-06-07 18:07:30.621 | INFO     | awslabs.aws_api_mcp_server.server:main:438 - AWS_REGION: us-east-1
+2026-06-07T16:07:31.061Z [proxy] child stderr: 
 
 ╭──────────────────────────────────────────────────────────────────────────────╮
 │                                                                              │
@@ -19,10 +19,163 @@
 │                  🚀 Deploy free: https://horizon.prefect.io                  │
 │                                                                              │
 ╰──────────────────────────────────────────────────────────────────────────────╯
-2026-06-07T13:31:12.199Z [proxy] child stderr: [06/07/26 15:31:12] INFO     Starting MCP server 'AWS-API-MCP'  transport.py:210
+2026-06-07T16:07:31.062Z [proxy] child stderr: [06/07/26 18:07:31] INFO     Starting MCP server 'AWS-API-MCP'  transport.py:210
                              with transport 'stdio'
-2026-06-07T13:32:01.636Z [proxy] child stderr: 2026-06-07 15:32:01.636 | INFO     | awslabs.aws_api_mcp_server.server:call_aws_helper:315 - Attempting to execute AWS CLI command: aws ec2 create-vpc *parameters redacted*
-2026-06-07T13:32:01.637Z [proxy] child stderr: 2026-06-07 15:32:01.636 | WARNING  | awslabs.aws_api_mcp_server.core.security.policy:_load_policy:61 - No security policy file found at /home/apozo/.aws/aws-api-mcp/mcp-security-policy.json, not applying any additional security policies
-2026-06-07T13:32:01.637Z [proxy] child stderr: 2026-06-07 15:32:01.637 | INFO     | awslabs.aws_api_mcp_server.core.metadata.read_only_operations_list:has:81 - checking in read only list : ec2 - CreateVpc
-2026-06-07T13:32:04.780Z [proxy] child stderr: 2026-06-07 15:32:04.780 | INFO     | awslabs.aws_api_mcp_server.core.common.helpers:operation_timer:39 - Interpreting operation ec2.create_vpc for region us-east-1
-2026-06-07T13:32:06.170Z [proxy] child stderr: 2026-06-07 15:32:06.169 | INFO     | awslabs.aws_api_mcp_server.core.common.helpers:operation_timer:43 - Operation ec2.create_vpc interpreted in 1.3899262330014608 seconds
+2026-06-07T16:08:38.909Z [proxy] child stderr: 2026-06-07 18:08:38.908 | INFO     | awslabs.aws_api_mcp_server.server:call_aws_helper:315 - Attempting to execute AWS CLI command: aws ec2 create-vpc *parameters redacted*
+2026-06-07T16:08:38.909Z [proxy] child stderr: 2026-06-07 18:08:38.909 | WARNING  | awslabs.aws_api_mcp_server.core.security.policy:_load_policy:61 - No security policy file found at /home/apozo/.aws/aws-api-mcp/mcp-security-policy.json, not applying any additional security policies
+2026-06-07T16:08:38.909Z [proxy] child stderr: 2026-06-07 18:08:38.909 | INFO     | awslabs.aws_api_mcp_server.core.metadata.read_only_operations_list:has:81 - checking in read only list : ec2 - CreateVpc
+2026-06-07T16:08:40.948Z [proxy] child stderr: 2026-06-07 18:08:40.948 | INFO     | awslabs.aws_api_mcp_server.core.common.helpers:operation_timer:39 - Interpreting operation ec2.create_vpc for region us-east-1
+2026-06-07T16:08:42.250Z [proxy] child stderr: 2026-06-07 18:08:42.250 | INFO     | awslabs.aws_api_mcp_server.core.common.helpers:operation_timer:43 - Operation ec2.create_vpc interpreted in 1.3020184710003377 seconds
+2026-06-07T16:08:45.882Z [proxy] child stderr: 2026-06-07 18:08:45.882 | INFO     | awslabs.aws_api_mcp_server.server:call_aws_helper:315 - Attempting to execute AWS CLI command: aws ec2 create-internet-gateway *parameters redacted*
+2026-06-07T16:08:45.883Z [proxy] child stderr: 2026-06-07 18:08:45.882 | WARNING  | awslabs.aws_api_mcp_server.core.security.policy:_load_policy:61 - No security policy file found at /home/apozo/.aws/aws-api-mcp/mcp-security-policy.json, not applying any additional security policies
+2026-06-07 18:08:45.883 | INFO     | awslabs.aws_api_mcp_server.core.metadata.read_only_operations_list:has:81 - checking in read only list : ec2 - CreateInternetGateway
+2026-06-07T16:08:47.319Z [proxy] child stderr: 2026-06-07 18:08:47.318 | INFO     | awslabs.aws_api_mcp_server.core.common.helpers:operation_timer:39 - Interpreting operation ec2.create_internet_gateway for region us-east-1
+2026-06-07T16:08:48.318Z [proxy] child stderr: 2026-06-07 18:08:48.317 | INFO     | awslabs.aws_api_mcp_server.core.common.helpers:operation_timer:43 - Operation ec2.create_internet_gateway interpreted in 0.9990121700029704 seconds
+2026-06-07T16:08:48.321Z [proxy] child stderr: [06/07/26 18:08:48] DEBUG    Sending ERROR to client: Error      context.py:1446
+                             while validating the command:                      
+                             {"validation_failures":[{"reason":"                
+                             The parameter 'output' received an                 
+                             invalid choice:                                    
+                             'text)'","context":{"service":null,                
+                             "operation":null,"operators":null,"                
+                             region":null,"args":null,"parameter                
+                             s":null}}],"missing_context_failure                
+                             s":null}
+2026-06-07T16:08:48.323Z [proxy] child stderr:                     DEBUG    Sending ERROR to client: Error      context.py:1446
+                             while validating the command:                      
+                             {"validation_failures":[{"reason":"                
+                             The parameter 'output' received an                 
+                             invalid choice:                                    
+                             'text)'","context":{"service":null,                
+                             "operation":null,"operators":null,"                
+                             region":null,"args":null,"parameter                
+                             s":null}}],"missing_context_failure                
+                             s":null}
+2026-06-07T16:08:51.643Z [proxy] child stderr: 2026-06-07 18:08:51.643 | INFO     | awslabs.aws_api_mcp_server.server:call_aws_helper:315 - Attempting to execute AWS CLI command: aws ec2 attach-internet-gateway *parameters redacted*
+2026-06-07T16:08:51.643Z [proxy] child stderr: 2026-06-07 18:08:51.643 | WARNING  | awslabs.aws_api_mcp_server.core.security.policy:_load_policy:61 - No security policy file found at /home/apozo/.aws/aws-api-mcp/mcp-security-policy.json, not applying any additional security policies
+2026-06-07T16:08:51.643Z [proxy] child stderr: 2026-06-07 18:08:51.643 | INFO     | awslabs.aws_api_mcp_server.core.metadata.read_only_operations_list:has:81 - checking in read only list : ec2 - AttachInternetGateway
+2026-06-07T16:08:53.110Z [proxy] child stderr: 2026-06-07 18:08:53.109 | INFO     | awslabs.aws_api_mcp_server.core.common.helpers:operation_timer:39 - Interpreting operation ec2.attach_internet_gateway for region us-east-1
+2026-06-07T16:08:54.230Z [proxy] child stderr: 2026-06-07 18:08:54.230 | INFO     | awslabs.aws_api_mcp_server.core.common.helpers:operation_timer:43 - Operation ec2.attach_internet_gateway interpreted in 1.1203177409988712 seconds
+2026-06-07T16:08:58.292Z [proxy] child stderr: 2026-06-07 18:08:58.292 | INFO     | awslabs.aws_api_mcp_server.server:call_aws_helper:315 - Attempting to execute AWS CLI command: aws ec2 create-subnet *parameters redacted*
+2026-06-07T16:08:58.292Z [proxy] child stderr: 2026-06-07 18:08:58.292 | WARNING  | awslabs.aws_api_mcp_server.core.security.policy:_load_policy:61 - No security policy file found at /home/apozo/.aws/aws-api-mcp/mcp-security-policy.json, not applying any additional security policies
+2026-06-07T16:08:58.292Z [proxy] child stderr: 2026-06-07 18:08:58.292 | INFO     | awslabs.aws_api_mcp_server.core.metadata.read_only_operations_list:has:81 - checking in read only list : ec2 - CreateSubnet
+2026-06-07T16:08:59.611Z [proxy] child stderr: 2026-06-07 18:08:59.611 | INFO     | awslabs.aws_api_mcp_server.core.common.helpers:operation_timer:39 - Interpreting operation ec2.create_subnet for region us-east-1
+2026-06-07T16:09:00.703Z [proxy] child stderr: 2026-06-07 18:09:00.703 | INFO     | awslabs.aws_api_mcp_server.core.common.helpers:operation_timer:43 - Operation ec2.create_subnet interpreted in 1.0920972929998243 seconds
+2026-06-07T16:09:00.706Z [proxy] child stderr: [06/07/26 18:09:00] DEBUG    Sending ERROR to client: Error      context.py:1446
+                             while validating the command:                      
+                             {"validation_failures":[{"reason":"                
+                             The parameter 'output' received an                 
+                             invalid choice:                                    
+                             'text)'","context":{"service":null,                
+                             "operation":null,"operators":null,"                
+                             region":null,"args":null,"parameter                
+                             s":null}}],"missing_context_failure                
+                             s":null}
+2026-06-07T16:09:00.707Z [proxy] child stderr:                     DEBUG    Sending ERROR to client: Error      context.py:1446
+                             while validating the command:                      
+                             {"validation_failures":[{"reason":"                
+                             The parameter 'output' received an                 
+                             invalid choice:                                    
+                             'text)'","context":{"service":null,                
+                             "operation":null,"operators":null,"                
+                             region":null,"args":null,"parameter                
+                             s":null}}],"missing_context_failure                
+                             s":null}
+2026-06-07T16:09:05.785Z [proxy] child stderr: 2026-06-07 18:09:05.785 | INFO     | awslabs.aws_api_mcp_server.server:call_aws_helper:315 - Attempting to execute AWS CLI command: aws ec2 modify-subnet-attribute *parameters redacted*
+2026-06-07T16:09:05.785Z [proxy] child stderr: 2026-06-07 18:09:05.785 | WARNING  | awslabs.aws_api_mcp_server.core.security.policy:_load_policy:61 - No security policy file found at /home/apozo/.aws/aws-api-mcp/mcp-security-policy.json, not applying any additional security policies
+2026-06-07 18:09:05.785 | INFO     | awslabs.aws_api_mcp_server.core.metadata.read_only_operations_list:has:81 - checking in read only list : ec2 - ModifySubnetAttribute
+2026-06-07T16:09:07.218Z [proxy] child stderr: 2026-06-07 18:09:07.217 | INFO     | awslabs.aws_api_mcp_server.core.common.helpers:operation_timer:39 - Interpreting operation ec2.modify_subnet_attribute for region us-east-1
+2026-06-07T16:09:08.191Z [proxy] child stderr: 2026-06-07 18:09:08.191 | INFO     | awslabs.aws_api_mcp_server.core.common.helpers:operation_timer:43 - Operation ec2.modify_subnet_attribute interpreted in 0.9734993989986833 seconds
+2026-06-07T16:09:08.204Z [proxy] child stderr: 2026-06-07 18:09:08.204 | INFO     | awslabs.aws_api_mcp_server.server:call_aws_helper:315 - Attempting to execute AWS CLI command: aws ec2 create-route-table *parameters redacted*
+2026-06-07T16:09:08.204Z [proxy] child stderr: 2026-06-07 18:09:08.204 | WARNING  | awslabs.aws_api_mcp_server.core.security.policy:_load_policy:61 - No security policy file found at /home/apozo/.aws/aws-api-mcp/mcp-security-policy.json, not applying any additional security policies
+2026-06-07 18:09:08.204 | INFO     | awslabs.aws_api_mcp_server.core.metadata.read_only_operations_list:has:81 - checking in read only list : ec2 - CreateRouteTable
+2026-06-07T16:09:09.525Z [proxy] child stderr: 2026-06-07 18:09:09.525 | INFO     | awslabs.aws_api_mcp_server.core.common.helpers:operation_timer:39 - Interpreting operation ec2.create_route_table for region us-east-1
+2026-06-07T16:09:10.513Z [proxy] child stderr: 2026-06-07 18:09:10.512 | INFO     | awslabs.aws_api_mcp_server.core.common.helpers:operation_timer:43 - Operation ec2.create_route_table interpreted in 0.98757087100239 seconds
+2026-06-07T16:09:14.994Z [proxy] child stderr: 2026-06-07 18:09:14.994 | INFO     | awslabs.aws_api_mcp_server.server:call_aws_helper:315 - Attempting to execute AWS CLI command: aws ec2 create-route *parameters redacted*
+2026-06-07T16:09:14.994Z [proxy] child stderr: 2026-06-07 18:09:14.994 | WARNING  | awslabs.aws_api_mcp_server.core.security.policy:_load_policy:61 - No security policy file found at /home/apozo/.aws/aws-api-mcp/mcp-security-policy.json, not applying any additional security policies
+2026-06-07T16:09:14.994Z [proxy] child stderr: 2026-06-07 18:09:14.994 | INFO     | awslabs.aws_api_mcp_server.core.metadata.read_only_operations_list:has:81 - checking in read only list : ec2 - CreateRoute
+2026-06-07T16:09:16.552Z [proxy] child stderr: 2026-06-07 18:09:16.552 | INFO     | awslabs.aws_api_mcp_server.core.common.helpers:operation_timer:39 - Interpreting operation ec2.create_route for region us-east-1
+2026-06-07T16:09:17.568Z [proxy] child stderr: 2026-06-07 18:09:17.567 | INFO     | awslabs.aws_api_mcp_server.core.common.helpers:operation_timer:43 - Operation ec2.create_route interpreted in 1.0154977829988638 seconds
+2026-06-07T16:09:17.608Z [proxy] child stderr: 2026-06-07 18:09:17.608 | INFO     | awslabs.aws_api_mcp_server.server:call_aws_helper:315 - Attempting to execute AWS CLI command: aws ec2 associate-route-table *parameters redacted*
+2026-06-07T16:09:17.608Z [proxy] child stderr: 2026-06-07 18:09:17.608 | WARNING  | awslabs.aws_api_mcp_server.core.security.policy:_load_policy:61 - No security policy file found at /home/apozo/.aws/aws-api-mcp/mcp-security-policy.json, not applying any additional security policies
+2026-06-07T16:09:17.609Z [proxy] child stderr: 2026-06-07 18:09:17.609 | INFO     | awslabs.aws_api_mcp_server.core.metadata.read_only_operations_list:has:81 - checking in read only list : ec2 - AssociateRouteTable
+2026-06-07T16:09:18.941Z [proxy] child stderr: 2026-06-07 18:09:18.941 | INFO     | awslabs.aws_api_mcp_server.core.common.helpers:operation_timer:39 - Interpreting operation ec2.associate_route_table for region us-east-1
+2026-06-07T16:09:19.976Z [proxy] child stderr: 2026-06-07 18:09:19.976 | INFO     | awslabs.aws_api_mcp_server.core.common.helpers:operation_timer:43 - Operation ec2.associate_route_table interpreted in 1.0352540749991022 seconds
+2026-06-07T16:09:25.323Z [proxy] child stderr: 2026-06-07 18:09:25.323 | INFO     | awslabs.aws_api_mcp_server.server:call_aws_helper:315 - Attempting to execute AWS CLI command: aws ec2 create-security-group *parameters redacted*
+2026-06-07T16:09:25.323Z [proxy] child stderr: 2026-06-07 18:09:25.323 | WARNING  | awslabs.aws_api_mcp_server.core.security.policy:_load_policy:61 - No security policy file found at /home/apozo/.aws/aws-api-mcp/mcp-security-policy.json, not applying any additional security policies
+2026-06-07T16:09:25.323Z [proxy] child stderr: 2026-06-07 18:09:25.323 | INFO     | awslabs.aws_api_mcp_server.core.metadata.read_only_operations_list:has:81 - checking in read only list : ec2 - CreateSecurityGroup
+2026-06-07T16:09:26.759Z [proxy] child stderr: 2026-06-07 18:09:26.759 | INFO     | awslabs.aws_api_mcp_server.core.common.helpers:operation_timer:39 - Interpreting operation ec2.create_security_group for region us-east-1
+2026-06-07T16:09:27.922Z [proxy] child stderr: 2026-06-07 18:09:27.921 | INFO     | awslabs.aws_api_mcp_server.core.common.helpers:operation_timer:43 - Operation ec2.create_security_group interpreted in 1.1622912029997678 seconds
+2026-06-07T16:09:33.028Z [proxy] child stderr: 2026-06-07 18:09:33.028 | INFO     | awslabs.aws_api_mcp_server.server:call_aws_helper:315 - Attempting to execute AWS CLI command: aws ec2 authorize-security-group-ingress *parameters redacted*
+2026-06-07T16:09:33.028Z [proxy] child stderr: 2026-06-07 18:09:33.028 | WARNING  | awslabs.aws_api_mcp_server.core.security.policy:_load_policy:61 - No security policy file found at /home/apozo/.aws/aws-api-mcp/mcp-security-policy.json, not applying any additional security policies
+2026-06-07T16:09:33.028Z [proxy] child stderr: 2026-06-07 18:09:33.028 | INFO     | awslabs.aws_api_mcp_server.core.metadata.read_only_operations_list:has:81 - checking in read only list : ec2 - AuthorizeSecurityGroupIngress
+2026-06-07T16:09:34.387Z [proxy] child stderr: 2026-06-07 18:09:34.387 | INFO     | awslabs.aws_api_mcp_server.core.common.helpers:operation_timer:39 - Interpreting operation ec2.authorize_security_group_ingress for region us-east-1
+2026-06-07T16:09:35.470Z [proxy] child stderr: 2026-06-07 18:09:35.470 | INFO     | awslabs.aws_api_mcp_server.core.common.helpers:operation_timer:43 - Operation ec2.authorize_security_group_ingress interpreted in 1.0834331980004208 seconds
+2026-06-07T16:09:35.480Z [proxy] child stderr: 2026-06-07 18:09:35.480 | INFO     | awslabs.aws_api_mcp_server.server:call_aws_helper:315 - Attempting to execute AWS CLI command: aws ec2 authorize-security-group-ingress *parameters redacted*
+2026-06-07T16:09:35.480Z [proxy] child stderr: 2026-06-07 18:09:35.480 | WARNING  | awslabs.aws_api_mcp_server.core.security.policy:_load_policy:61 - No security policy file found at /home/apozo/.aws/aws-api-mcp/mcp-security-policy.json, not applying any additional security policies
+2026-06-07T16:09:35.480Z [proxy] child stderr: 2026-06-07 18:09:35.480 | INFO     | awslabs.aws_api_mcp_server.core.metadata.read_only_operations_list:has:81 - checking in read only list : ec2 - AuthorizeSecurityGroupIngress
+2026-06-07T16:09:36.735Z [proxy] child stderr: 2026-06-07 18:09:36.735 | INFO     | awslabs.aws_api_mcp_server.core.common.helpers:operation_timer:39 - Interpreting operation ec2.authorize_security_group_ingress for region us-east-1
+2026-06-07T16:09:37.814Z [proxy] child stderr: 2026-06-07 18:09:37.814 | INFO     | awslabs.aws_api_mcp_server.core.common.helpers:operation_timer:43 - Operation ec2.authorize_security_group_ingress interpreted in 1.0787519730001804 seconds
+2026-06-07T16:09:37.850Z [proxy] child stderr: 2026-06-07 18:09:37.850 | INFO     | awslabs.aws_api_mcp_server.server:call_aws_helper:315 - Attempting to execute AWS CLI command: aws ec2 authorize-security-group-ingress *parameters redacted*
+2026-06-07T16:09:37.851Z [proxy] child stderr: 2026-06-07 18:09:37.851 | WARNING  | awslabs.aws_api_mcp_server.core.security.policy:_load_policy:61 - No security policy file found at /home/apozo/.aws/aws-api-mcp/mcp-security-policy.json, not applying any additional security policies
+2026-06-07T16:09:37.851Z [proxy] child stderr: 2026-06-07 18:09:37.851 | INFO     | awslabs.aws_api_mcp_server.core.metadata.read_only_operations_list:has:81 - checking in read only list : ec2 - AuthorizeSecurityGroupIngress
+2026-06-07T16:09:39.259Z [proxy] child stderr: 2026-06-07 18:09:39.258 | INFO     | awslabs.aws_api_mcp_server.core.common.helpers:operation_timer:39 - Interpreting operation ec2.authorize_security_group_ingress for region us-east-1
+2026-06-07T16:09:40.415Z [proxy] child stderr: 2026-06-07 18:09:40.415 | INFO     | awslabs.aws_api_mcp_server.core.common.helpers:operation_timer:43 - Operation ec2.authorize_security_group_ingress interpreted in 1.1562510229996406 seconds
+2026-06-07T16:09:46.957Z [proxy] child stderr: [06/07/26 18:09:46] DEBUG    Sending ERROR to client: Error      context.py:1446
+                             while validating the command:                      
+                             {"validation_failures":[{"reason":"                
+                             The operation 'create-key-pair' for                
+                             service 'ec2' received unknown                     
+                             extra arguments: ['>',                             
+                             'EC2WebServerKeyPair.pem']. These                  
+                             arguments are not supported, so                    
+                             they should be                                     
+                             removed.","context":{"service":"ec2                
+                             ","operation":"create-key-pair","op                
+                             erators":null,"region":null,"args":                
+                             null,"parameters":null}}],"missing_                
+                             context_failures":null}
+2026-06-07T16:09:46.959Z [proxy] child stderr:                     DEBUG    Sending ERROR to client: Error      context.py:1446
+                             while validating the command:                      
+                             {"validation_failures":[{"reason":"                
+                             The operation 'create-key-pair' for                
+                             service 'ec2' received unknown                     
+                             extra arguments: ['>',                             
+                             'EC2WebServerKeyPair.pem']. These                  
+                             arguments are not supported, so                    
+                             they should be                                     
+                             removed.","context":{"service":"ec2                
+                             ","operation":"create-key-pair","op                
+                             erators":null,"region":null,"args":                
+                             null,"parameters":null}}],"missing_                
+                             context_failures":null}
+2026-06-07T16:09:46.974Z [proxy] child stderr: 2026-06-07 18:09:46.973 | INFO     | awslabs.aws_api_mcp_server.server:call_aws_helper:315 - Attempting to execute AWS CLI command: aws ec2 run-instances *parameters redacted*
+2026-06-07T16:09:46.974Z [proxy] child stderr: 2026-06-07 18:09:46.974 | WARNING  | awslabs.aws_api_mcp_server.core.security.policy:_load_policy:61 - No security policy file found at /home/apozo/.aws/aws-api-mcp/mcp-security-policy.json, not applying any additional security policies
+2026-06-07T16:09:46.974Z [proxy] child stderr: 2026-06-07 18:09:46.974 | INFO     | awslabs.aws_api_mcp_server.core.metadata.read_only_operations_list:has:81 - checking in read only list : ec2 - RunInstances
+2026-06-07T16:09:48.300Z [proxy] child stderr: 2026-06-07 18:09:48.300 | INFO     | awslabs.aws_api_mcp_server.core.common.helpers:operation_timer:39 - Interpreting operation ec2.run_instances for region us-east-1
+2026-06-07T16:09:52.866Z [proxy] child stderr: 2026-06-07 18:09:52.866 | INFO     | awslabs.aws_api_mcp_server.server:call_aws_helper:315 - Attempting to execute AWS CLI command: aws ec2 create-key-pair *parameters redacted*
+2026-06-07T16:09:52.866Z [proxy] child stderr: 2026-06-07 18:09:52.866 | WARNING  | awslabs.aws_api_mcp_server.core.security.policy:_load_policy:61 - No security policy file found at /home/apozo/.aws/aws-api-mcp/mcp-security-policy.json, not applying any additional security policies
+2026-06-07T16:09:52.866Z [proxy] child stderr: 2026-06-07 18:09:52.866 | INFO     | awslabs.aws_api_mcp_server.core.metadata.read_only_operations_list:has:81 - checking in read only list : ec2 - CreateKeyPair
+2026-06-07T16:09:54.209Z [proxy] child stderr: 2026-06-07 18:09:54.209 | INFO     | awslabs.aws_api_mcp_server.core.common.helpers:operation_timer:39 - Interpreting operation ec2.create_key_pair for region us-east-1
+2026-06-07T16:09:55.149Z [proxy] child stderr: 2026-06-07 18:09:55.149 | INFO     | awslabs.aws_api_mcp_server.core.common.helpers:operation_timer:43 - Operation ec2.create_key_pair interpreted in 0.9398989479996089 seconds
+2026-06-07T16:09:59.264Z [proxy] child stderr: 2026-06-07 18:09:59.264 | INFO     | awslabs.aws_api_mcp_server.server:call_aws_helper:315 - Attempting to execute AWS CLI command: aws ec2 describe-images *parameters redacted*
+2026-06-07T16:09:59.265Z [proxy] child stderr: 2026-06-07 18:09:59.264 | WARNING  | awslabs.aws_api_mcp_server.core.security.policy:_load_policy:61 - No security policy file found at /home/apozo/.aws/aws-api-mcp/mcp-security-policy.json, not applying any additional security policies
+2026-06-07T16:09:59.265Z [proxy] child stderr: 2026-06-07 18:09:59.265 | INFO     | awslabs.aws_api_mcp_server.core.metadata.read_only_operations_list:has:81 - checking in read only list : ec2 - DescribeImages
+2026-06-07T16:10:00.638Z [proxy] child stderr: 2026-06-07 18:10:00.638 | INFO     | awslabs.aws_api_mcp_server.core.common.helpers:operation_timer:39 - Interpreting operation ec2.describe_images for region us-east-1
+2026-06-07T16:10:00.793Z [proxy] child stderr: 2026-06-07 18:10:00.793 | INFO     | awslabs.aws_api_mcp_server.core.aws.pagination:build_result:98 - Building pagination result for ec2 DescribeImages with config: {}
+2026-06-07T16:10:02.026Z [proxy] child stderr: 2026-06-07 18:10:02.026 | INFO     | awslabs.aws_api_mcp_server.core.common.helpers:operation_timer:43 - Operation ec2.describe_images interpreted in 1.388418193997495 seconds
+2026-06-07T16:10:06.342Z [proxy] child stderr: 2026-06-07 18:10:06.341 | INFO     | awslabs.aws_api_mcp_server.server:call_aws_helper:315 - Attempting to execute AWS CLI command: aws ec2 run-instances *parameters redacted*
+2026-06-07T16:10:06.342Z [proxy] child stderr: 2026-06-07 18:10:06.342 | WARNING  | awslabs.aws_api_mcp_server.core.security.policy:_load_policy:61 - No security policy file found at /home/apozo/.aws/aws-api-mcp/mcp-security-policy.json, not applying any additional security policies
+2026-06-07T16:10:06.342Z [proxy] child stderr: 2026-06-07 18:10:06.342 | INFO     | awslabs.aws_api_mcp_server.core.metadata.read_only_operations_list:has:81 - checking in read only list : ec2 - RunInstances
+2026-06-07T16:10:07.681Z [proxy] child stderr: 2026-06-07 18:10:07.680 | INFO     | awslabs.aws_api_mcp_server.core.common.helpers:operation_timer:39 - Interpreting operation ec2.run_instances for region us-east-1
+2026-06-07T16:10:13.298Z [proxy] child stderr: 2026-06-07 18:10:13.298 | INFO     | awslabs.aws_api_mcp_server.server:call_aws_helper:315 - Attempting to execute AWS CLI command: aws ec2 run-instances *parameters redacted*
+2026-06-07T16:10:13.298Z [proxy] child stderr: 2026-06-07 18:10:13.298 | WARNING  | awslabs.aws_api_mcp_server.core.security.policy:_load_policy:61 - No security policy file found at /home/apozo/.aws/aws-api-mcp/mcp-security-policy.json, not applying any additional security policies
+2026-06-07T16:10:13.298Z [proxy] child stderr: 2026-06-07 18:10:13.298 | INFO     | awslabs.aws_api_mcp_server.core.metadata.read_only_operations_list:has:81 - checking in read only list : ec2 - RunInstances
+2026-06-07T16:10:14.639Z [proxy] child stderr: 2026-06-07 18:10:14.639 | INFO     | awslabs.aws_api_mcp_server.core.common.helpers:operation_timer:39 - Interpreting operation ec2.run_instances for region us-east-1
+2026-06-07T16:10:16.712Z [proxy] child stderr: 2026-06-07 18:10:16.712 | INFO     | awslabs.aws_api_mcp_server.core.common.helpers:operation_timer:43 - Operation ec2.run_instances interpreted in 2.073104056999 seconds
+2026-06-07T16:10:20.231Z [proxy] child stderr: 2026-06-07 18:10:20.231 | INFO     | awslabs.aws_api_mcp_server.server:call_aws_helper:315 - Attempting to execute AWS CLI command: aws ec2 describe-instances *parameters redacted*
+2026-06-07T16:10:20.231Z [proxy] child stderr: 2026-06-07 18:10:20.231 | WARNING  | awslabs.aws_api_mcp_server.core.security.policy:_load_policy:61 - No security policy file found at /home/apozo/.aws/aws-api-mcp/mcp-security-policy.json, not applying any additional security policies
+2026-06-07T16:10:20.231Z [proxy] child stderr: 2026-06-07 18:10:20.231 | INFO     | awslabs.aws_api_mcp_server.core.metadata.read_only_operations_list:has:81 - checking in read only list : ec2 - DescribeInstances
+2026-06-07T16:10:21.615Z [proxy] child stderr: 2026-06-07 18:10:21.614 | INFO     | awslabs.aws_api_mcp_server.core.common.helpers:operation_timer:39 - Interpreting operation ec2.describe_instances for region us-east-1
+2026-06-07T16:10:21.648Z [proxy] child stderr: 2026-06-07 18:10:21.648 | INFO     | awslabs.aws_api_mcp_server.core.aws.pagination:build_result:98 - Building pagination result for ec2 DescribeInstances with config: {}
+2026-06-07T16:10:22.551Z [proxy] child stderr: 2026-06-07 18:10:22.551 | INFO     | awslabs.aws_api_mcp_server.core.common.helpers:operation_timer:43 - Operation ec2.describe_instances interpreted in 0.9368420190003235 seconds

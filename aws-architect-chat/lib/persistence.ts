@@ -7,6 +7,7 @@ export const PROJECT_EXPLANATION_FILE = 'explanation.md';
 export const PROJECT_MCP_PROMPT_FILE = 'MCP_prompt.md';
 export const PROJECT_WORKFLOW_FILE = 'workflow.json';
 export const PROJECT_METADATA_FILE = 'metadata.json';
+export const PROJECT_DEPLOY_CONTEXT_FILE = 'deploy_context.json';
 
 export type ProjectStatus = 'not_deployed' | 'deployed';
 
@@ -32,12 +33,15 @@ export interface ProjectState {
 
 export interface WorkflowEntry {
   ts: string;
-  type: string;
+  type?: string;
   level?: 'info' | 'success' | 'warning' | 'error';
   message?: string;
   payload?: unknown;
   source?: string;
   projectName?: string;
+  action?: string;
+  resource_state?: unknown;
+  error?: string;
 }
 
 function normalizeProjectName(name: string) {
@@ -265,4 +269,34 @@ export async function appendProjectWorkflow(projectName: string, entries: Workfl
   await fs.writeFile(getWorkflowPath(normalizedName), `${JSON.stringify(mergedEntries, null, 2)}\n`, 'utf8');
 
   return mergedEntries;
+}
+
+export async function readProjectDeployContext(projectName: string): Promise<any[]> {
+  const normalizedName = normalizeProjectName(projectName);
+  const contextPath = path.join(getProjectDir(normalizedName), PROJECT_DEPLOY_CONTEXT_FILE);
+  const raw = await readTextFileIfExists(contextPath);
+  if (!raw.trim()) {
+    return [];
+  }
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return [];
+  }
+}
+
+export async function saveProjectDeployContext(projectName: string, messages: any[]) {
+  const normalizedName = normalizeProjectName(projectName);
+  const contextPath = path.join(getProjectDir(normalizedName), PROJECT_DEPLOY_CONTEXT_FILE);
+  await fs.writeFile(contextPath, JSON.stringify(messages, null, 2), 'utf8');
+}
+
+export async function clearProjectDeployContext(projectName: string) {
+  const normalizedName = normalizeProjectName(projectName);
+  const contextPath = path.join(getProjectDir(normalizedName), PROJECT_DEPLOY_CONTEXT_FILE);
+  try {
+    await fs.unlink(contextPath);
+  } catch {
+    // Ignore if file doesn't exist
+  }
 }

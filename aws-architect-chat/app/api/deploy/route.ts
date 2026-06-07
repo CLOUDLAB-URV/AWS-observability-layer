@@ -1,8 +1,16 @@
 import fs from 'fs';
 import path from 'path';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
-import { streamText, tool, jsonSchema, CoreTool } from 'ai';
-import { readProjectState, sanitizeProjectName, readProjectWorkflow, updateProjectStatus } from '@/lib/persistence';
+import { streamText, tool, jsonSchema, CoreTool, CoreMessage } from 'ai';
+import { 
+  readProjectState, 
+  sanitizeProjectName, 
+  readProjectWorkflow, 
+  updateProjectStatus, 
+  readProjectDeployContext, 
+  saveProjectDeployContext, 
+  clearProjectDeployContext 
+} from '@/lib/persistence';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -33,6 +41,7 @@ export async function POST(req: Request) {
     model?: string;
     projectName?: string;
     action?: 'deploy' | 'teardown';
+    continue?: boolean; // New flag to signal continuation of existing context
   };
 
   const apiKey = process.env.GOOGLE_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
@@ -59,6 +68,7 @@ export async function POST(req: Request) {
   let mcpPrompt = '';
   let systemPrompt = '';
 
+  // Setup prompts
   if (action === 'teardown') {
     const teardownPromptPath = path.join(process.cwd(), 'prompts', 'aws_delete_workflow.md');
     const teardownPromptTemplate = readTextFileIfExists(teardownPromptPath);
@@ -71,6 +81,7 @@ export async function POST(req: Request) {
       'Your absolute priority is to perform a 100% clean teardown of all resources identified in the provided workflow state.',
       'Follow the dependency-aware deletion sequence strictly to avoid errors.',
       'Use the provided tools to execute AWS actions.',
+      'This is a multi-step autonomous workflow. Do not stop until all identified resources are deleted.',
       `Project context: ${normalizedProjectName} (TEARDOWN MODE)`,
     ].join('\n\n');
   } else {
@@ -79,15 +90,44 @@ export async function POST(req: Request) {
     mcpPrompt = projectState.mcpPrompt || readTextFileIfExists(promptFilePath) || readTextFileIfExists(fallbackPromptPath);
     
     systemPrompt = [
-      'You are an expert AWS cloud architect and deployment operator.',
-      'Use the provided tools to provision, verify, and tear down the requested AWS resources.',
+      'You are an expert AWS cloud architect and autonomous deployment operator.',
+      'CRITICAL AGENT INSTRUCTIONS:',
+      '1. You are running in an automated, multi-step continuous loop.',
+      '2. You MUST complete the ENTIRE deployment plan before stopping. Do NOT stop after creating just one resource.',
+      '3. Execute tools sequentially: call a tool, parse its response to get IDs (like VpcId), and immediately use those IDs in your NEXT tool call.',
+      '4. Maintain your own internal state by reading the tool outputs in the conversation history.',
+      '5. Do NOT ask for user confirmation. Do NOT output conversational text between steps. Tool results are your confirmation.',
+      '6. ONLY when the ENTIRE architecture is fully deployed and verified, you MUST output the exact phrase "---DEPLOYMENT_COMPLETE---".',
+      '7. Use the provided tools to provision and verify the requested AWS resources.',
       'Prefer low-cost test resources such as t2.nano or the closest equivalent if the requested type is unavailable.',
-      'Report progress concisely and keep the workflow suitable for real-time logging.',
+      'Report progress only when major milestones are reached or at the very end.',
       `Project context: ${normalizedProjectName}`,
     ].join('\n\n');
   }
 
   try {
+    // Context Management (Option B)
+    let messages: CoreMessage[] = [];
+    
+    if (body.continue) {
+      // Load existing context
+      messages = await readProjectDeployContext(normalizedProjectName) as CoreMessage[];
+      if (messages.length === 0) {
+        // Fallback to start if no context found
+        messages = [{ role: 'user', content: mcpPrompt }];
+      } else {
+        // Add a strong nudge to continue
+        messages.push({ 
+          role: 'user', 
+          content: 'You stopped before finishing. Look at the deployment plan and the resources you already created (check IDs in previous tool results). CONTINUE with the NEXT steps now. Do not stop or talk until the entire architecture is finished and you can say "---DEPLOYMENT_COMPLETE---".' 
+        });
+      }
+    } else {
+      // Start fresh
+      await clearProjectDeployContext(normalizedProjectName);
+      messages = [{ role: 'user', content: mcpPrompt }];
+    }
+
     const proxyTools = await fetchProxyTools();
     const dynamicTools: Record<string, CoreTool> = {};
     
@@ -120,11 +160,17 @@ export async function POST(req: Request) {
     const result = streamText({
       model: selectedModel,
       system: systemPrompt,
-      prompt: mcpPrompt,
+      messages: messages,
       tools: dynamicTools,
-      maxSteps: 15,
-      onFinish: async () => {
+      maxSteps: 20,
+      onFinish: async (event) => {
+        // Save the updated context
+        const updatedMessages = [...messages, ...event.response.messages];
+        await saveProjectDeployContext(normalizedProjectName, updatedMessages);
+
         if (action === 'teardown') {
+          // Only mark as not deployed if we think we finished
+          // For now we keep it simple, but we could check if there are pending resources
           await updateProjectStatus(normalizedProjectName, 'not_deployed', 'teardown');
         } else {
           await updateProjectStatus(normalizedProjectName, 'deployed', 'deploy');

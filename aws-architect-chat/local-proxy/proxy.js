@@ -104,21 +104,41 @@ function extractTelemetryLines(parsed) {
   const structuredContent = parsed && parsed.result && parsed.result.structuredContent;
   if (structuredContent && Array.isArray(structuredContent.result)) {
     for (const item of structuredContent.result) {
-      if (!item) {
+      if (!item || !item.cli_command) {
         continue;
       }
 
-      const command = item.cli_command || item.command || item.name;
-      if (!command) {
-        continue;
+      let resourceState = {};
+      if (item.response) {
+        if (typeof item.response.as_json !== 'undefined') {
+          try {
+            const parsedJson = typeof item.response.as_json === 'string'
+              ? JSON.parse(item.response.as_json)
+              : item.response.as_json;
+
+            if (parsedJson && parsedJson.ResponseMetadata) {
+              delete parsedJson.ResponseMetadata;
+            }
+
+            resourceState = parsedJson;
+          } catch {
+            resourceState = item.response;
+          }
+        } else {
+          resourceState = item.response;
+        }
       }
 
       telemetry.push({
         ts: now(),
         type: 'aws-cli-output',
-        level: item.error ? 'error' : 'info',
-        message: item.error || `Executed ${command}`,
-        payload: item,
+        level: item.error ? 'error' : 'success',
+        message: item.error || `Executed ${item.cli_command}`,
+        payload: {
+          action: item.cli_command,
+          resource_state: resourceState,
+          error: item.error
+        },
       });
     }
   }
