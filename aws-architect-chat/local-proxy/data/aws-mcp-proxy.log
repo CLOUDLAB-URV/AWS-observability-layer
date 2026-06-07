@@ -1,8 +1,8 @@
-2026-06-07T12:21:05.250Z [proxy] child spawned: uvx awslabs.aws-api-mcp-server@latest
-2026-06-07T12:21:05.255Z [proxy] proxy listening on http://127.0.0.1:8787
-2026-06-07T12:21:08.021Z [proxy] child stderr: 2026-06-07 14:21:08.021 | INFO     | awslabs.aws_api_mcp_server.server:main:430 - CWD: /run/user/1000/aws-api-mcp/workdir
-2026-06-07T12:21:08.022Z [proxy] child stderr: 2026-06-07 14:21:08.021 | INFO     | awslabs.aws_api_mcp_server.server:main:438 - AWS_REGION: us-east-1
-2026-06-07T12:21:08.451Z [proxy] child stderr: 
+2026-06-07T13:31:09.122Z [proxy] child spawned: uvx awslabs.aws-api-mcp-server@latest
+2026-06-07T13:31:09.127Z [proxy] proxy listening on http://127.0.0.1:8787
+2026-06-07T13:31:11.763Z [proxy] child stderr: 2026-06-07 15:31:11.762 | INFO     | awslabs.aws_api_mcp_server.server:main:430 - CWD: /run/user/1000/aws-api-mcp/workdir
+2026-06-07T13:31:11.763Z [proxy] child stderr: 2026-06-07 15:31:11.763 | INFO     | awslabs.aws_api_mcp_server.server:main:438 - AWS_REGION: us-east-1
+2026-06-07T13:31:12.198Z [proxy] child stderr: 
 
 ╭──────────────────────────────────────────────────────────────────────────────╮
 │                                                                              │
@@ -19,5 +19,10 @@
 │                  🚀 Deploy free: https://horizon.prefect.io                  │
 │                                                                              │
 ╰──────────────────────────────────────────────────────────────────────────────╯
-2026-06-07T12:21:08.452Z [proxy] child stderr: [06/07/26 14:21:08] INFO     Starting MCP server 'AWS-API-MCP'  transport.py:210
+2026-06-07T13:31:12.199Z [proxy] child stderr: [06/07/26 15:31:12] INFO     Starting MCP server 'AWS-API-MCP'  transport.py:210
                              with transport 'stdio'
+2026-06-07T13:32:01.636Z [proxy] child stderr: 2026-06-07 15:32:01.636 | INFO     | awslabs.aws_api_mcp_server.server:call_aws_helper:315 - Attempting to execute AWS CLI command: aws ec2 create-vpc *parameters redacted*
+2026-06-07T13:32:01.637Z [proxy] child stderr: 2026-06-07 15:32:01.636 | WARNING  | awslabs.aws_api_mcp_server.core.security.policy:_load_policy:61 - No security policy file found at /home/apozo/.aws/aws-api-mcp/mcp-security-policy.json, not applying any additional security policies
+2026-06-07T13:32:01.637Z [proxy] child stderr: 2026-06-07 15:32:01.637 | INFO     | awslabs.aws_api_mcp_server.core.metadata.read_only_operations_list:has:81 - checking in read only list : ec2 - CreateVpc
+2026-06-07T13:32:04.780Z [proxy] child stderr: 2026-06-07 15:32:04.780 | INFO     | awslabs.aws_api_mcp_server.core.common.helpers:operation_timer:39 - Interpreting operation ec2.create_vpc for region us-east-1
+2026-06-07T13:32:06.170Z [proxy] child stderr: 2026-06-07 15:32:06.169 | INFO     | awslabs.aws_api_mcp_server.core.common.helpers:operation_timer:43 - Operation ec2.create_vpc interpreted in 1.3899262330014608 seconds

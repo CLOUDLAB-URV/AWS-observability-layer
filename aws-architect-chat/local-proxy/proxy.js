@@ -245,9 +245,14 @@ function sendChildRequest(method, params, timeoutMs = 60000) {
 
 function normalizeTools(payload) {
   const tools = [];
-  const rawTools = payload && payload.result && (payload.result.tools || payload.result.content || payload.tools);
+  const rawTools = payload && (
+    (payload.result && (payload.result.tools || payload.result.content)) || 
+    payload.tools || 
+    payload.content ||
+    (Array.isArray(payload) ? payload : null)
+  );
 
-  const candidates = Array.isArray(rawTools) ? rawTools : Array.isArray(payload) ? payload : [];
+  const candidates = Array.isArray(rawTools) ? rawTools : [];
   for (const tool of candidates) {
     if (!tool || !tool.name) {
       continue;
@@ -271,7 +276,11 @@ async function getToolDefinitions() {
   }
 
   const response = await sendChildRequest('tools/list', {});
-  toolCache = normalizeTools(response);
+  const tools = normalizeTools(response);
+  if (tools.length > 0) {
+    toolCache = tools;
+  }
+  
   broadcast('status', {
     ts: now(),
     type: 'tools-ready',
@@ -443,7 +452,7 @@ const server = http.createServer(async (req, res) => {
     writeEvent(client, 'status', {
       ts: now(),
       type: 'connected',
-      ok: childReady,
+      ok: childSpawned && !childExited,
       toolsCached: Array.isArray(toolCache) && toolCache.length > 0,
     });
 

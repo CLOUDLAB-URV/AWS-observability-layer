@@ -1,14 +1,12 @@
 import fs from 'fs';
 import path from 'path';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
-import { streamText, tool } from 'ai';
-import { z } from 'zod';
+import { streamText, tool, jsonSchema, CoreTool } from 'ai';
 import { readProjectState, sanitizeProjectName, readProjectWorkflow, updateProjectStatus } from '@/lib/persistence';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
 
-const DEFAULT_MODEL = 'gemini-1.5-flash';
 const PROXY_URL = process.env.AWS_MCP_PROXY_URL || 'http://127.0.0.1:8787';
 
 function readTextFileIfExists(filePath: string) {
@@ -26,18 +24,8 @@ async function fetchProxyTools() {
     throw new Error(`Unable to load proxy tools: ${errorText || response.statusText}`);
   }
 
-  const payload = (await response.json()) as { tools?: Array<{ name?: string; description?: string }> };
-  return Array.isArray(payload.tools) ? payload.tools.filter((toolDefinition) => toolDefinition?.name) : [];
-}
-
-function buildToolCatalogText(tools: Array<{ name?: string; description?: string }>) {
-  if (tools.length === 0) {
-    return 'No AWS MCP tools were returned by the local proxy.';
-  }
-
-  return tools
-    .map((toolDefinition) => `- ${toolDefinition.name}: ${toolDefinition.description || 'AWS MCP tool'}`)
-    .join('\n');
+  const payload = (await response.json()) as { tools?: Array<{ name?: string; description?: string; inputSchema?: any }> };
+  return Array.isArray(payload.tools) ? payload.tools.filter((t) => t?.name) : [];
 }
 
 export async function POST(req: Request) {
@@ -57,11 +45,14 @@ export async function POST(req: Request) {
     return Response.json({ error: 'projectName is required.' }, { status: 400 });
   }
 
+  if (!body.model) {
+    return Response.json({ error: 'A model must be selected from the Model Engine.' }, { status: 400 });
+  }
+
   const action = body.action || 'deploy';
 
   const googleProvider = createGoogleGenerativeAI({ apiKey });
-  const modelId = body.model || DEFAULT_MODEL;
-  const selectedModel = googleProvider(modelId);
+  const selectedModel = googleProvider(body.model);
 
   const projectState = await readProjectState(normalizedProjectName);
   
@@ -79,7 +70,7 @@ export async function POST(req: Request) {
       'You are an expert AWS cloud administrator specializing in resource decommissioning.',
       'Your absolute priority is to perform a 100% clean teardown of all resources identified in the provided workflow state.',
       'Follow the dependency-aware deletion sequence strictly to avoid errors.',
-      'Use the provided AWS MCP proxy tool for all deletions.',
+      'Use the provided tools to execute AWS actions.',
       `Project context: ${normalizedProjectName} (TEARDOWN MODE)`,
     ].join('\n\n');
   } else {
@@ -89,57 +80,60 @@ export async function POST(req: Request) {
     
     systemPrompt = [
       'You are an expert AWS cloud architect and deployment operator.',
-      'Use the provided AWS MCP proxy tool to provision, verify, and tear down the requested AWS resources.',
+      'Use the provided tools to provision, verify, and tear down the requested AWS resources.',
       'Prefer low-cost test resources such as t2.nano or the closest equivalent if the requested type is unavailable.',
       'Report progress concisely and keep the workflow suitable for real-time logging.',
       `Project context: ${normalizedProjectName}`,
     ].join('\n\n');
   }
 
-  const proxyTools = await fetchProxyTools();
-  const toolCatalog = buildToolCatalogText(proxyTools);
+  try {
+    const proxyTools = await fetchProxyTools();
+    const dynamicTools: Record<string, CoreTool> = {};
+    
+    for (const toolDef of proxyTools) {
+      if (!toolDef.name) continue;
 
-  const awsMcp = tool({
-    description: `Proxy any AWS MCP tool through the local MCP bridge. Available tools:\n${toolCatalog}`,
-    inputSchema: z.object({
-      toolName: z.string().min(1),
-      arguments: z.record(z.string(), z.unknown()).default({}),
-    }),
-    execute: async ({ toolName, arguments: toolArguments }) => {
-      const response = await fetch(`${PROXY_URL}/invoke`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ toolName, arguments: toolArguments }),
+      dynamicTools[toolDef.name] = tool({
+        description: toolDef.description || `AWS MCP Tool: ${toolDef.name}`,
+        parameters: jsonSchema(toolDef.inputSchema || {}),
+        execute: async (args) => {
+          const response = await fetch(`${PROXY_URL}/invoke`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ toolName: toolDef.name, arguments: args }),
+          });
+
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            throw new Error(payload.error || `Proxy invocation failed for ${toolDef.name}`);
+          }
+          return payload;
+        },
       });
+    }
 
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(payload.error || `Proxy invocation failed for ${toolName}`);
-      }
+    if (Object.keys(dynamicTools).length === 0) {
+      return Response.json({ error: 'No AWS MCP tools were returned by the local proxy.' }, { status: 500 });
+    }
 
-      return payload;
-    },
-  });
+    const result = streamText({
+      model: selectedModel,
+      system: systemPrompt,
+      prompt: mcpPrompt,
+      tools: dynamicTools,
+      maxSteps: 15,
+      onFinish: async () => {
+        if (action === 'teardown') {
+          await updateProjectStatus(normalizedProjectName, 'not_deployed', 'teardown');
+        } else {
+          await updateProjectStatus(normalizedProjectName, 'deployed', 'deploy');
+        }
+      },
+    });
 
-  const finalSystemPrompt = `${systemPrompt}\n\nAWS MCP tools exposed by the proxy:\n${toolCatalog}`;
-
-  const result = streamText({
-    model: selectedModel,
-    system: finalSystemPrompt,
-    prompt: mcpPrompt,
-    tools: {
-      aws_mcp: awsMcp,
-    },
-    onFinish: async (event) => {
-      // Only update status if there's no error in the final step
-      // or if at least some tools were called successfully (partial deployment is still 'deployed')
-      if (action === 'teardown') {
-        await updateProjectStatus(normalizedProjectName, 'not_deployed', 'teardown');
-      } else {
-        await updateProjectStatus(normalizedProjectName, 'deployed', 'deploy');
-      }
-    },
-  });
-
-  return result.toTextStreamResponse();
+    return result.toTextStreamResponse();
+  } catch (error: any) {
+    return Response.json({ error: error.message || 'Failed to initialize deployment workflow.' }, { status: 500 });
+  }
 }
