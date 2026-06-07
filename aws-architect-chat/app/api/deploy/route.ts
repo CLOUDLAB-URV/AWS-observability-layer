@@ -82,9 +82,6 @@ export async function POST(req: Request) {
       'Use the provided AWS MCP proxy tool for all deletions.',
       `Project context: ${normalizedProjectName} (TEARDOWN MODE)`,
     ].join('\n\n');
-    
-    // Update status to not_deployed
-    await updateProjectStatus(normalizedProjectName, 'not_deployed', 'teardown');
   } else {
     const promptFilePath = path.join(process.cwd(), 'persistence', normalizedProjectName, 'MCP_prompt.md');
     const fallbackPromptPath = path.join(process.cwd(), 'prompts', 'backup.md');
@@ -97,9 +94,6 @@ export async function POST(req: Request) {
       'Report progress concisely and keep the workflow suitable for real-time logging.',
       `Project context: ${normalizedProjectName}`,
     ].join('\n\n');
-
-    // Update status to deployed
-    await updateProjectStatus(normalizedProjectName, 'deployed', 'deploy');
   }
 
   const proxyTools = await fetchProxyTools();
@@ -135,6 +129,15 @@ export async function POST(req: Request) {
     prompt: mcpPrompt,
     tools: {
       aws_mcp: awsMcp,
+    },
+    onFinish: async (event) => {
+      // Only update status if there's no error in the final step
+      // or if at least some tools were called successfully (partial deployment is still 'deployed')
+      if (action === 'teardown') {
+        await updateProjectStatus(normalizedProjectName, 'not_deployed', 'teardown');
+      } else {
+        await updateProjectStatus(normalizedProjectName, 'deployed', 'deploy');
+      }
     },
   });
 

@@ -1,8 +1,8 @@
-2026-06-07T11:43:16.099Z [proxy] child spawned: uvx awslabs.aws-api-mcp-server@latest
-2026-06-07T11:43:16.104Z [proxy] proxy listening on http://127.0.0.1:8787
-2026-06-07T11:43:18.713Z [proxy] child stderr: 2026-06-07 13:43:18.713 | INFO     | awslabs.aws_api_mcp_server.server:main:430 - CWD: /run/user/1000/aws-api-mcp/workdir
-2026-06-07T11:43:18.713Z [proxy] child stderr: 2026-06-07 13:43:18.713 | INFO     | awslabs.aws_api_mcp_server.server:main:438 - AWS_REGION: us-east-1
-2026-06-07T11:43:19.185Z [proxy] child stderr: 
+2026-06-07T12:21:05.250Z [proxy] child spawned: uvx awslabs.aws-api-mcp-server@latest
+2026-06-07T12:21:05.255Z [proxy] proxy listening on http://127.0.0.1:8787
+2026-06-07T12:21:08.021Z [proxy] child stderr: 2026-06-07 14:21:08.021 | INFO     | awslabs.aws_api_mcp_server.server:main:430 - CWD: /run/user/1000/aws-api-mcp/workdir
+2026-06-07T12:21:08.022Z [proxy] child stderr: 2026-06-07 14:21:08.021 | INFO     | awslabs.aws_api_mcp_server.server:main:438 - AWS_REGION: us-east-1
+2026-06-07T12:21:08.451Z [proxy] child stderr: 
 
 ╭──────────────────────────────────────────────────────────────────────────────╮
 │                                                                              │
@@ -19,5 +19,5 @@
 │                  🚀 Deploy free: https://horizon.prefect.io                  │
 │                                                                              │
 ╰──────────────────────────────────────────────────────────────────────────────╯
-2026-06-07T11:43:19.186Z [proxy] child stderr: [06/07/26 13:43:19] INFO     Starting MCP server 'AWS-API-MCP'  transport.py:210
+2026-06-07T12:21:08.452Z [proxy] child stderr: [06/07/26 14:21:08] INFO     Starting MCP server 'AWS-API-MCP'  transport.py:210
                              with transport 'stdio'

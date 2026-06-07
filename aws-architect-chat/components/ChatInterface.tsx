@@ -402,11 +402,17 @@ export default function ChatInterface() {
       }
 
       if (currentRun === deploymentRunRef.current) {
-        const nextStatus = action === 'deploy' ? 'deployed' : 'not_deployed';
-        setCurrentProjectDeploymentStatus(nextStatus);
-        
-        // Update the project in the list too
-        setProjects(prev => prev.map(p => p.name === selectedProject ? { ...p, status: nextStatus } : p));
+        // Wait a small bit for the server-side updateProjectStatus to potentially complete
+        // then refresh the project info from the server to be absolutely sure
+        setTimeout(async () => {
+          try {
+            const projectState = await loadProject(selectedProject);
+            setCurrentProjectDeploymentStatus(projectState.status);
+            setProjects(prev => prev.map(p => p.name === selectedProject ? { ...p, status: projectState.status } : p));
+          } catch (e) {
+            console.error('Failed to sync project status:', e);
+          }
+        }, 1000);
         
         setDeploymentStatus(`${action === 'deploy' ? 'Deployment' : 'Teardown'} finished.`);
         pushDeploymentLog(createWorkflowEntry('deployment-finished', `${action === 'deploy' ? 'Deployment' : 'Teardown'} finished for ${selectedProject}`, 'success'));

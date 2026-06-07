@@ -1,4 +1,5 @@
-{"ts":"2026-06-07T11:44:15.533Z","request":{"jsonrpc":"2.0","id":"2d3b025a-9c3e-4ca9-87c2-558f3fa30f50","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"aws-architect-chat-local-proxy","version":"0.1.0"}}}}
-{"ts":"2026-06-07T11:44:15.535Z","request":{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}}
-{"ts":"2026-06-07T11:44:15.535Z","request":{"jsonrpc":"2.0","id":"608d214b-6ffe-43cd-8983-0efb919af1b8","method":"tools/list","params":{}}}
-{"ts":"2026-06-07T11:45:32.369Z","request":{"jsonrpc":"2.0","id":"18339698-6600-4c7e-87b7-f4021f29d80f","method":"tools/list","params":{}}}
+{"ts":"2026-06-07T12:48:18.935Z","request":{"jsonrpc":"2.0","id":"f2ffd123-acae-4224-abff-eb969ab741e4","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"aws-architect-chat-local-proxy","version":"0.1.0"}}}}
+{"ts":"2026-06-07T12:48:18.938Z","request":{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}}
+{"ts":"2026-06-07T12:48:18.938Z","request":{"jsonrpc":"2.0","id":"3167ff2d-6103-4894-aeaf-27213d84c70a","method":"tools/list","params":{}}}
+{"ts":"2026-06-07T12:48:25.517Z","request":{"jsonrpc":"2.0","id":"2bd9595c-055c-477d-90dc-571241c54d20","method":"tools/call","params":{"name":"sts_get_caller_identity","arguments":{"toolName":"sts_get_caller_identity"}}}}
+{"ts":"2026-06-07T12:53:25.596Z","request":{"jsonrpc":"2.0","id":"ef46c74c-cc2b-476b-b335-5ac1a0563fa2","method":"tools/list","params":{}}}
