@@ -15,6 +15,8 @@ const CHILD_ARGS = process.env.AWS_MCP_ARGS
   : ['awslabs.aws-api-mcp-server@latest'];
 const DATA_DIR = path.join(__dirname, 'data');
 const LOG_FILE = path.join(DATA_DIR, 'aws-mcp-proxy.log');
+const REQUESTS_LOG = path.join(DATA_DIR, 'mcp_requests.json');
+const RESPONSES_LOG = path.join(DATA_DIR, 'mcp_responses.json');
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'content-type',
@@ -23,6 +25,8 @@ const CORS_HEADERS = {
 
 mkdirSync(DATA_DIR, { recursive: true });
 writeFileSync(LOG_FILE, '');
+writeFileSync(REQUESTS_LOG, '');
+writeFileSync(RESPONSES_LOG, '');
 
 function now() {
   return new Date().toISOString();
@@ -37,6 +41,33 @@ function writeLog(message) {
   }
   process.stderr.write(`${line}\n`);
   broadcast('log', { ts: now(), type: 'log', level: 'info', message });
+}
+
+function writeRequestLog(request) {
+  try {
+    const entry = { ts: now(), request };
+    appendFileSync(REQUESTS_LOG, `${JSON.stringify(entry)}\n`);
+  } catch {
+    // Ignore log write failures.
+  }
+}
+
+function writeResponseLog(response) {
+  try {
+    const entry = { ts: now(), response };
+    appendFileSync(RESPONSES_LOG, `${JSON.stringify(entry)}\n`);
+  } catch {
+    // Ignore log write failures.
+  }
+}
+
+function writeRawResponseLog(raw) {
+  try {
+    const entry = { ts: now(), raw };
+    appendFileSync(RESPONSES_LOG, `${JSON.stringify(entry)}\n`);
+  } catch {
+    // Ignore log write failures.
+  }
 }
 
 function writeEvent(res, event, payload) {
@@ -125,11 +156,13 @@ function sendChildNotification(method, params) {
   }
 
   try {
-    childProcess.stdin.write(`${JSON.stringify({
+    const payload = {
       jsonrpc: '2.0',
       method,
       params,
-    })}\n`);
+    };
+    writeRequestLog(payload);
+    childProcess.stdin.write(`${JSON.stringify(payload)}\n`);
     return Promise.resolve();
   } catch (error) {
     return Promise.reject(error);
@@ -194,6 +227,7 @@ function sendChildRequest(method, params, timeoutMs = 60000) {
     });
 
     try {
+      writeRequestLog(request);
       childProcess.stdin.write(`${JSON.stringify(request)}\n`);
       broadcast('status', {
         ts: now(),
@@ -255,7 +289,9 @@ function handleChildLine(line) {
 
   try {
     parsed = JSON.parse(line);
+    writeResponseLog(parsed);
   } catch {
+    writeRawResponseLog(line);
     broadcast('log', {
       ts: now(),
       type: 'raw-log',
