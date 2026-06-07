@@ -1,0 +1,24 @@
+2026-06-07T10:30:28.880Z [proxy] child spawned: uvx awslabs.aws-api-mcp-server@latest
+2026-06-07T10:30:28.885Z [proxy] proxy listening on http://127.0.0.1:8787
+2026-06-07T10:30:31.401Z [proxy] child stderr: 2026-06-07 12:30:31.401 | INFO     | awslabs.aws_api_mcp_server.server:main:430 - CWD: /run/user/1000/aws-api-mcp/workdir
+2026-06-07T10:30:31.401Z [proxy] child stderr: 2026-06-07 12:30:31.401 | INFO     | awslabs.aws_api_mcp_server.server:main:438 - AWS_REGION: us-east-1
+2026-06-07T10:30:31.880Z [proxy] child stderr: 
+
+╭──────────────────────────────────────────────────────────────────────────────╮
+│                                                                              │
+│                                                                              │
+│                         ▄▀▀ ▄▀█ █▀▀ ▀█▀ █▀▄▀█ █▀▀ █▀█                        │
+│                         █▀  █▀█ ▄▄█  █  █ ▀ █ █▄▄ █▀▀                        │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                FastMCP 3.4.2                                 │
+│                            https://gofastmcp.com                             │
+│                                                                              │
+│                  🖥  Server:      AWS-API-MCP, 3.4.2                          │
+│                  🚀 Deploy free: https://horizon.prefect.io                  │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+2026-06-07T10:30:31.881Z [proxy] child stderr: [06/07/26 12:30:31] INFO     Starting MCP server 'AWS-API-MCP'  transport.py:210
+                             with transport 'stdio'
+2026-06-07T10:55:51.754Z [proxy] received SIGINT, shutting down

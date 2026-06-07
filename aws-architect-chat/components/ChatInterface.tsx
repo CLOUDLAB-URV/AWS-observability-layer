@@ -1,7 +1,7 @@
 'use client';
 
 import { useCompletion } from '@ai-sdk/react';
-import { Send, Terminal, Loader2, Settings2, Code2, MessageSquare, ChevronDown, FolderPlus, Trash2 } from 'lucide-react';
+import { Send, Terminal, Loader2, Settings2, Code2, MessageSquare, ChevronDown, FolderPlus, Trash2, Rocket, ServerCog, CircleAlert, Activity } from 'lucide-react';
 import { useEffect, useMemo, useState, useRef, useCallback, useSyncExternalStore } from 'react';
 import D2DiagramViewport from '@/components/D2DiagramViewport';
 
@@ -21,6 +21,20 @@ interface ProjectState {
   explanation: string;
   mcpPrompt: string;
 }
+
+interface WorkflowEntry {
+  ts: string;
+  type: string;
+  level?: 'info' | 'success' | 'warning' | 'error';
+  message?: string;
+  payload?: unknown;
+  source?: string;
+  projectName?: string;
+}
+
+const DEFAULT_PROXY_URL = process.env.NEXT_PUBLIC_AWS_MCP_PROXY_URL || 'http://127.0.0.1:8787';
+const PROXY_HEALTH_TIMEOUT_MS = 5000;
+const MAX_DEPLOYMENT_LOGS = 120;
 
 const SENTINEL = '---===D2_END===---';
 const EXPLANATION_SENTINEL = '---===EXPLANATION_END===---';
@@ -136,6 +150,36 @@ async function deleteProject(projectName: string): Promise<void> {
   }
 }
 
+async function appendWorkflowEntry(projectName: string, entry: WorkflowEntry): Promise<void> {
+  if (!projectName) {
+    return;
+  }
+
+  await fetch(`/api/projects/${encodeURIComponent(projectName)}/workflow`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ entry }),
+  });
+}
+
+function formatWorkflowEntry(entry: WorkflowEntry) {
+  const timestamp = entry.ts ? new Date(entry.ts).toLocaleTimeString() : new Date().toLocaleTimeString();
+  const message = entry.message || (typeof entry.payload === 'string' ? entry.payload : '');
+  const payloadText = message || (entry.payload ? JSON.stringify(entry.payload, null, 2) : '');
+
+  return `[${timestamp}] ${entry.type}${payloadText ? `\n${payloadText}` : ''}`;
+}
+
+function createWorkflowEntry(type: string, message: string, level: WorkflowEntry['level'] = 'info', payload?: unknown): WorkflowEntry {
+  return {
+    ts: new Date().toISOString(),
+    type,
+    message,
+    level,
+    payload,
+  };
+}
+
 export default function ChatInterface() {
   const [availableModels, setAvailableModels] = useState<Model[]>([]);
   const [selectedModel, setSelectedModel] = useState('gemini-1.5-flash');
@@ -150,16 +194,22 @@ export default function ChatInterface() {
   const [isD2Dirty, setIsD2Dirty] = useState(false);
   const [activeD2View, setActiveD2View] = useState<'code' | 'diagram'>('diagram');
   const [codePaneWidthPercent, setCodePaneWidthPercent] = useState(52);
+  const [isDeploying, setIsDeploying] = useState(false);
+  const [deploymentStatus, setDeploymentStatus] = useState('');
+  const [deploymentError, setDeploymentError] = useState('');
+  const [deploymentLogs, setDeploymentLogs] = useState<WorkflowEntry[]>([]);
 
   const splitContainerRef = useRef<HTMLDivElement>(null);
   const projectMenuRef = useRef<HTMLDivElement>(null);
   const d2TextareaRef = useRef<HTMLTextAreaElement>(null);
+  const deploymentEventSourceRef = useRef<EventSource | null>(null);
   const isDraggingRef = useRef(false);
   const dragStartXRef = useRef(0);
   const dragStartWidthRef = useRef(52);
   const containerWidthRef = useRef(0);
   const rafRef = useRef<number | null>(null);
   const lastSavedSignatureRef = useRef('');
+  const deploymentRunRef = useRef(0);
 
   const { complete, completion, isLoading, input, handleInputChange, setInput, setCompletion } = useCompletion({
     api: '/api/chat',
@@ -171,10 +221,195 @@ export default function ChatInterface() {
   const explanation = parsedResponse.explanation;
   const mcpPrompt = parsedResponse.mcpPrompt;
   const isDesktop = useSyncExternalStore(subscribeDesktopMediaQuery, getDesktopSnapshot, () => false);
+  const proxyHealthUrl = `${DEFAULT_PROXY_URL}/health`;
+  const proxyEventsUrl = `${DEFAULT_PROXY_URL}/events?projectName=${encodeURIComponent(selectedProject || '')}`;
 
   const currentSignature = `${selectedProject}\n${d2Code}\n${explanation}\n${mcpPrompt}`;
 
   const closeProjectMenu = useCallback(() => setIsProjectMenuOpen(false), []);
+
+  const closeDeploymentStream = useCallback(() => {
+    if (deploymentEventSourceRef.current) {
+      deploymentEventSourceRef.current.close();
+      deploymentEventSourceRef.current = null;
+    }
+  }, []);
+
+  const persistDeploymentLog = useCallback(
+    async (entry: WorkflowEntry) => {
+      if (!selectedProject) {
+        return;
+      }
+
+      try {
+        await appendWorkflowEntry(selectedProject, {
+          ...entry,
+          projectName: selectedProject,
+        });
+      } catch (error) {
+        console.error('Failed to persist deployment log:', error);
+      }
+    },
+    [selectedProject],
+  );
+
+  const pushDeploymentLog = useCallback(
+    (entry: WorkflowEntry) => {
+      setDeploymentLogs((currentLogs) => {
+        const nextLogs = [...currentLogs, entry];
+        return nextLogs.slice(-MAX_DEPLOYMENT_LOGS);
+      });
+      void persistDeploymentLog(entry);
+    },
+    [persistDeploymentLog],
+  );
+
+  const validateProxy = useCallback(async () => {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), PROXY_HEALTH_TIMEOUT_MS);
+
+    try {
+      const response = await fetch(proxyHealthUrl, { signal: controller.signal });
+      if (!response.ok) {
+        throw new Error('Local AWS deployment proxy is unavailable. Start the proxy before deploying.');
+      }
+
+      const payload = (await response.json().catch(() => ({}))) as { ok?: boolean };
+      if (!payload.ok) {
+        throw new Error('Local AWS deployment proxy is not ready. Start the proxy before deploying.');
+      }
+    } catch (error) {
+      const message = error instanceof Error && error.name === 'AbortError'
+        ? 'Local AWS deployment proxy did not respond in time. Start the proxy before deploying.'
+        : error instanceof Error
+          ? error.message
+          : 'Local AWS deployment proxy is not reachable. Start the proxy before deploying.';
+      throw new Error(message);
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+  }, [proxyHealthUrl]);
+
+  const handleDeploymentEvent = useCallback(
+    (eventName: string, data: string) => {
+      try {
+        const parsed = JSON.parse(data) as WorkflowEntry & { type?: string };
+        const entry: WorkflowEntry = {
+          ts: parsed.ts || new Date().toISOString(),
+          type: parsed.type || eventName,
+          level: parsed.level,
+          message: parsed.message,
+          payload: parsed.payload,
+          source: parsed.source,
+          projectName: parsed.projectName || selectedProject,
+        };
+
+        if (!entry.message && entry.payload && typeof entry.payload === 'object') {
+          entry.message = JSON.stringify(entry.payload, null, 2);
+        }
+
+        setDeploymentStatus(entry.message || entry.type);
+        if (entry.level === 'error') {
+          setDeploymentError(entry.message || 'Deployment reported an error.');
+        }
+
+        pushDeploymentLog(entry);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const fallbackEntry = createWorkflowEntry(eventName, message, 'warning', data);
+        pushDeploymentLog(fallbackEntry);
+      }
+    },
+    [pushDeploymentLog, selectedProject],
+  );
+
+  const handleDeploymentConnect = useCallback(() => {
+    if (!selectedProject) {
+      return;
+    }
+
+    closeDeploymentStream();
+
+    const source = new EventSource(proxyEventsUrl);
+    deploymentEventSourceRef.current = source;
+
+    source.addEventListener('status', (event) => {
+      const messageEvent = event as MessageEvent;
+      handleDeploymentEvent('status', messageEvent.data);
+    });
+
+    source.addEventListener('log', (event) => {
+      const messageEvent = event as MessageEvent;
+      handleDeploymentEvent('log', messageEvent.data);
+    });
+
+    source.addEventListener('mcp', (event) => {
+      const messageEvent = event as MessageEvent;
+      handleDeploymentEvent('mcp', messageEvent.data);
+    });
+
+    source.onerror = () => {
+      if (deploymentRunRef.current > 0) {
+        setDeploymentError('The deployment log stream disconnected. Reconnect the local proxy and retry.');
+      }
+    };
+  }, [closeDeploymentStream, handleDeploymentEvent, proxyEventsUrl, selectedProject]);
+
+  const handleDeployToAws = useCallback(async () => {
+    if (!selectedProject) {
+      setDeploymentError('Select a project before deploying to AWS.');
+      return;
+    }
+
+    deploymentRunRef.current += 1;
+    const currentRun = deploymentRunRef.current;
+
+    setDeploymentLogs([]);
+    setDeploymentError('');
+    setDeploymentStatus('Checking local proxy...');
+    setIsDeploying(true);
+
+    try {
+      await validateProxy();
+      setDeploymentStatus('Connecting to deployment stream...');
+      handleDeploymentConnect();
+
+      pushDeploymentLog(createWorkflowEntry('deployment-started', `Deploying project ${selectedProject} to AWS`, 'info', { projectName: selectedProject }));
+
+      const response = await fetch('/api/deploy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectName: selectedProject,
+          model: selectedModel,
+        }),
+      });
+
+      const responseText = await response.text();
+      if (!response.ok) {
+        throw new Error(responseText || 'Deployment request failed.');
+      }
+
+      if (responseText.trim()) {
+        pushDeploymentLog(createWorkflowEntry('llm-summary', responseText.trim(), 'success'));
+      }
+
+      if (currentRun === deploymentRunRef.current) {
+        setDeploymentStatus('Deployment finished.');
+        pushDeploymentLog(createWorkflowEntry('deployment-finished', `Deployment finished for ${selectedProject}`, 'success'));
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Deployment failed.';
+      setDeploymentError(message);
+      setDeploymentStatus('Deployment failed.');
+      pushDeploymentLog(createWorkflowEntry('deployment-error', message, 'error'));
+    } finally {
+      if (currentRun === deploymentRunRef.current) {
+        setIsDeploying(false);
+        closeDeploymentStream();
+      }
+    }
+  }, [closeDeploymentStream, handleDeploymentConnect, pushDeploymentLog, selectedModel, selectedProject, validateProxy]);
 
   const refreshProjectList = useCallback(async () => {
     const nextProjects = await fetchProjects();
@@ -234,13 +469,29 @@ export default function ChatInterface() {
   }, [loadProjectIntoEditor, refreshProjectList, selectedProject]);
 
   useEffect(() => {
-    ensureInitialProject().catch((error) => {
-      console.error(error);
-      setProjectStatus('Failed to initialize projects');
-    }).finally(() => {
-      setIsLoadingProjects(false);
-    });
+    let isActive = true;
+
+    void (async () => {
+      try {
+        await ensureInitialProject();
+      } catch (error) {
+        console.error(error);
+        if (isActive) {
+          setProjectStatus('Failed to initialize projects');
+        }
+      } finally {
+        if (isActive) {
+          setIsLoadingProjects(false);
+        }
+      }
+    })();
+
+    return () => {
+      isActive = false;
+    };
   }, [ensureInitialProject]);
+
+  useEffect(() => () => closeDeploymentStream(), [closeDeploymentStream]);
 
   useEffect(() => {
     if (isLoadingProjects || isProjectActionPending || !selectedProject) {
@@ -252,13 +503,13 @@ export default function ChatInterface() {
         return;
       }
 
-      persistActiveProject(selectedProject, d2Code, explanation).catch((error) => {
+      persistActiveProject(selectedProject, d2Code, explanation, mcpPrompt).catch((error) => {
         console.error('Failed to persist project state:', error);
       });
     }, 700);
 
     return () => window.clearTimeout(timeoutId);
-  }, [currentSignature, d2Code, explanation, isLoadingProjects, isProjectActionPending, persistActiveProject, selectedProject]);
+  }, [currentSignature, d2Code, explanation, isLoadingProjects, isProjectActionPending, persistActiveProject, selectedProject, mcpPrompt]);
 
   useEffect(() => {
     const handlePointerDown = (event: MouseEvent) => {
@@ -328,7 +579,7 @@ export default function ChatInterface() {
     } finally {
       setIsProjectActionPending(false);
     }
-  }, [closeProjectMenu, d2Code, explanation, loadProjectIntoEditor, persistActiveProject, refreshProjectList, selectedProject]);
+  }, [closeProjectMenu, d2Code, explanation, loadProjectIntoEditor, mcpPrompt, persistActiveProject, refreshProjectList, selectedProject]);
 
   const adjustTextareaHeight = useCallback(() => {
     const textarea = d2TextareaRef.current;
@@ -451,7 +702,7 @@ export default function ChatInterface() {
   };
 
   return (
-    <div className="flex min-h-[100dvh] flex-col bg-white pt-16">
+    <div className={`flex min-h-[100dvh] flex-col pt-16 transition-colors duration-300 ${isDeploying ? 'bg-gradient-to-br from-orange-50 via-white to-amber-50' : 'bg-white'}`}>
 
       {/* Model Selector */}
       <div className="bg-white border-b border-slate-200 py-2 px-4 shrink-0 z-20">
@@ -530,10 +781,19 @@ export default function ChatInterface() {
             )}
           </div>
 
-          <div className="flex min-w-0 items-center gap-4">
+          <div className="flex min-w-0 items-center gap-3">
             <div className="hidden min-w-0 items-center gap-2 text-xs text-slate-400 md:flex">
-              <span className="truncate">{projectStatus || 'Local persistence enabled'}</span>
+              <span className="truncate">{projectStatus || (isDeploying ? 'Deploying to AWS...' : 'Local persistence enabled')}</span>
             </div>
+            <button
+              type="button"
+              onClick={() => handleDeployToAws().catch((error) => console.error(error))}
+              disabled={!selectedProject || isLoadingProjects || isProjectActionPending || isDeploying}
+              className="inline-flex items-center gap-2 rounded-xl border border-orange-200 bg-orange-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-orange-500/20 transition-transform hover:-translate-y-0.5 hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isDeploying ? <Activity className="h-4 w-4 animate-pulse" /> : <Rocket className="h-4 w-4" />}
+              Deploy to AWS
+            </button>
             <div className="flex items-center gap-2 text-slate-500">
               <Settings2 className="w-4 h-4" />
               <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Model Engine</span>
@@ -556,10 +816,10 @@ export default function ChatInterface() {
       >
         {/* D2 Pane */}
         <div
-          className="flex flex-col bg-slate-50 border-b border-slate-200 lg:border-b-0 lg:min-h-0"
+          className={`flex flex-col border-b lg:border-b-0 lg:min-h-0 ${isDeploying ? 'border-orange-200 bg-gradient-to-b from-orange-50 to-slate-50' : 'border-slate-200 bg-slate-50'}`}
           style={isDesktop ? { width: `${codePaneWidthPercent}%`, minWidth: `${MIN_PANE_WIDTH_PERCENT}%` } : undefined}
         >
-          <div className="flex items-center justify-between px-6 py-4 bg-slate-50 border-b border-slate-200 shrink-0">
+          <div className={`flex items-center justify-between px-6 py-4 shrink-0 ${isDeploying ? 'bg-orange-50 border-b border-orange-100' : 'bg-slate-50 border-b border-slate-200'}`}>
             <div className="flex items-center gap-2">
               <Code2 className="w-4 h-4 text-orange-600" />
               <span className="text-[11px] font-bold text-slate-700 uppercase tracking-widest">D2 Infrastructure Code</span>
@@ -608,7 +868,7 @@ export default function ChatInterface() {
             />
           ) : (
             <div className="min-h-[320px] lg:min-h-0 lg:flex-1">
-              <D2DiagramViewport d2Code={d2Code} />
+              <D2DiagramViewport d2Code={d2Code} isDeploying={isDeploying} />
             </div>
           )}
         </div>
@@ -628,10 +888,10 @@ export default function ChatInterface() {
 
         {/* Explanation Pane */}
         <div
-          className="flex flex-col bg-white lg:min-h-0"
+          className={`flex flex-col lg:min-h-0 ${isDeploying ? 'bg-gradient-to-b from-white to-orange-50' : 'bg-white'}`}
           style={isDesktop ? { width: `${100 - codePaneWidthPercent}%`, minWidth: `${MIN_PANE_WIDTH_PERCENT}%` } : undefined}
         >
-          <div className="flex items-center gap-2 px-6 py-4 bg-white border-b border-slate-100 shrink-0">
+          <div className={`flex items-center gap-2 px-6 py-4 shrink-0 ${isDeploying ? 'bg-orange-50 border-b border-orange-100' : 'bg-white border-b border-slate-100'}`}>
             <MessageSquare className="w-4 h-4 text-orange-500" />
             <span className="text-[11px] font-bold text-slate-800 uppercase tracking-widest">Architectural Explanation</span>
           </div>
@@ -654,6 +914,39 @@ export default function ChatInterface() {
                 <span className="text-[10px] font-bold uppercase tracking-tighter">Architecting Solution...</span>
               </div>
             )}
+
+            <div className={`rounded-3xl border shadow-[0_20px_60px_rgba(15,23,42,0.12)] ${isDeploying ? 'border-orange-200 bg-slate-950 text-orange-50' : 'border-slate-200 bg-slate-950 text-slate-100'}`}>
+              <div className={`flex items-center justify-between border-b px-4 py-3 text-[10px] font-bold uppercase tracking-[0.28em] ${isDeploying ? 'border-orange-500/20 text-orange-200' : 'border-white/10 text-slate-300'}`}>
+                <span className="flex items-center gap-2">
+                  <ServerCog className={`h-4 w-4 ${isDeploying ? 'text-orange-300' : 'text-orange-400'}`} />
+                  Deployment Terminal
+                </span>
+                <span className="max-w-[45%] truncate text-right">{deploymentStatus || (isDeploying ? 'Streaming logs...' : 'Idle')}</span>
+              </div>
+              <div className="max-h-64 overflow-y-auto px-4 py-3 font-mono text-[12px] leading-6">
+                {deploymentError ? (
+                  <div className="mb-3 flex items-start gap-2 rounded-2xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-red-200">
+                    <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span>{deploymentError}</span>
+                  </div>
+                ) : null}
+
+                {deploymentLogs.length > 0 ? (
+                  deploymentLogs.slice(-MAX_DEPLOYMENT_LOGS).map((entry, index) => (
+                    <pre
+                      key={`${entry.ts}-${entry.type}-${index}`}
+                      className={`whitespace-pre-wrap break-words rounded-xl px-3 py-2 ${entry.level === 'error' ? 'text-red-200' : entry.level === 'success' ? 'text-emerald-200' : entry.level === 'warning' ? 'text-amber-200' : 'text-slate-100'}`}
+                    >
+                      {formatWorkflowEntry(entry)}
+                    </pre>
+                  ))
+                ) : (
+                  <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-3 text-slate-400">
+                    Deploy to AWS to stream live MCP output here.
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
 
           {/* Input area: fixed to viewport bottom on mobile/tablet, anchored pane-bottom on desktop. */}

@@ -5,6 +5,7 @@ export const PERSISTENCE_ROOT = path.join(process.cwd(), 'persistence');
 export const PROJECT_DIAGRAM_FILE = 'diagram.d2';
 export const PROJECT_EXPLANATION_FILE = 'explanation.md';
 export const PROJECT_MCP_PROMPT_FILE = 'MCP_prompt.md';
+export const PROJECT_WORKFLOW_FILE = 'workflow.json';
 
 export interface ProjectSummary {
   name: string;
@@ -18,6 +19,16 @@ export interface ProjectState {
   mcpPrompt: string;
 }
 
+export interface WorkflowEntry {
+  ts: string;
+  type: string;
+  level?: 'info' | 'success' | 'warning' | 'error';
+  message?: string;
+  payload?: unknown;
+  source?: string;
+  projectName?: string;
+}
+
 function normalizeProjectName(name: string) {
   const cleaned = name
     .replace(/[\\/<>:"|?*\x00-\x1F]/g, '-')
@@ -29,6 +40,10 @@ function normalizeProjectName(name: string) {
 
 function getProjectDir(projectName: string) {
   return path.join(PERSISTENCE_ROOT, normalizeProjectName(projectName));
+}
+
+function getWorkflowPath(projectName: string) {
+  return path.join(getProjectDir(projectName), PROJECT_WORKFLOW_FILE);
 }
 
 async function ensureRoot() {
@@ -46,6 +61,20 @@ async function readTextFileIfExists(filePath: string) {
   }
 }
 
+async function readJsonArrayIfExists(filePath: string) {
+  const raw = await readTextFileIfExists(filePath);
+  if (!raw.trim()) {
+    return [] as WorkflowEntry[];
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as WorkflowEntry[]) : [];
+  } catch {
+    return [];
+  }
+}
+
 export async function listProjectSummaries(): Promise<ProjectSummary[]> {
   await ensureRoot();
   const entries = await fs.readdir(PERSISTENCE_ROOT, { withFileTypes: true });
@@ -60,9 +89,10 @@ export async function listProjectSummaries(): Promise<ProjectSummary[]> {
     const diagramPath = path.join(projectPath, PROJECT_DIAGRAM_FILE);
     const explanationPath = path.join(projectPath, PROJECT_EXPLANATION_FILE);
     const mcpPath = path.join(projectPath, PROJECT_MCP_PROMPT_FILE);
+    const workflowPath = path.join(projectPath, PROJECT_WORKFLOW_FILE);
 
     let updatedAt: string | null = null;
-    for (const candidatePath of [diagramPath, explanationPath, mcpPath]) {
+    for (const candidatePath of [diagramPath, explanationPath, mcpPath, workflowPath]) {
       try {
         const stats = await fs.stat(candidatePath);
         updatedAt = stats.mtime.toISOString();
@@ -119,6 +149,7 @@ export async function createProject(projectName: string): Promise<ProjectState> 
     fs.writeFile(path.join(projectPath, PROJECT_DIAGRAM_FILE), '', 'utf8'),
     fs.writeFile(path.join(projectPath, PROJECT_EXPLANATION_FILE), '', 'utf8'),
     fs.writeFile(path.join(projectPath, PROJECT_MCP_PROMPT_FILE), '', 'utf8'),
+    fs.writeFile(path.join(projectPath, PROJECT_WORKFLOW_FILE), '[]\n', 'utf8'),
   ]);
 
   return {
@@ -151,4 +182,24 @@ export async function deleteProject(projectName: string) {
 
 export function sanitizeProjectName(projectName: string) {
   return normalizeProjectName(projectName);
+}
+
+export async function readProjectWorkflow(projectName: string): Promise<WorkflowEntry[]> {
+  await ensureRoot();
+  return readJsonArrayIfExists(getWorkflowPath(normalizeProjectName(projectName)));
+}
+
+export async function appendProjectWorkflow(projectName: string, entries: WorkflowEntry | WorkflowEntry[]) {
+  await ensureRoot();
+
+  const normalizedName = normalizeProjectName(projectName);
+  const nextEntries = Array.isArray(entries) ? entries : [entries];
+  const currentEntries = await readProjectWorkflow(normalizedName);
+  const mergedEntries = [...currentEntries, ...nextEntries];
+
+  const projectPath = getProjectDir(normalizedName);
+  await fs.mkdir(projectPath, { recursive: true });
+  await fs.writeFile(getWorkflowPath(normalizedName), `${JSON.stringify(mergedEntries, null, 2)}\n`, 'utf8');
+
+  return mergedEntries;
 }

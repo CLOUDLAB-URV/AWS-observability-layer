@@ -1,16 +1,18 @@
+/* eslint-disable @next/next/no-img-element */
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 interface D2DiagramViewportProps {
   d2Code: string;
+  isDeploying?: boolean;
 }
 
 const MIN_SCALE = 0.2;
 const MAX_SCALE = 6;
 const ZOOM_INTENSITY = 0.1;
 
-export default function D2DiagramViewport({ d2Code }: D2DiagramViewportProps) {
+export default function D2DiagramViewport({ d2Code, isDeploying = false }: D2DiagramViewportProps) {
   const stageRef = useRef<HTMLDivElement>(null);
   const layerRef = useRef<HTMLDivElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
@@ -26,14 +28,14 @@ export default function D2DiagramViewport({ d2Code }: D2DiagramViewportProps) {
   const [isRendering, setIsRendering] = useState(false);
   const [error, setError] = useState('');
 
-  const applyTransform = () => {
+  const applyTransform = useCallback(() => {
     const layer = layerRef.current;
     if (!layer) return;
 
     layer.style.transform = `translate(${pointRef.current.x}px, ${pointRef.current.y}px) scale(${scaleRef.current})`;
-  };
+  }, []);
 
-  const scheduleTransform = () => {
+  const scheduleTransform = useCallback(() => {
     if (rafRef.current) {
       cancelAnimationFrame(rafRef.current);
     }
@@ -41,7 +43,7 @@ export default function D2DiagramViewport({ d2Code }: D2DiagramViewportProps) {
     rafRef.current = requestAnimationFrame(() => {
       applyTransform();
     });
-  };
+  }, [applyTransform]);
 
   const resetAndFit = () => {
     const stage = stageRef.current;
@@ -135,19 +137,25 @@ export default function D2DiagramViewport({ d2Code }: D2DiagramViewportProps) {
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
     };
-  }, []);
+  }, [scheduleTransform]);
 
   useEffect(() => {
     const trimmed = d2Code.trim();
     if (!trimmed) {
-      setPngSrc('');
-      setError('The selected D2 code is empty. Add D2 text to render the diagram.');
-      return;
+      const timeoutId = window.setTimeout(() => {
+        setPngSrc('');
+        setError('The selected D2 code is empty. Add D2 text to render the diagram.');
+        setIsRendering(false);
+      }, 0);
+
+      return () => window.clearTimeout(timeoutId);
     }
 
     const currentRequestId = requestIdRef.current + 1;
     requestIdRef.current = currentRequestId;
-    setIsRendering(true);
+    const startRenderingTimeoutId = window.setTimeout(() => {
+      setIsRendering(true);
+    }, 0);
 
     const timeoutId = window.setTimeout(async () => {
       try {
@@ -207,43 +215,46 @@ export default function D2DiagramViewport({ d2Code }: D2DiagramViewportProps) {
     }, 280);
 
     return () => {
+      window.clearTimeout(startRenderingTimeoutId);
       window.clearTimeout(timeoutId);
     };
-  }, [d2Code]);
+  }, [d2Code, scheduleTransform]);
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="shrink-0 border-b border-slate-200 bg-white/80 px-4 py-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+    <div className={`flex h-full flex-col transition-colors duration-300 ${isDeploying ? 'ring-1 ring-inset ring-orange-200' : ''}`}>
+      <div className={`shrink-0 border-b px-4 py-2 text-[11px] font-semibold uppercase tracking-wider transition-colors duration-300 ${isDeploying ? 'border-orange-200 bg-orange-50/90 text-orange-700' : 'border-slate-200 bg-white/80 text-slate-500'}`}>
         {isRendering ? 'Compiling latest diagram...' : error ? 'Render failed' : 'Compiled from latest D2 code'}
       </div>
 
       <div
         ref={stageRef}
-        className="relative min-h-[320px] flex-1 overflow-hidden bg-slate-100 p-4 cursor-grab active:cursor-grabbing"
+        className={`relative min-h-[320px] flex-1 overflow-hidden p-4 cursor-grab active:cursor-grabbing transition-all duration-300 ${isDeploying ? 'bg-gradient-to-br from-orange-50 via-white to-orange-100' : 'bg-slate-100'}`}
         style={{
           backgroundImage:
-            'linear-gradient(rgba(100,116,139,0.08) 1px, transparent 1px), linear-gradient(90deg, rgba(100,116,139,0.08) 1px, transparent 1px)',
+            isDeploying
+              ? 'linear-gradient(rgba(249,115,22,0.10) 1px, transparent 1px), linear-gradient(90deg, rgba(249,115,22,0.10) 1px, transparent 1px)'
+              : 'linear-gradient(rgba(100,116,139,0.08) 1px, transparent 1px), linear-gradient(90deg, rgba(100,116,139,0.08) 1px, transparent 1px)',
           backgroundSize: '32px 32px',
         }}
       >
         {pngSrc ? (
           <div
             ref={layerRef}
-            className="absolute left-0 top-0 inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white p-4 shadow-2xl"
+            className={`absolute left-0 top-0 inline-flex items-center justify-center rounded-lg border p-4 shadow-2xl ${isDeploying ? 'border-orange-300 bg-white shadow-orange-200/50' : 'border-slate-300 bg-white'}`}
             style={{ transformOrigin: '0 0', willChange: 'transform' }}
           >
             <img
               ref={imageRef}
               src={pngSrc}
               alt="Generated D2 diagram"
-              className="block max-w-none select-none"
+              className={`block max-w-none select-none ${isDeploying ? 'animate-pulse [animation-duration:2.6s]' : ''}`}
               onLoad={resetAndFit}
               draggable={false}
             />
           </div>
         ) : (
           <div className="flex h-full items-center justify-center">
-            <div className="max-w-[640px] rounded-xl border border-slate-300 bg-white px-5 py-4 text-sm text-slate-600 shadow-lg">
+            <div className={`max-w-[640px] rounded-xl border px-5 py-4 text-sm shadow-lg ${isDeploying ? 'border-orange-200 bg-white text-orange-700' : 'border-slate-300 bg-white text-slate-600'}`}>
               {error || 'Write D2 code to generate the diagram preview.'}
             </div>
           </div>
