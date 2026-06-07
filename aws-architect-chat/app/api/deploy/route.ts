@@ -3,7 +3,7 @@ import path from 'path';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { streamText, tool } from 'ai';
 import { z } from 'zod';
-import { readProjectState, sanitizeProjectName } from '@/lib/persistence';
+import { readProjectState, sanitizeProjectName, readProjectWorkflow, updateProjectStatus } from '@/lib/persistence';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -44,6 +44,7 @@ export async function POST(req: Request) {
   const body = (await req.json().catch(() => ({}))) as {
     model?: string;
     projectName?: string;
+    action?: 'deploy' | 'teardown';
   };
 
   const apiKey = process.env.GOOGLE_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
@@ -56,14 +57,50 @@ export async function POST(req: Request) {
     return Response.json({ error: 'projectName is required.' }, { status: 400 });
   }
 
+  const action = body.action || 'deploy';
+
   const googleProvider = createGoogleGenerativeAI({ apiKey });
   const modelId = body.model || DEFAULT_MODEL;
   const selectedModel = googleProvider(modelId);
 
   const projectState = await readProjectState(normalizedProjectName);
-  const promptFilePath = path.join(process.cwd(), 'persistence', normalizedProjectName, 'MCP_prompt.md');
-  const fallbackPromptPath = path.join(process.cwd(), 'prompts', 'backup.md');
-  const mcpPrompt = projectState.mcpPrompt || readTextFileIfExists(promptFilePath) || readTextFileIfExists(fallbackPromptPath);
+  
+  let mcpPrompt = '';
+  let systemPrompt = '';
+
+  if (action === 'teardown') {
+    const teardownPromptPath = path.join(process.cwd(), 'prompts', 'aws_delete_workflow.md');
+    const teardownPromptTemplate = readTextFileIfExists(teardownPromptPath);
+    const workflowLogs = await readProjectWorkflow(normalizedProjectName);
+    
+    mcpPrompt = teardownPromptTemplate.replace('[STATE_WORKFLOW]', JSON.stringify(workflowLogs, null, 2));
+    
+    systemPrompt = [
+      'You are an expert AWS cloud administrator specializing in resource decommissioning.',
+      'Your absolute priority is to perform a 100% clean teardown of all resources identified in the provided workflow state.',
+      'Follow the dependency-aware deletion sequence strictly to avoid errors.',
+      'Use the provided AWS MCP proxy tool for all deletions.',
+      `Project context: ${normalizedProjectName} (TEARDOWN MODE)`,
+    ].join('\n\n');
+    
+    // Update status to not_deployed
+    await updateProjectStatus(normalizedProjectName, 'not_deployed', 'teardown');
+  } else {
+    const promptFilePath = path.join(process.cwd(), 'persistence', normalizedProjectName, 'MCP_prompt.md');
+    const fallbackPromptPath = path.join(process.cwd(), 'prompts', 'backup.md');
+    mcpPrompt = projectState.mcpPrompt || readTextFileIfExists(promptFilePath) || readTextFileIfExists(fallbackPromptPath);
+    
+    systemPrompt = [
+      'You are an expert AWS cloud architect and deployment operator.',
+      'Use the provided AWS MCP proxy tool to provision, verify, and tear down the requested AWS resources.',
+      'Prefer low-cost test resources such as t2.nano or the closest equivalent if the requested type is unavailable.',
+      'Report progress concisely and keep the workflow suitable for real-time logging.',
+      `Project context: ${normalizedProjectName}`,
+    ].join('\n\n');
+
+    // Update status to deployed
+    await updateProjectStatus(normalizedProjectName, 'deployed', 'deploy');
+  }
 
   const proxyTools = await fetchProxyTools();
   const toolCatalog = buildToolCatalogText(proxyTools);
@@ -90,19 +127,11 @@ export async function POST(req: Request) {
     },
   });
 
-  const deploymentSystemPrompt = [
-    'You are an expert AWS cloud architect and deployment operator.',
-    'Use the provided AWS MCP proxy tool to provision, verify, and tear down the requested AWS resources.',
-    'Prefer low-cost test resources such as t2.nano or the closest equivalent if the requested type is unavailable.',
-    'When the deployment is validated, issue teardown steps to clean up the created resources.',
-    'Report progress concisely and keep the workflow suitable for real-time logging.',
-    `Project context: ${normalizedProjectName}`,
-    `AWS MCP tools exposed by the proxy:\n${toolCatalog}`,
-  ].join('\n\n');
+  const finalSystemPrompt = `${systemPrompt}\n\nAWS MCP tools exposed by the proxy:\n${toolCatalog}`;
 
   const result = streamText({
     model: selectedModel,
-    system: deploymentSystemPrompt,
+    system: finalSystemPrompt,
     prompt: mcpPrompt,
     tools: {
       aws_mcp: awsMcp,

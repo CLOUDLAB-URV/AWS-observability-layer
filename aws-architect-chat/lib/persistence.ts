@@ -6,10 +6,20 @@ export const PROJECT_DIAGRAM_FILE = 'diagram.d2';
 export const PROJECT_EXPLANATION_FILE = 'explanation.md';
 export const PROJECT_MCP_PROMPT_FILE = 'MCP_prompt.md';
 export const PROJECT_WORKFLOW_FILE = 'workflow.json';
+export const PROJECT_METADATA_FILE = 'metadata.json';
+
+export type ProjectStatus = 'not_deployed' | 'deployed';
+
+export interface ProjectMetadata {
+  status: ProjectStatus;
+  lastAction?: 'deploy' | 'teardown';
+  updatedAt: string;
+}
 
 export interface ProjectSummary {
   name: string;
   updatedAt: string | null;
+  status: ProjectStatus;
 }
 
 export interface ProjectState {
@@ -17,6 +27,7 @@ export interface ProjectState {
   d2Code: string;
   explanation: string;
   mcpPrompt: string;
+  status: ProjectStatus;
 }
 
 export interface WorkflowEntry {
@@ -90,9 +101,10 @@ export async function listProjectSummaries(): Promise<ProjectSummary[]> {
     const explanationPath = path.join(projectPath, PROJECT_EXPLANATION_FILE);
     const mcpPath = path.join(projectPath, PROJECT_MCP_PROMPT_FILE);
     const workflowPath = path.join(projectPath, PROJECT_WORKFLOW_FILE);
+    const metadataPath = path.join(projectPath, PROJECT_METADATA_FILE);
 
     let updatedAt: string | null = null;
-    for (const candidatePath of [diagramPath, explanationPath, mcpPath, workflowPath]) {
+    for (const candidatePath of [diagramPath, explanationPath, mcpPath, workflowPath, metadataPath]) {
       try {
         const stats = await fs.stat(candidatePath);
         updatedAt = stats.mtime.toISOString();
@@ -102,19 +114,61 @@ export async function listProjectSummaries(): Promise<ProjectSummary[]> {
       }
     }
 
-    summaries.push({ name: entry.name, updatedAt });
+    const metadata = await readProjectMetadata(entry.name);
+    summaries.push({ 
+      name: entry.name, 
+      updatedAt, 
+      status: metadata.status 
+    });
   }
 
   return summaries.sort((left, right) => left.name.localeCompare(right.name));
 }
 
+export async function readProjectMetadata(projectName: string): Promise<ProjectMetadata> {
+  const projectPath = getProjectDir(projectName);
+  const metadataPath = path.join(projectPath, PROJECT_METADATA_FILE);
+  const raw = await readTextFileIfExists(metadataPath);
+  
+  if (!raw.trim()) {
+    return {
+      status: 'not_deployed',
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  try {
+    return JSON.parse(raw) as ProjectMetadata;
+  } catch {
+    return {
+      status: 'not_deployed',
+      updatedAt: new Date().toISOString(),
+    };
+  }
+}
+
+export async function updateProjectStatus(projectName: string, status: ProjectStatus, lastAction?: 'deploy' | 'teardown') {
+  const projectPath = getProjectDir(projectName);
+  const metadataPath = path.join(projectPath, PROJECT_METADATA_FILE);
+  const metadata: ProjectMetadata = {
+    status,
+    lastAction,
+    updatedAt: new Date().toISOString(),
+  };
+
+  await fs.mkdir(projectPath, { recursive: true });
+  await fs.writeFile(metadataPath, JSON.stringify(metadata, null, 2), 'utf8');
+  return metadata;
+}
+
 export async function readProjectState(projectName: string): Promise<ProjectState> {
   const normalizedName = normalizeProjectName(projectName);
   const projectPath = getProjectDir(normalizedName);
-  const [d2Code, explanation, mcpPrompt] = await Promise.all([
+  const [d2Code, explanation, mcpPrompt, metadata] = await Promise.all([
     readTextFileIfExists(path.join(projectPath, PROJECT_DIAGRAM_FILE)),
     readTextFileIfExists(path.join(projectPath, PROJECT_EXPLANATION_FILE)),
     readTextFileIfExists(path.join(projectPath, PROJECT_MCP_PROMPT_FILE)),
+    readProjectMetadata(normalizedName),
   ]);
 
   return {
@@ -122,6 +176,7 @@ export async function readProjectState(projectName: string): Promise<ProjectStat
     d2Code,
     explanation,
     mcpPrompt,
+    status: metadata.status,
   };
 }
 
@@ -145,11 +200,18 @@ export async function createProject(projectName: string): Promise<ProjectState> 
 
   const projectPath = getProjectDir(candidateName);
   await fs.mkdir(projectPath, { recursive: true });
+  
+  const initialMetadata: ProjectMetadata = {
+    status: 'not_deployed',
+    updatedAt: new Date().toISOString(),
+  };
+
   await Promise.all([
     fs.writeFile(path.join(projectPath, PROJECT_DIAGRAM_FILE), '', 'utf8'),
     fs.writeFile(path.join(projectPath, PROJECT_EXPLANATION_FILE), '', 'utf8'),
     fs.writeFile(path.join(projectPath, PROJECT_MCP_PROMPT_FILE), '', 'utf8'),
     fs.writeFile(path.join(projectPath, PROJECT_WORKFLOW_FILE), '[]\n', 'utf8'),
+    fs.writeFile(path.join(projectPath, PROJECT_METADATA_FILE), JSON.stringify(initialMetadata, null, 2), 'utf8'),
   ]);
 
   return {
@@ -157,6 +219,7 @@ export async function createProject(projectName: string): Promise<ProjectState> 
     d2Code: '',
     explanation: '',
     mcpPrompt: '',
+    status: 'not_deployed',
   };
 }
 

@@ -13,6 +13,7 @@ interface Model {
 interface ProjectSummary {
   name: string;
   updatedAt: string | null;
+  status: 'not_deployed' | 'deployed';
 }
 
 interface ProjectState {
@@ -20,6 +21,7 @@ interface ProjectState {
   d2Code: string;
   explanation: string;
   mcpPrompt: string;
+  status: 'not_deployed' | 'deployed';
 }
 
 interface WorkflowEntry {
@@ -190,6 +192,7 @@ export default function ChatInterface() {
   const [isProjectMenuOpen, setIsProjectMenuOpen] = useState(false);
   const [isProjectActionPending, setIsProjectActionPending] = useState(false);
   const [projectStatus, setProjectStatus] = useState('');
+  const [currentProjectDeploymentStatus, setCurrentProjectDeploymentStatus] = useState<'not_deployed' | 'deployed'>('not_deployed');
   const [d2Draft, setD2Draft] = useState('');
   const [isD2Dirty, setIsD2Dirty] = useState(false);
   const [activeD2View, setActiveD2View] = useState<'code' | 'diagram'>('diagram');
@@ -361,6 +364,9 @@ export default function ChatInterface() {
       return;
     }
 
+    const action = currentProjectDeploymentStatus === 'deployed' ? 'teardown' : 'deploy';
+    const actionLabel = action === 'deploy' ? 'Deploying' : 'Tearing down';
+
     deploymentRunRef.current += 1;
     const currentRun = deploymentRunRef.current;
 
@@ -374,7 +380,7 @@ export default function ChatInterface() {
       setDeploymentStatus('Connecting to deployment stream...');
       handleDeploymentConnect();
 
-      pushDeploymentLog(createWorkflowEntry('deployment-started', `Deploying project ${selectedProject} to AWS`, 'info', { projectName: selectedProject }));
+      pushDeploymentLog(createWorkflowEntry('deployment-started', `${actionLabel} project ${selectedProject} ${action === 'deploy' ? 'to' : 'from'} AWS`, 'info', { projectName: selectedProject, action }));
 
       const response = await fetch('/api/deploy', {
         method: 'POST',
@@ -382,6 +388,7 @@ export default function ChatInterface() {
         body: JSON.stringify({
           projectName: selectedProject,
           model: selectedModel,
+          action,
         }),
       });
 
@@ -395,13 +402,19 @@ export default function ChatInterface() {
       }
 
       if (currentRun === deploymentRunRef.current) {
-        setDeploymentStatus('Deployment finished.');
-        pushDeploymentLog(createWorkflowEntry('deployment-finished', `Deployment finished for ${selectedProject}`, 'success'));
+        const nextStatus = action === 'deploy' ? 'deployed' : 'not_deployed';
+        setCurrentProjectDeploymentStatus(nextStatus);
+        
+        // Update the project in the list too
+        setProjects(prev => prev.map(p => p.name === selectedProject ? { ...p, status: nextStatus } : p));
+        
+        setDeploymentStatus(`${action === 'deploy' ? 'Deployment' : 'Teardown'} finished.`);
+        pushDeploymentLog(createWorkflowEntry('deployment-finished', `${action === 'deploy' ? 'Deployment' : 'Teardown'} finished for ${selectedProject}`, 'success'));
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Deployment failed.';
+      const message = error instanceof Error ? error.message : 'Action failed.';
       setDeploymentError(message);
-      setDeploymentStatus('Deployment failed.');
+      setDeploymentStatus('Action failed.');
       pushDeploymentLog(createWorkflowEntry('deployment-error', message, 'error'));
     } finally {
       if (currentRun === deploymentRunRef.current) {
@@ -409,7 +422,7 @@ export default function ChatInterface() {
         closeDeploymentStream();
       }
     }
-  }, [closeDeploymentStream, handleDeploymentConnect, pushDeploymentLog, selectedModel, selectedProject, validateProxy]);
+  }, [closeDeploymentStream, handleDeploymentConnect, pushDeploymentLog, selectedModel, selectedProject, validateProxy, currentProjectDeploymentStatus]);
 
   const refreshProjectList = useCallback(async () => {
     const nextProjects = await fetchProjects();
@@ -439,6 +452,7 @@ export default function ChatInterface() {
       try {
         const projectState = await loadProject(projectName);
         setSelectedProject(projectState.name);
+        setCurrentProjectDeploymentStatus(projectState.status);
         setCompletion(serializeCompletionPayload(projectState.d2Code, projectState.explanation, projectState.mcpPrompt));
         setD2Draft('');
         setIsD2Dirty(false);
@@ -789,10 +803,20 @@ export default function ChatInterface() {
               type="button"
               onClick={() => handleDeployToAws().catch((error) => console.error(error))}
               disabled={!selectedProject || isLoadingProjects || isProjectActionPending || isDeploying}
-              className="inline-flex items-center gap-2 rounded-xl border border-orange-200 bg-orange-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-orange-500/20 transition-transform hover:-translate-y-0.5 hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-50"
+              className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold text-white shadow-lg transition-transform hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50 ${
+                currentProjectDeploymentStatus === 'deployed' 
+                  ? 'border-red-200 bg-red-500 shadow-red-500/20 hover:bg-red-600' 
+                  : 'border-orange-200 bg-orange-500 shadow-orange-500/20 hover:bg-orange-600'
+              }`}
             >
-              {isDeploying ? <Activity className="h-4 w-4 animate-pulse" /> : <Rocket className="h-4 w-4" />}
-              Deploy to AWS
+              {isDeploying ? (
+                <Activity className="h-4 w-4 animate-pulse" />
+              ) : currentProjectDeploymentStatus === 'deployed' ? (
+                <Trash2 className="h-4 w-4" />
+              ) : (
+                <Rocket className="h-4 w-4" />
+              )}
+              {currentProjectDeploymentStatus === 'deployed' ? 'Tear down from AWS' : 'Deploy to AWS'}
             </button>
             <div className="flex items-center gap-2 text-slate-500">
               <Settings2 className="w-4 h-4" />
