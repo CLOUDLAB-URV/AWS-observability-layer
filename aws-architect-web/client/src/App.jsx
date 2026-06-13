@@ -97,6 +97,16 @@ export default function App() {
         socketRef.current?.send({ type: 'deploy' });
     }
 
+    function teardown() {
+        if (busy) return;
+        if (!window.confirm('Tear down ALL AWS resources created from this diagram and return to preview mode? This permanently deletes them.')) {
+            return;
+        }
+        setBusy(true);
+        setStatus('');
+        socketRef.current?.send({ type: 'teardown' });
+    }
+
     return (
         <div className="app">
             <header className="topbar">
@@ -109,6 +119,11 @@ export default function App() {
                 {mode === 'preview' && (
                     <button className="deploy-btn" onClick={deploy} disabled={busy || !svg}>
                         Deploy to AWS
+                    </button>
+                )}
+                {mode === 'deployed' && (
+                    <button className="teardown-btn" onClick={teardown} disabled={busy}>
+                        Tear down
                     </button>
                 )}
             </header>

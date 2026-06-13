@@ -83,6 +83,10 @@ export function clearQueue() {
     return enqueue(() => fs.writeFile(FILES.queue, '[]\n', 'utf8'));
 }
 
+export function clearWorkflow() {
+    return enqueue(() => fs.writeFile(FILES.workflow, '[]\n', 'utf8'));
+}
+
 export async function getMode() {
     try {
         const session = JSON.parse(await fs.readFile(FILES.session, 'utf8'));

@@ -4,7 +4,7 @@ import http from 'node:http';
 import express from 'express';
 import { WebSocketServer } from 'ws';
 import { renderDiagramSvg } from './diagram.js';
-import { runPreviewTurn, runAwsAgent, runStateMerge } from './agent.js';
+import { runFlow } from './graph.js';
 import * as store from './projectStore.js';
 
 const PORT = Number(process.env.PORT || 3001);
@@ -13,8 +13,7 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: '/ws' });
 
-// Single shared session (demo scope): one diagram, one mode, one chat history.
-const previewHistory = [];
+// Single shared session (demo scope): one diagram, one mode.
 let busy = false;
 
 function broadcast(message) {
@@ -26,16 +25,6 @@ function broadcast(message) {
     }
 }
 
-async function pushDiagram() {
-    const d2 = await store.readDiagram();
-    const { svg, error } = await renderDiagramSvg(d2);
-    if (error) {
-        broadcast({ type: 'render-error', error });
-    } else {
-        broadcast({ type: 'render-svg', svg });
-    }
-}
-
 async function pushState(socket) {
     const mode = await store.getMode();
     const d2 = await store.readDiagram();
@@ -44,26 +33,10 @@ async function pushState(socket) {
     socket.send(message);
 }
 
+// Transport-level guards, then hand the turn to the orchestration graph.
 async function handleChat(text) {
     const mode = await store.getMode();
-
-    if (mode === 'preview') {
-        const d2 = await runPreviewTurn(previewHistory, text, broadcast);
-        broadcast({ type: 'chat-done' });
-        if (d2 !== null) {
-            await pushDiagram();
-        }
-        return;
-    }
-
-    // Deployed mode: every prompt executes against AWS, then re-merges.
-    await runAwsAgent(text, broadcast);
-    broadcast({ type: 'chat-done' });
-    const merged = await runStateMerge(broadcast);
-    if (merged !== null) {
-        await pushDiagram();
-    }
-    broadcast({ type: 'status', text: 'Done.' });
+    await runFlow({ trigger: 'chat', mode, text }, broadcast);
 }
 
 async function handleDeploy() {
@@ -79,20 +52,16 @@ async function handleDeploy() {
         return;
     }
 
-    broadcast({ type: 'status', text: 'Deploying architecture to AWS…' });
-    await runAwsAgent(
-        'Deploy the architecture described in the current D2 diagram into AWS. Create every resource the diagram represents, using sensible defaults and free-tier-friendly sizes where the diagram does not specify them.',
-        broadcast
-    );
-    broadcast({ type: 'chat-done' });
+    await runFlow({ trigger: 'deploy', mode }, broadcast);
+}
 
-    const merged = await runStateMerge(broadcast);
-    await store.setMode('deployed');
-    broadcast({ type: 'mode', mode: 'deployed' });
-    if (merged !== null) {
-        await pushDiagram();
+async function handleTeardown() {
+    const mode = await store.getMode();
+    if (mode !== 'deployed') {
+        broadcast({ type: 'status', text: 'Nothing to tear down — not in deployed mode.' });
+        return;
     }
-    broadcast({ type: 'status', text: 'Deployment complete — now in deployed mode.' });
+    await runFlow({ trigger: 'teardown', mode }, broadcast);
 }
 
 wss.on('connection', (socket) => {
@@ -119,6 +88,8 @@ wss.on('connection', (socket) => {
                 await handleChat(message.text.trim());
             } else if (message.type === 'deploy') {
                 await handleDeploy();
+            } else if (message.type === 'teardown') {
+                await handleTeardown();
             }
         } catch (error) {
             const text = error instanceof Error ? error.message : String(error);

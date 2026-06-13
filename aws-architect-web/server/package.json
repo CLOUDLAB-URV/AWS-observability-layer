@@ -7,7 +7,9 @@
     "start": "node index.js"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.70.0",
+    "@google/genai": "^2.8.0",
+    "@langchain/core": "^1.1.49",
+    "@langchain/langgraph": "^1.4.2",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@terrastruct/d2": "^0.1.33",
     "express": "^5.2.1",
