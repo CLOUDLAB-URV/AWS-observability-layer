@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import Chat from './Chat.jsx';
 import Diagram from './Diagram.jsx';
 import { createSocket } from './ws.js';
+import { useDarkMode } from './hooks/useDarkMode.js';
+import { useChatPanel } from './hooks/useChatPanel.js';
 
 export default function App() {
     const [connected, setConnected] = useState(false);
@@ -12,6 +14,9 @@ export default function App() {
     const [status, setStatus] = useState('');
     const [busy, setBusy] = useState(false);
     const socketRef = useRef(null);
+
+    const [isDark, toggleDark] = useDarkMode();
+    const chatPanel = useChatPanel();
 
     useEffect(() => {
         const socket = createSocket(handleMessage, setConnected);
@@ -52,6 +57,8 @@ export default function App() {
                 setRenderError(null);
                 break;
             case 'render-error':
+                // Keep the last good svg visible; Diagram shows this as a
+                // non-destructive overlay instead of blanking the canvas.
                 setRenderError(message.error);
                 break;
             case 'mode':
@@ -67,14 +74,17 @@ export default function App() {
                         role: 'log',
                         text: message.entry.summary || message.entry.tool,
                         ok: message.entry.ok,
-                        error: message.entry.error
-                    }
+                        error: message.entry.error,
+                    },
                 ]);
                 break;
             case 'error':
                 setBusy(false);
                 setStatus('');
-                setMessages((current) => [...current, { role: 'assistant', text: `⚠ ${message.message}` }]);
+                setMessages((current) => [
+                    ...current,
+                    { role: 'assistant', text: `⚠ ${message.message}` },
+                ]);
                 break;
             default:
                 break;
@@ -90,18 +100,14 @@ export default function App() {
 
     function deploy() {
         if (busy) return;
-        if (!window.confirm('Deploy this architecture into AWS? Resources will be created in the cloudlab account.')) {
-            return;
-        }
+        if (!window.confirm('Deploy this architecture into AWS? Resources will be created in the cloudlab account.')) return;
         setBusy(true);
         socketRef.current?.send({ type: 'deploy' });
     }
 
     function teardown() {
         if (busy) return;
-        if (!window.confirm('Tear down ALL AWS resources created from this diagram and return to preview mode? This permanently deletes them.')) {
-            return;
-        }
+        if (!window.confirm('Tear down ALL AWS resources created from this diagram and return to preview mode? This permanently deletes them.')) return;
         setBusy(true);
         setStatus('');
         socketRef.current?.send({ type: 'teardown' });
@@ -109,27 +115,84 @@ export default function App() {
 
     return (
         <div className="app">
-            <header className="topbar">
+            <header className="topbar" role="banner">
                 <h1>AWS Architect</h1>
-                <span className={`badge badge-${mode}`}>{mode === 'preview' ? 'Preview' : 'Deployed'}</span>
-                <span className="status-text">{status}</span>
-                <span className={`conn ${connected ? 'conn-on' : 'conn-off'}`}>
+                <span
+                    className={`badge badge-${mode}`}
+                    aria-label={`Mode: ${mode === 'preview' ? 'Preview' : 'Deployed'}`}
+                >
+                    {mode === 'preview' ? 'Preview' : 'Deployed'}
+                </span>
+                <output className="status-text" aria-live="polite" aria-atomic="true">
+                    {status}
+                </output>
+                <span
+                    className={`conn ${connected ? 'conn-on' : 'conn-off'}`}
+                    role="status"
+                    aria-live="polite"
+                    aria-label={connected ? 'Connected to server' : 'Reconnecting to server'}
+                >
                     {connected ? 'connected' : 'reconnecting…'}
                 </span>
+                <button
+                    className="dark-toggle-btn"
+                    onClick={toggleDark}
+                    aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+                    aria-pressed={isDark}
+                    title={isDark ? 'Light mode' : 'Dark mode'}
+                >
+                    {isDark ? '☀️' : '🌙'}
+                </button>
                 {mode === 'preview' && (
-                    <button className="deploy-btn" onClick={deploy} disabled={busy || !svg}>
+                    <button
+                        className="deploy-btn"
+                        onClick={deploy}
+                        disabled={busy || !svg}
+                        aria-busy={busy}
+                        aria-label="Deploy architecture to AWS"
+                    >
                         Deploy to AWS
                     </button>
                 )}
                 {mode === 'deployed' && (
-                    <button className="teardown-btn" onClick={teardown} disabled={busy}>
+                    <button
+                        className="teardown-btn"
+                        onClick={teardown}
+                        disabled={busy}
+                        aria-busy={busy}
+                        aria-label="Tear down all AWS resources"
+                    >
                         Tear down
                     </button>
                 )}
             </header>
-            <main className="layout">
-                <Chat messages={messages} busy={busy} onSend={sendChat} />
-                <Diagram svg={svg} renderError={renderError} />
+            <main
+                id="main-content"
+                className="layout"
+                role="main"
+                ref={chatPanel.layoutRef}
+                data-chat-collapsed={chatPanel.collapsed ? 'true' : undefined}
+                data-chat-floating={chatPanel.floating ? 'true' : undefined}
+            >
+                {chatPanel.collapsed && (
+                    <button
+                        className="chat-reopen-btn"
+                        onClick={chatPanel.toggleCollapse}
+                        aria-label="Open chat panel"
+                        title="Open chat"
+                    >
+                        💬 Chat
+                    </button>
+                )}
+                <Chat
+                    messages={messages}
+                    busy={busy}
+                    onSend={sendChat}
+                    chatPanel={chatPanel}
+                />
+                <section className="diagram-section" aria-label="Architecture diagram">
+                    <Diagram svg={svg} renderError={renderError} />
+                </section>
             </main>
         </div>
     );

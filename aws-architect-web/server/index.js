@@ -1,5 +1,15 @@
 'use strict';
 
+// Load .env (GCP_PROJECT_ID, CLOUD_ML_REGION, …) before anything reads it, so the
+// backend is self-configured on start without injecting env vars on the CLI.
+// Optional: the server still boots (and renders diagrams) if .env is absent.
+import process from 'node:process';
+try {
+    process.loadEnvFile(new URL('.env', import.meta.url));
+} catch {
+    // No .env file — rely on whatever is already in the environment.
+}
+
 import http from 'node:http';
 import express from 'express';
 import { WebSocketServer } from 'ws';
