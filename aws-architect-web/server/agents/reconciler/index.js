@@ -21,10 +21,8 @@ import { getGemini, MODELS } from '../shared/client.js';
 import { loadPrompt, fill } from '../shared/prompt.js';
 import { stripCodeFences } from '../../diagram.js';
 import { stripAnnotations, buildNodeModel, annotateFailedNodes } from '../shared/diagramMarks.js';
+import { CREATE_RE } from '../shared/deployLog.js';
 import * as store from '../../projectStore.js';
-
-// Verbs that bring a resource into existence (vs describe/list/tag/delete).
-const CREATE_RE = /\b(create-|run-instances|run-task|provision-|register-|allocate-address)/i;
 
 // "service operation" signature, e.g. "rds create-db-instance" — used to tell a
 // genuinely-failed creation from one the agent retried and eventually succeeded.

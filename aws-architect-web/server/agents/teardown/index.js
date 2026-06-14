@@ -69,7 +69,10 @@ export async function runTeardownAgent({ diagram, deploymentLog, previousRemaini
         system,
         tools,
         messages: [{ role: 'user', content: 'Tear down all resources for this architecture now.' }],
-        emit
+        emit,
+        // One teardown pass = delete once, verify once, report. Cap turns low so a
+        // single pass can never spin re-deleting already-gone resources.
+        maxTurns: 16
     });
 
     return (

@@ -16,15 +16,25 @@ import { runArchitectTurn } from './agents/architect/index.js';
 import { runAwsAgent } from './agents/aws/index.js';
 import { runReconciler } from './agents/reconciler/index.js';
 import { runTeardownAgent } from './agents/teardown/index.js';
+import { successfulCreations } from './agents/shared/deployLog.js';
 import { renderDiagramSvg } from './diagram.js';
 import * as store from './projectStore.js';
 
 // Teardown orchestration: re-invoke the teardown agent up to N times, waiting
 // (backoff) between attempts so resources in a transitional DELETING state — or
 // blocked by a dependency that is itself being deleted — get a chance to settle.
-const TEARDOWN_MAX_ATTEMPTS = 5;
+// Bounded further by a no-progress check (stop when an attempt changes nothing).
+const TEARDOWN_MAX_ATTEMPTS = 3;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const teardownBackoffMs = (attempt) => Math.min(60000, attempt * 15000);
+const teardownBackoffMs = (attempt) => Math.min(30000, attempt * 15000);
+
+// A stable signature of the "remaining" set, to detect attempts that made no
+// progress (same resources still present) so we stop retrying the impossible.
+const remainingSignature = (remaining) =>
+    (Array.isArray(remaining) ? remaining : [])
+        .map((r) => String(r?.resource ?? ''))
+        .sort()
+        .join('|');
 
 // Single shared session (demo scope): one running conversation for the architect.
 // Kept at module scope — same lifetime as the previous index.js implementation —
@@ -126,26 +136,47 @@ async function teardownNode(_state, config) {
     const { emit } = config.configurable;
 
     // Snapshot inputs once, before the agent's deletes append to the workflow log.
-    const [diagram, deploymentLog] = await Promise.all([store.readDiagram(), store.readWorkflow()]);
+    const [diagram, fullLog] = await Promise.all([store.readDiagram(), store.readWorkflow()]);
+
+    // Only successfully-created resources can exist in AWS. Filtering the log to
+    // these keeps the agent from chasing phantom (failed/never-created) resources.
+    const deploymentLog = successfulCreations(fullLog);
 
     let remaining = null;
-    for (let attempt = 1; attempt <= TEARDOWN_MAX_ATTEMPTS; attempt++) {
-        emit({ type: 'status', text: `Tearing down AWS resources (attempt ${attempt}/${TEARDOWN_MAX_ATTEMPTS})…` });
 
-        const status = await runTeardownAgent({ diagram, deploymentLog, previousRemaining: remaining }, emit);
+    // Deterministic short-circuit: nothing was ever created → nothing to delete.
+    if (deploymentLog.length === 0) {
+        emit({ type: 'status', text: 'Nothing was deployed — no AWS resources to delete.' });
+        remaining = [];
+    } else {
+        let prevSignature = null;
+        for (let attempt = 1; attempt <= TEARDOWN_MAX_ATTEMPTS; attempt++) {
+            emit({ type: 'status', text: `Tearing down AWS resources (attempt ${attempt}/${TEARDOWN_MAX_ATTEMPTS})…` });
 
-        if (status.complete) {
-            remaining = [];
-            break;
-        }
-        remaining = status.remaining;
+            const status = await runTeardownAgent({ diagram, deploymentLog, previousRemaining: remaining }, emit);
 
-        if (attempt < TEARDOWN_MAX_ATTEMPTS) {
-            emit({
-                type: 'status',
-                text: `${remaining.length} resource(s) not yet deletable — waiting before retry…`
-            });
-            await sleep(teardownBackoffMs(attempt));
+            if (status.complete) {
+                remaining = [];
+                break;
+            }
+            remaining = status.remaining;
+
+            // No progress since the last attempt (same resources still present) →
+            // further identical retries won't help; stop and report what's left.
+            const signature = remainingSignature(remaining);
+            if (signature === prevSignature) {
+                emit({ type: 'status', text: 'No further progress possible — stopping retries.' });
+                break;
+            }
+            prevSignature = signature;
+
+            if (attempt < TEARDOWN_MAX_ATTEMPTS) {
+                emit({
+                    type: 'status',
+                    text: `${remaining.length} resource(s) not yet deletable — waiting before retry…`
+                });
+                await sleep(teardownBackoffMs(attempt));
+            }
         }
     }
 
@@ -166,7 +197,7 @@ async function teardownNode(_state, config) {
     emit({
         type: 'error',
         message:
-            `Teardown incomplete after ${TEARDOWN_MAX_ATTEMPTS} attempts. Still present in AWS:\n${list}\n` +
+            `Teardown incomplete. Still present in AWS:\n${list}\n` +
             'Re-run "Tear down" to retry.'
     });
     return { diagramChanged: false };

@@ -5,27 +5,27 @@ You are operating autonomously: the user cannot answer questions mid-task. Proce
 ONLY delete resources that are part of this architecture. NEVER touch unrelated resources in the account.
 
 You are given two inputs:
-1. The current architecture as a D2 diagram (what is deployed).
-2. The deployment operation log — the exact AWS CLI commands that created the resources, with their responses (use these to recover exact names / IDs / ARNs).
+1. The current architecture as a D2 diagram (what was designed).
+2. The deployment operation log — the AWS CLI commands that **successfully created** resources, with their responses (use these to recover exact names / IDs / ARNs). This log lists ONLY resources that were actually created; anything not here was never created — do NOT try to delete it.
 
-### HOW TO DELETE
-- Resolve each diagram component to its real AWS resource. If you are unsure of an exact name/ID, use a read-only `call_aws` (list/describe) to find it, then delete it.
-- `call_aws`'s `cli_command` accepts an ORDERED ARRAY of commands executed in order — prefer one batched call where ordering allows.
-- Respect dependencies and ordering. Delete dependents before their parents. Examples:
-  - S3: delete ALL objects (and, if versioned, all versions and delete-markers) BEFORE `s3api delete-bucket`.
-  - IAM roles: detach managed policies, delete inline policies, remove instance profiles BEFORE `iam delete-role`.
-  - Networking: delete ENIs/NAT gateways/subnets/IGW detach BEFORE deleting the VPC.
-  - Lambda/event sources, API Gateway stages, etc.: remove the dependents first.
-- Be IDEMPOTENT: if a delete reports the resource is already gone (`NoSuchEntity`, `NotFound`, `ResourceNotFoundException`, `404`), treat it as success.
+### WORK IN A SINGLE CONVERGENT PASS — DO NOT LOOP
+Do this once, then stop:
+1. **Delete pass.** For each resource in the deployment log, issue its delete (respecting dependencies). Prefer ONE batched `call_aws` (its `cli_command` takes an ordered array). Delete each resource AT MOST ONCE.
+2. **Verify pass.** One batch of read-only calls (list/describe/head) to confirm they are gone.
+3. **Report** via `report_teardown_status` and END your turn.
 
-### WHEN SOMETHING CANNOT BE DELETED YET
-- If AWS says a resource is still being deleted (state `DELETING`/`deleting`), or a delete fails because a dependency still exists, DO NOT block or spin-wait. Leave that resource for the next attempt — the orchestrator will wait and re-invoke you.
+Never re-run the delete pass. Never re-issue a delete for a resource you already deleted or that already reported gone. If you find yourself about to repeat a command you already ran, stop and report instead.
 
-### VERIFY, THEN REPORT
-- After your deletes, VERIFY with read-only calls (list/describe/head) that each resource is actually gone.
-- Finish by calling the `report_teardown_status` tool EXACTLY ONCE:
-  - `complete: true` only if you verified that EVERY resource of this architecture is gone.
-  - otherwise `complete: false` and list each still-present resource in `remaining` with a short `reason` (e.g. "state=DELETING", "depends on VPC still present", "access denied").
+### RULES
+- **IDEMPOTENT — NotFound means SUCCESS.** If a delete or check returns `NoSuchEntity` / `NotFound` / `ResourceNotFoundException` / `404` / "does not exist", that resource is already gone → count it as deleted and move on. NEVER retry it.
+- Only delete resources from the deployment log (successfully-created ones). NEVER delete a resource whose creation is not in the log, an unrelated resource, a VPC you did not create, or a VPC's **default security group** (it cannot be deleted and is removed with the VPC).
+- Dependency ordering: S3 → empty all objects/versions before `delete-bucket`; IAM role → detach managed policies + delete inline policies before `delete-role`; networking → detach/delete ENIs/NAT/subnets and detach IGW before the VPC.
+- If a delete is **blocked** (dependency still exists, state `DELETING`, or access denied), do NOT spin-wait and do NOT retry it this pass — record it once in `remaining` with a short reason and leave it for the orchestrator's next attempt.
+
+### THEN REPORT (EXACTLY ONCE)
+- Call `report_teardown_status` once, at the end:
+  - `complete: true` if every resource in the log is verified gone (NotFound counts as gone). If everything was already deleted, report `complete: true` immediately.
+  - otherwise `complete: false` with each still-present resource in `remaining` (`resource` + short `reason`).
 - Do not end your turn without calling `report_teardown_status`.
 
 ### ARCHITECTURE TO DESTROY (D2)
