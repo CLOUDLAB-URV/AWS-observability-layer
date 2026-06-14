@@ -36,6 +36,15 @@ const remainingSignature = (remaining) =>
         .sort()
         .join('|');
 
+// Waiting + retrying only helps when something is still settling: a transient
+// DELETING state, or a dependency that is itself being torn down. Permanent
+// blockers (permission denied, manual prerequisites) won't clear on their own —
+// retrying just burns a full agent run + a backoff sleep for nothing.
+const TRANSIENT_REASON_RE =
+    /DELETING|DependencyViolation|depend|in use|InvalidState|in progress|being deleted|try again|not yet/i;
+const hasTransientReason = (remaining) =>
+    (Array.isArray(remaining) ? remaining : []).some((r) => TRANSIENT_REASON_RE.test(String(r?.reason ?? '')));
+
 // Single shared session (demo scope): one running conversation for the architect.
 // Kept at module scope — same lifetime as the previous index.js implementation —
 // instead of a checkpointer, to avoid serializing Anthropic content blocks.
@@ -169,6 +178,14 @@ async function teardownNode(_state, config) {
                 break;
             }
             prevSignature = signature;
+
+            // Only wait + retry when something is actually settling. If every
+            // remaining blocker is permanent (permission/manual), a retry can't
+            // help — stop now instead of sleeping and re-running the agent.
+            if (!hasTransientReason(remaining)) {
+                emit({ type: 'status', text: 'Remaining resources are blocked permanently — stopping retries.' });
+                break;
+            }
 
             if (attempt < TEARDOWN_MAX_ATTEMPTS) {
                 emit({

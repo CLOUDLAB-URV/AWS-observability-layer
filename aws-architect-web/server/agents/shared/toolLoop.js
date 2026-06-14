@@ -20,8 +20,7 @@ export async function runToolLoop({ client, model, system, tools, messages, emit
         const stream = client.messages.stream({
             model,
             max_tokens: 16000,
-            thinking: { type: 'adaptive' },
-            system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
+            system,
             tools: toolDefs,
             messages
         });
@@ -38,35 +37,41 @@ export async function runToolLoop({ client, model, system, tools, messages, emit
             break;
         }
 
-        const toolResults = [];
-        for (const block of message.content) {
-            if (block.type !== 'tool_use') {
-                continue;
-            }
+        // Independent tool_use blocks from one turn run concurrently (each tool
+        // call is an AWS round-trip; overlapping them cuts wall-clock time). Results
+        // are reassembled in the model's original block order so the transcript is
+        // deterministic. A FatalToolError from any call rejects the batch and
+        // propagates to the caller (re-thrown below) instead of being fed back.
+        const toolBlocks = message.content.filter((block) => block.type === 'tool_use');
 
-            emit({ type: 'status', text: `Running ${block.name}…` });
-            const tool = toolsByName.get(block.name);
+        let fatal = null;
+        const settled = await Promise.all(
+            toolBlocks.map(async (block) => {
+                emit({ type: 'status', text: `Running ${block.name}…` });
+                const tool = toolsByName.get(block.name);
+                try {
+                    const result = tool
+                        ? await tool.run(block.input, { emit })
+                        : { content: `Unknown tool: ${block.name}`, is_error: true };
+                    return { block, result };
+                } catch (error) {
+                    if (error instanceof FatalToolError) {
+                        fatal = error; // re-thrown after the batch settles
+                        return { block, result: { content: 'aborted', is_error: true } };
+                    }
+                    const errText = error instanceof Error ? error.message : String(error);
+                    return { block, result: { content: `Tool execution failed: ${errText}`, is_error: true } };
+                }
+            })
+        );
+        if (fatal) throw fatal;
 
-            let result;
-            try {
-                result = tool
-                    ? await tool.run(block.input, { emit })
-                    : { content: `Unknown tool: ${block.name}`, is_error: true };
-            } catch (error) {
-                // FatalToolErrors (auth failures, unrecoverable errors) must propagate
-                // to the caller — feeding them to the model would cause it to retry.
-                if (error instanceof FatalToolError) throw error;
-                const errText = error instanceof Error ? error.message : String(error);
-                result = { content: `Tool execution failed: ${errText}`, is_error: true };
-            }
-
-            toolResults.push({
-                type: 'tool_result',
-                tool_use_id: block.id,
-                content: result.content || '(no output)',
-                is_error: Boolean(result.is_error)
-            });
-        }
+        const toolResults = settled.map(({ block, result }) => ({
+            type: 'tool_result',
+            tool_use_id: block.id,
+            content: result.content || '(no output)',
+            is_error: Boolean(result.is_error)
+        }));
 
         messages.push({ role: 'user', content: toolResults });
     }

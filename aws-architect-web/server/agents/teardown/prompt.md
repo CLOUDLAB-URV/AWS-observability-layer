@@ -10,8 +10,8 @@ You are given two inputs:
 
 ### WORK IN A SINGLE CONVERGENT PASS — DO NOT LOOP
 Do this once, then stop:
-1. **Delete pass.** For each resource in the deployment log, issue its delete (respecting dependencies). Prefer ONE batched `call_aws` (its `cli_command` takes an ordered array). Delete each resource AT MOST ONCE.
-2. **Verify pass.** One batch of read-only calls (list/describe/head) to confirm they are gone.
+1. **Delete pass.** Put EVERY delete for this architecture into ONE `call_aws` call (its `cli_command` takes an ordered array, run in order). Order the array by dependency (e.g. empty bucket → delete bucket; detach policies → delete role; delete ENIs/subnets/IGW → delete VPC). Do NOT make one `call_aws` per resource. Delete each resource AT MOST ONCE. A normal teardown is ONE delete batch.
+2. **Verify pass.** ONE more `call_aws` with all the read-only checks (list/describe/head) batched together to confirm they are gone. Two tool calls total for a normal teardown.
 3. **Report** via `report_teardown_status` and END your turn.
 
 Never re-run the delete pass. Never re-issue a delete for a resource you already deleted or that already reported gone. If you find yourself about to repeat a command you already ran, stop and report instead.

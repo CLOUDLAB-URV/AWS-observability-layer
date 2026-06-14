@@ -158,6 +158,38 @@ export async function callAwsWithRetry(name, args, { maxAttempts = 4, onRetry } 
     return result;
 }
 
+// Transport noise the model never needs: request IDs / HTTP metadata and spent
+// pagination cursors. Stripped from both the persisted resource_state and the
+// text fed back into the model context (it would otherwise be re-sent every turn).
+const NOISE_KEYS = ['ResponseMetadata', 'NextToken', 'nextToken', 'Marker', 'NextMarker'];
+
+// Recursively delete the noise keys anywhere in a parsed JSON value. Mutates and
+// returns the value (callers pass throwaway parsed objects).
+export function stripTransportNoise(value) {
+    if (Array.isArray(value)) {
+        for (const item of value) stripTransportNoise(item);
+    } else if (value && typeof value === 'object') {
+        for (const key of NOISE_KEYS) delete value[key];
+        for (const key of Object.keys(value)) stripTransportNoise(value[key]);
+    }
+    return value;
+}
+
+// If the model-facing tool text is JSON (call_aws returns the CLI output as JSON),
+// drop transport noise before it enters context; otherwise leave it untouched.
+export function stripNoiseFromText(text) {
+    const value = String(text ?? '');
+    const trimmed = value.trim();
+    if (!trimmed || (trimmed[0] !== '{' && trimmed[0] !== '[')) {
+        return value;
+    }
+    try {
+        return JSON.stringify(stripTransportNoise(JSON.parse(trimmed)));
+    } catch {
+        return value; // not valid JSON — keep as-is
+    }
+}
+
 // Cap oversized CLI output before it re-enters the model context. AWS list/describe
 // calls can dump megabytes; we keep the head and tail and mark the gap.
 export function trimResultText(text, max = 12000) {
@@ -196,9 +228,7 @@ export function extractOutputMessages(structuredContent) {
                         if (parsedJson && typeof parsedJson === 'object') {
                             // Drop transport noise and spent pagination cursors so the
                             // persisted resource_state stays lean.
-                            for (const key of ['ResponseMetadata', 'NextToken', 'nextToken', 'Marker', 'NextMarker']) {
-                                delete parsedJson[key];
-                            }
+                            stripTransportNoise(parsedJson);
                         }
                         resourceState = parsedJson;
                     } catch {

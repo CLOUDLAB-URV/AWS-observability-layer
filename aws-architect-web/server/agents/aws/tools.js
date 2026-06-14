@@ -10,6 +10,7 @@ import {
     callAwsWithRetry,
     extractOutputMessages,
     trimResultText,
+    stripNoiseFromText,
     isFatalCredentialError
 } from './mcp.js';
 import * as store from '../../projectStore.js';
@@ -73,5 +74,5 @@ async function runAwsTool(name, input, { emit }) {
               .join('\n')
         : JSON.stringify(result.content ?? result);
 
-    return { content: trimResultText(resultText), is_error: Boolean(result.isError) };
+    return { content: trimResultText(stripNoiseFromText(resultText)), is_error: Boolean(result.isError) };
 }
