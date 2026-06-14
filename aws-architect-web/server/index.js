@@ -51,8 +51,10 @@ async function handleChat(text) {
 
 async function handleDeploy() {
     const mode = await store.getMode();
-    if (mode !== 'preview') {
-        broadcast({ type: 'status', text: 'Already in deployed mode.' });
+    // Allow deploy from preview (first deploy) and partial (retry). Block only a
+    // fully-deployed architecture.
+    if (mode === 'deployed') {
+        broadcast({ type: 'status', text: 'Already fully deployed.' });
         return;
     }
 
@@ -67,8 +69,9 @@ async function handleDeploy() {
 
 async function handleTeardown() {
     const mode = await store.getMode();
-    if (mode !== 'deployed') {
-        broadcast({ type: 'status', text: 'Nothing to tear down — not in deployed mode.' });
+    // Allow teardown from deployed and partial (remove whatever was created).
+    if (mode === 'preview') {
+        broadcast({ type: 'status', text: 'Nothing to tear down — not deployed.' });
         return;
     }
     await runFlow({ trigger: 'teardown', mode }, broadcast);

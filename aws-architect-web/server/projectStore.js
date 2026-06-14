@@ -87,10 +87,12 @@ export function clearWorkflow() {
     return enqueue(() => fs.writeFile(FILES.workflow, '[]\n', 'utf8'));
 }
 
+const MODES = new Set(['preview', 'deployed', 'partial']);
+
 export async function getMode() {
     try {
         const session = JSON.parse(await fs.readFile(FILES.session, 'utf8'));
-        return session.mode === 'deployed' ? 'deployed' : 'preview';
+        return MODES.has(session.mode) ? session.mode : 'preview';
     } catch {
         return 'preview';
     }

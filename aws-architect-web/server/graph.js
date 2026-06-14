@@ -87,28 +87,35 @@ async function awsNode(state, config) {
     return {};
 }
 
-// Reconciler agent: reconciles the diagram with the real deployed state, and
-// flips to deployed mode after a deploy.
+// Reconciler agent: keeps the user's exact pre-deploy diagram, marking only the
+// resources that failed to deploy. Sets the mode from the deploy outcome:
+//   'deployed' (all up) | 'partial' (some failed → retry or tear down) | 'none'.
 async function reconcilerNode(state, config) {
     const { emit } = config.configurable;
 
-    const merged = await runReconciler(emit);
+    const { deployState, diagramChanged } = await runReconciler(emit);
 
-    if (state.trigger === 'deploy') {
-        if (merged !== null) {
-            await store.setMode('deployed');
-            emit({ type: 'mode', mode: 'deployed' });
-            emit({ type: 'status', text: 'Deployment complete — now in deployed mode.' });
-        } else {
-            // Queue was empty — no resources were created (credentials likely failed)
+    if (deployState === 'none') {
+        if (state.trigger === 'deploy') {
+            // Nothing was created (every call errored / empty) — credentials likely failed.
             emit({ type: 'error', message: 'Deployment failed: no AWS resources were created. Check your credentials (run: aws sso login) and try again.' });
             emit({ type: 'status', text: '' });
+        } else {
+            emit({ type: 'status', text: 'Done.' });
         }
-    } else {
-        emit({ type: 'status', text: 'Done.' });
+        return { diagramChanged };
     }
 
-    return { diagramChanged: merged !== null };
+    // 'deployed' or 'partial': reflect the real state in the mode badge.
+    await store.setMode(deployState);
+    emit({ type: 'mode', mode: deployState });
+    if (deployState === 'partial') {
+        emit({ type: 'status', text: 'Partially deployed — some resources could not be created. Retry deploy or tear down.' });
+    } else {
+        emit({ type: 'status', text: 'Deployment complete — now in deployed mode.' });
+    }
+
+    return { diagramChanged };
 }
 
 // Teardown agent: destroys every AWS resource of the current architecture.

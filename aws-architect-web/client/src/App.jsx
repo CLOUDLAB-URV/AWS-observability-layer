@@ -6,6 +6,8 @@ import { createSocket } from './ws.js';
 import { useDarkMode } from './hooks/useDarkMode.js';
 import { useChatPanel } from './hooks/useChatPanel.js';
 
+const MODE_LABELS = { preview: 'Preview', deployed: 'Deployed', partial: 'Partial' };
+
 export default function App() {
     const [connected, setConnected] = useState(false);
     const [mode, setMode] = useState('preview');
@@ -102,10 +104,13 @@ export default function App() {
 
     function deploy() {
         if (busy) return;
+        const retry = mode === 'partial';
         setConfirmModal({
-            title: 'Deploy to AWS',
-            message: 'This will create real AWS resources in your cloudlab account. Continue?',
-            confirmLabel: 'Deploy',
+            title: retry ? 'Retry deploy' : 'Deploy to AWS',
+            message: retry
+                ? 'This will try again to create the resources that failed, and finish deploying the rest of the architecture. Continue?'
+                : 'This will create real AWS resources in your cloudlab account. Continue?',
+            confirmLabel: retry ? 'Retry deploy' : 'Deploy',
             confirmClass: 'deploy-btn',
             onConfirm: () => {
                 setBusy(true);
@@ -145,9 +150,9 @@ export default function App() {
                 <h1>AWS Architect</h1>
                 <span
                     className={`badge badge-${mode}`}
-                    aria-label={`Mode: ${mode === 'preview' ? 'Preview' : 'Deployed'}`}
+                    aria-label={`Mode: ${MODE_LABELS[mode] || 'Preview'}`}
                 >
-                    {mode === 'preview' ? 'Preview' : 'Deployed'}
+                    {MODE_LABELS[mode] || 'Preview'}
                 </span>
                 <output className="status-text" aria-live="polite" aria-atomic="true">
                     {status}
@@ -169,18 +174,18 @@ export default function App() {
                 >
                     {isDark ? '☀️' : '🌙'}
                 </button>
-                {mode === 'preview' && (
+                {(mode === 'preview' || mode === 'partial') && (
                     <button
                         className="deploy-btn"
                         onClick={deploy}
                         disabled={busy || !svg}
                         aria-busy={busy}
-                        aria-label="Deploy architecture to AWS"
+                        aria-label={mode === 'partial' ? 'Retry deploying to AWS' : 'Deploy architecture to AWS'}
                     >
-                        Deploy to AWS
+                        {mode === 'partial' ? 'Retry deploy' : 'Deploy to AWS'}
                     </button>
                 )}
-                {mode === 'deployed' && (
+                {(mode === 'deployed' || mode === 'partial') && (
                     <button
                         className="teardown-btn"
                         onClick={teardown}

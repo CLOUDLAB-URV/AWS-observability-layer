@@ -45,6 +45,8 @@
     --badge-preview-text:  var(--blue-600);
     --badge-deployed-bg:   var(--green-100);
     --badge-deployed-text: var(--green-700);
+    --badge-partial-bg:    #fef3c7;
+    --badge-partial-text:  #b45309;
 
     --conn-on:             var(--green-700);
     --conn-off:            var(--red-700);
@@ -90,6 +92,8 @@
     --badge-preview-text:  #93c5fd;
     --badge-deployed-bg:   rgba(21, 128, 61, 0.20);
     --badge-deployed-text: #86efac;
+    --badge-partial-bg:    rgba(180, 83, 9, 0.25);
+    --badge-partial-text:  #fcd34d;
 
     --conn-on:             #4ade80;
     --conn-off:            #f87171;
@@ -197,6 +201,7 @@ body {
 }
 .badge-preview  { background: var(--badge-preview-bg);  color: var(--badge-preview-text); }
 .badge-deployed { background: var(--badge-deployed-bg); color: var(--badge-deployed-text); }
+.badge-partial  { background: var(--badge-partial-bg);  color: var(--badge-partial-text); }
 
 .status-text {
     flex: 1;
