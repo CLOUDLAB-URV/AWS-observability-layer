@@ -30,7 +30,10 @@ async function _doRender(diagramText) {
 
     try {
         const d2 = await getD2Renderer();
-        const compiled = await d2.compile(text);
+        // ELK layout engine: orthogonal edge routing, centered connections, and
+        // tighter, more compact placement than dagre — much cleaner for the
+        // left-to-right AWS architecture diagrams this app produces.
+        const compiled = await d2.compile(text, { layout: 'elk' });
         const rawSvg = await d2.render(compiled.diagram, { ...compiled.renderOptions, themeID: 4 });
         const svgStr = typeof rawSvg === 'string' ? rawSvg : String(rawSvg);
         return { svg: prepareSvgForEmbed(svgStr), error: null };
