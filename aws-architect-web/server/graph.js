@@ -95,9 +95,15 @@ async function reconcilerNode(state, config) {
     const merged = await runReconciler(emit);
 
     if (state.trigger === 'deploy') {
-        await store.setMode('deployed');
-        emit({ type: 'mode', mode: 'deployed' });
-        emit({ type: 'status', text: 'Deployment complete — now in deployed mode.' });
+        if (merged !== null) {
+            await store.setMode('deployed');
+            emit({ type: 'mode', mode: 'deployed' });
+            emit({ type: 'status', text: 'Deployment complete — now in deployed mode.' });
+        } else {
+            // Queue was empty — no resources were created (credentials likely failed)
+            emit({ type: 'error', message: 'Deployment failed: no AWS resources were created. Check your credentials (run: aws sso login) and try again.' });
+            emit({ type: 'status', text: '' });
+        }
     } else {
         emit({ type: 'status', text: 'Done.' });
     }

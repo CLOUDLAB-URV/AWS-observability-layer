@@ -6,6 +6,11 @@
 //   run: async (input, ctx) => { content: string, is_error?: boolean }
 // owns all tool-specific side effects (the loop only orchestrates). `ctx` carries
 // { emit } so a tool can stream its own status/log events.
+//
+// FatalToolErrors (auth failures, etc.) are re-thrown so they propagate to the
+// caller rather than being fed back to the model as a retryable tool_result.
+
+import { FatalToolError } from './errors.js';
 
 export async function runToolLoop({ client, model, system, tools, messages, emit, maxTurns = 60 }) {
     const toolDefs = tools.map(({ name, description, input_schema }) => ({ name, description, input_schema }));
@@ -48,6 +53,9 @@ export async function runToolLoop({ client, model, system, tools, messages, emit
                     ? await tool.run(block.input, { emit })
                     : { content: `Unknown tool: ${block.name}`, is_error: true };
             } catch (error) {
+                // FatalToolErrors (auth failures, unrecoverable errors) must propagate
+                // to the caller — feeding them to the model would cause it to retry.
+                if (error instanceof FatalToolError) throw error;
                 const errText = error instanceof Error ? error.message : String(error);
                 result = { content: `Tool execution failed: ${errText}`, is_error: true };
             }

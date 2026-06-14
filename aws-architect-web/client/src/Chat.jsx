@@ -2,6 +2,67 @@ import { useEffect, useRef, useState } from 'react';
 
 const MAX_INPUT_HEIGHT = 160;
 
+function renderMarkdown(text) {
+    const nodes = [];
+    const lines = text.split('\n');
+    let i = 0;
+    while (i < lines.length) {
+        const line = lines[i];
+        // Bullet list
+        if (/^[-*•]\s/.test(line)) {
+            const items = [];
+            while (i < lines.length && /^[-*•]\s/.test(lines[i])) {
+                items.push(lines[i].replace(/^[-*•]\s/, ''));
+                i++;
+            }
+            nodes.push(
+                <ul key={nodes.length} className="md-list">
+                    {items.map((item, j) => <li key={j}>{inlineMarkdown(item)}</li>)}
+                </ul>
+            );
+            continue;
+        }
+        // Numbered list
+        if (/^\d+\.\s/.test(line)) {
+            const items = [];
+            while (i < lines.length && /^\d+\.\s/.test(lines[i])) {
+                items.push(lines[i].replace(/^\d+\.\s/, ''));
+                i++;
+            }
+            nodes.push(
+                <ol key={nodes.length} className="md-list">
+                    {items.map((item, j) => <li key={j}>{inlineMarkdown(item)}</li>)}
+                </ol>
+            );
+            continue;
+        }
+        // Empty line → spacing
+        if (line.trim() === '') {
+            if (nodes.length > 0) nodes.push(<br key={nodes.length} />);
+            i++;
+            continue;
+        }
+        nodes.push(<span key={nodes.length}>{inlineMarkdown(line)}{i < lines.length - 1 ? '\n' : ''}</span>);
+        i++;
+    }
+    return nodes;
+}
+
+function inlineMarkdown(text) {
+    const parts = [];
+    const re = /(\*\*(.+?)\*\*|`([^`]+)`)/g;
+    let last = 0;
+    let match;
+    while ((match = re.exec(text)) !== null) {
+        if (match.index > last) parts.push(text.slice(last, match.index));
+        if (match[2] !== undefined) parts.push(<strong key={match.index}>{match[2]}</strong>);
+        else if (match[3] !== undefined) parts.push(<code key={match.index} className="md-code">{match[3]}</code>);
+        last = re.lastIndex;
+    }
+    if (last < text.length) parts.push(text.slice(last));
+    return parts;
+}
+
 export default function Chat({ messages, busy, onSend, chatPanel }) {
     const [draft, setDraft] = useState('');
     const [userScrolled, setUserScrolled] = useState(false);
@@ -144,7 +205,7 @@ export default function Chat({ messages, busy, onSend, chatPanel }) {
                         return (
                             <article
                                 key={index}
-                                className={`chat-message chat-log${message.ok ? '' : ' log-entry-error'}`}
+                                className={`chat-message chat-log-entry${message.ok ? '' : ' log-entry-error'}`}
                                 aria-label="Deploy log entry"
                             >
                                 <span className={message.ok ? 'log-ok' : 'log-error'}>
@@ -152,6 +213,20 @@ export default function Chat({ messages, busy, onSend, chatPanel }) {
                                     <code>{message.text}</code>
                                     {message.error ? <em> — {message.error}</em> : null}
                                 </span>
+                            </article>
+                        );
+                    }
+
+                    if (message.role === 'error') {
+                        return (
+                            <article
+                                key={index}
+                                className="chat-message chat-error"
+                                role="alert"
+                                aria-label="Error"
+                            >
+                                <span className="chat-error-icon" aria-hidden="true">⚠</span>
+                                {message.text}
                             </article>
                         );
                     }
@@ -165,7 +240,9 @@ export default function Chat({ messages, busy, onSend, chatPanel }) {
                                 className={`chat-message chat-${message.role}`}
                                 aria-label={message.role === 'user' ? 'You' : 'Assistant'}
                             >
-                                {message.text}
+                                {message.role === 'assistant'
+                                    ? renderMarkdown(message.text)
+                                    : message.text}
                             </article>
                         </div>
                     );

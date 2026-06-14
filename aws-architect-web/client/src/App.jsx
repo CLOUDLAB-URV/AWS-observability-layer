@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Chat from './Chat.jsx';
 import Diagram from './Diagram.jsx';
+import ConfirmModal from './ConfirmModal.jsx';
 import { createSocket } from './ws.js';
 import { useDarkMode } from './hooks/useDarkMode.js';
 import { useChatPanel } from './hooks/useChatPanel.js';
@@ -17,6 +18,7 @@ export default function App() {
 
     const [isDark, toggleDark] = useDarkMode();
     const chatPanel = useChatPanel();
+    const [confirmModal, setConfirmModal] = useState(null);
 
     useEffect(() => {
         const socket = createSocket(handleMessage, setConnected);
@@ -83,7 +85,7 @@ export default function App() {
                 setStatus('');
                 setMessages((current) => [
                     ...current,
-                    { role: 'assistant', text: `⚠ ${message.message}` },
+                    { role: 'error', text: message.message },
                 ]);
                 break;
             default:
@@ -100,21 +102,45 @@ export default function App() {
 
     function deploy() {
         if (busy) return;
-        if (!window.confirm('Deploy this architecture into AWS? Resources will be created in the cloudlab account.')) return;
-        setBusy(true);
-        socketRef.current?.send({ type: 'deploy' });
+        setConfirmModal({
+            title: 'Deploy to AWS',
+            message: 'This will create real AWS resources in your cloudlab account. Continue?',
+            confirmLabel: 'Deploy',
+            confirmClass: 'deploy-btn',
+            onConfirm: () => {
+                setBusy(true);
+                socketRef.current?.send({ type: 'deploy' });
+            },
+        });
     }
 
     function teardown() {
         if (busy) return;
-        if (!window.confirm('Tear down ALL AWS resources created from this diagram and return to preview mode? This permanently deletes them.')) return;
-        setBusy(true);
-        setStatus('');
-        socketRef.current?.send({ type: 'teardown' });
+        setConfirmModal({
+            title: 'Tear down resources',
+            message: 'This permanently deletes ALL AWS resources created from this diagram and returns to preview mode. This cannot be undone.',
+            confirmLabel: 'Tear down',
+            confirmClass: 'teardown-btn',
+            onConfirm: () => {
+                setBusy(true);
+                setStatus('');
+                socketRef.current?.send({ type: 'teardown' });
+            },
+        });
     }
 
     return (
         <div className="app">
+            {confirmModal && (
+                <ConfirmModal
+                    title={confirmModal.title}
+                    message={confirmModal.message}
+                    confirmLabel={confirmModal.confirmLabel}
+                    confirmClass={confirmModal.confirmClass}
+                    onConfirm={() => { setConfirmModal(null); confirmModal.onConfirm(); }}
+                    onCancel={() => setConfirmModal(null)}
+                />
+            )}
             <header className="topbar" role="banner">
                 <h1>AWS Architect</h1>
                 <span

@@ -31,7 +31,7 @@ async function _doRender(diagramText) {
     try {
         const d2 = await getD2Renderer();
         const compiled = await d2.compile(text);
-        const rawSvg = await d2.render(compiled.diagram, compiled.renderOptions);
+        const rawSvg = await d2.render(compiled.diagram, { ...compiled.renderOptions, themeID: 4 });
         const svgStr = typeof rawSvg === 'string' ? rawSvg : String(rawSvg);
         return { svg: prepareSvgForEmbed(svgStr), error: null };
     } catch (error) {

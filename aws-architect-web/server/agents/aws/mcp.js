@@ -58,6 +58,28 @@ export function isTransientAwsError(text) {
     return TRANSIENT_AWS_RE.test(String(text ?? ''));
 }
 
+// Fatal CREDENTIAL/session failures: they invalidate *who you are*, so every
+// subsequent call is pointless — abort the whole run and ask the user to
+// re-authenticate. NOTE: this deliberately excludes per-resource authorization
+// denials (AccessDenied / UnauthorizedOperation). Those mean "you're allowed in,
+// but not allowed to do THIS" — they must NOT abort the deploy; the resource is
+// skipped and the rest of the architecture still goes up. See isPermissionDenied.
+const FATAL_CREDENTIAL_RE = /Token has expired|token.*expired|refresh failed|InvalidSignatureException|UnrecognizedClientException|ExpiredTokenException|InvalidClientTokenId|AuthFailure|sso.*expired/i;
+
+export function isFatalCredentialError(text) {
+    return FATAL_CREDENTIAL_RE.test(String(text ?? ''));
+}
+
+// Per-resource authorization denials: the caller is authenticated, but lacks the
+// IAM permission for this specific action/service (e.g. an account with no RDS
+// rights). These are recoverable at the architecture level — skip the resource
+// and keep deploying the rest. The reconciler then omits it from the diagram.
+const PERMISSION_DENIED_RE = /AccessDenied|AccessDeniedException|UnauthorizedOperation|not authorized to perform/i;
+
+export function isPermissionDenied(text) {
+    return PERMISSION_DENIED_RE.test(String(text ?? ''));
+}
+
 // Per-command results returned by call_aws live in structuredContent.result[],
 // each tagged with its cli_command. Index them so we can retry only the throttled
 // subset of a batch instead of re-running commands that already succeeded.
@@ -166,7 +188,7 @@ export function extractOutputMessages(structuredContent) {
 
             let resourceState = {};
             if (res.response) {
-                if (typeof res.response.as_json !== 'undefined') {
+                if (typeof res.response.as_json !== 'undefined' && res.response.as_json !== null) {
                     try {
                         const parsedJson = typeof res.response.as_json === 'string'
                             ? JSON.parse(res.response.as_json)
@@ -191,8 +213,11 @@ export function extractOutputMessages(structuredContent) {
                 action: res.cli_command,
                 resource_state: resourceState
             };
+            // Errors surface in res.error OR inside res.response.error depending on MCP version.
             if (res.error) {
                 outputMessage.error = res.error;
+            } else if (typeof res.response?.error === 'string') {
+                outputMessage.error = res.response.error;
             }
             outputMessages.push(outputMessage);
         }

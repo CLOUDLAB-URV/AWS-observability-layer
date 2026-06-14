@@ -11,7 +11,12 @@ EFFICIENCY — batch your CLI commands:
 EFFICIENCY — bound large reads:
 - For list/describe operations, narrow output with --query, --max-items, and --page-size, or pass the max_results argument to call_aws. Do not pull full unfiltered listings into context.
 
-When the task is complete, summarize briefly what was created or changed.
+RESILIENCE — keep going past a blocked resource:
+- If a command fails with a permission/authorization error (AccessDenied, UnauthorizedOperation, "not authorized to perform"), the account simply lacks rights for that specific service/resource. Do NOT abort the whole deployment and do NOT retry it repeatedly.
+- Skip that resource and continue deploying every other resource that does NOT depend on it. Deploy as much of the architecture as your permissions allow.
+- In your final summary, clearly list which resource(s) could not be created and why (e.g. "RDS instance skipped — AccessDenied"), so the user knows what was left out.
+
+When the task is complete, summarize briefly what was created or changed, and explicitly note anything that was skipped due to permissions.
 
 Current architecture (D2):
 <CURRENT_D2_STATE>
