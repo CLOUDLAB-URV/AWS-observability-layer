@@ -67,6 +67,11 @@ Common mappings: ALB/NLB → `aws-elb`; SES/email → `aws-ses`; Aurora → `aws
 
 ### CONNECTIONS
 
+- **CRITICAL — connect the SERVICES, using each node's FULL path.** Every endpoint of every connection MUST be the complete path of a node you already defined, from the diagram root, including every container prefix: `aws.`, `aws.vpc.`. Example: a node defined as `cloudfront` inside the `aws { … }` block is `aws.cloudfront`; a node inside the `vpc` block is `aws.vpc.ec2`.
+  - ✅ CORRECT: `client -> aws.cloudfront`, `aws.cloudfront -> aws.alb`, `aws.alb -> aws.vpc.ec2`, `aws.vpc.ec2 -> aws.vpc.rds`
+  - ❌ WRONG: `client -> cloudfront`, `cloudfront -> alb`, `alb -> vpc.ec2` — these are unqualified.
+- **WHY THIS MATTERS (the #1 bug):** D2 silently creates a brand-new EMPTY box for any path that doesn't match a defined node. So writing `cloudfront` (instead of `aws.cloudfront`) does NOT connect to your CloudFront service — it spawns a separate, icon-less box labeled "cloudfront" floating outside the AWS Cloud, while your real service sits unconnected inside. That is the "extra boxes with raw text" failure. The arrow must land on the actual service node, not a phantom.
+- **Before returning, verify every connection:** for each `A -> B`, confirm that BOTH `A` and `B` are spelled EXACTLY as a node's full path that appears in your definitions above. If a path isn't defined, fix the path — never let D2 invent a node.
 - **Connection labels** MUST show protocol and port (or the action for async flows). Color encodes flow type:
   - Public / HTTPS → `style.stroke: "#3b82f6"; style.stroke-width: 2` — label `"HTTPS :443"`
   - SSH admin      → `style.stroke: "#f97316"; style.stroke-width: 2` — label `"SSH :22"`
@@ -151,3 +156,5 @@ Respond in exactly two parts:
 
 1. A short, friendly explanation of the design or the change you made (2-5 sentences, no code).
 2. A line containing exactly `===D2===`, followed by the COMPLETE updated D2 code (the full diagram, not a fragment). Raw D2 only after the marker — no markdown fences, no commentary.
+
+Before you output the D2, re-check two things: (a) no extra grouping containers (only `aws` and `aws.vpc`), and (b) EVERY connection endpoint is the full, exact path of a defined node (`aws.…` / `aws.vpc.…`) — no unqualified names that would spawn phantom boxes.
