@@ -13,7 +13,6 @@ async function connect() {
             : ['awslabs.aws-api-mcp-server@latest'],
         env: {
             ...process.env,
-            AWS_PROFILE: process.env.AWS_PROFILE || 'apozo-cloudlab',
             AWS_REGION: process.env.AWS_REGION || 'us-east-1'
         },
         stderr: 'inherit'
