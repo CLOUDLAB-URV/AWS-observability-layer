@@ -22,6 +22,7 @@
 
 import process from 'node:process';
 import { promisify } from 'node:util';
+import { randomUUID } from 'node:crypto';
 import { exec as execCb } from 'node:child_process';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -37,22 +38,28 @@ const WEB_URL = 'http://127.0.0.1:5173';
 const TOKEN = process.env.VISUALIZER_TOKEN || '';
 const AWS_REGION = process.env.AWS_REGION || 'us-east-1';
 
+// Each chat gets its own isolated diagram, keyed by (user, chatId). One MCP process
+// ≈ one chat, so we mint a chat id at startup (override with VISUALIZER_CHAT_ID).
+// It is `let` so load_chat can switch the active chat to resume a previous one.
+let activeChatId = process.env.VISUALIZER_CHAT_ID || randomUUID();
+
 // Shell control operators we refuse to run: this tool executes ONLY single AWS CLI
 // commands, never pipelines/redirections/substitutions/chains. Blocking these
 // prevents the command string from doing anything other than calling `aws`.
 const SHELL_OPERATORS = /[;|&`\n\r]|\$\(|\$\{|>>|<<|>|</;
 
-// Upload a batch of operations to the visualizer backend. Returns { ok, text }.
-async function pushOperations(project, operations) {
+// Upload a batch of operations for a chat to the visualizer backend ({ ok, text }).
+// `project` is a friendly label; `chatId` is the storage key (defaults to active).
+async function pushOperations(project, operations, chatId) {
     if (!TOKEN) {
         return { ok: false, text: 'VISUALIZER_TOKEN is not set. Generate a token in the web UI and add it to this MCP server config.' };
     }
     let response;
     try {
-        response = await fetch(`${BACKEND_URL}/api/projects/${encodeURIComponent(project)}/deployments`, {
+        response = await fetch(`${BACKEND_URL}/api/chats/${encodeURIComponent(chatId)}/deployments`, {
             method: 'POST',
             headers: { 'content-type': 'application/json', authorization: `Bearer ${TOKEN}` },
-            body: JSON.stringify({ operations })
+            body: JSON.stringify({ project, operations })
         });
     } catch (error) {
         return { ok: false, text: `Could not reach the visualizer backend at ${BACKEND_URL}: ${error?.message || error}` };
@@ -101,7 +108,7 @@ async function executeAwsCommand(rawCommand) {
     }
 }
 
-const server = new McpServer({ name: 'diagram-state-visualizer', version: '0.1.0' });
+const server = new McpServer({ name: 'diagram-state-visualizer', version: '0.2.0' });
 
 server.registerTool(
     'deploy_and_visualize',
@@ -118,13 +125,17 @@ server.registerTool(
             'substitutions). Avoid read-only describe/list/get commands — only include the ' +
             'create/update/delete operations that change deployed state.',
         inputSchema: {
-            project: z.string().describe('Project name to group this deployment under (e.g. "my-api"). Reused across calls.'),
+            project: z.string().describe('Friendly label for this deployment (e.g. "my-api"), shown in the web UI.'),
             commands: z
                 .array(z.string())
-                .describe('Full AWS CLI commands to execute in order, e.g. ["aws ec2 create-vpc --cidr-block 10.0.0.0/16", "aws sqs create-queue --queue-name orders"].')
+                .describe('Full AWS CLI commands to execute in order, e.g. ["aws ec2 create-vpc --cidr-block 10.0.0.0/16", "aws sqs create-queue --queue-name orders"].'),
+            chat: z
+                .string()
+                .optional()
+                .describe('Optional: target an explicit chat id (e.g. one from load_chat). Defaults to this session\'s chat — leave unset for normal use.')
         }
     },
-    async ({ project, commands }) => {
+    async ({ project, commands, chat }) => {
         if (!TOKEN) {
             return { isError: true, content: [{ type: 'text', text: 'VISUALIZER_TOKEN is not set. Generate a token in the web UI and add it to this MCP server config.' }] };
         }
@@ -132,12 +143,13 @@ server.registerTool(
             return { isError: true, content: [{ type: 'text', text: 'No commands to run.' }] };
         }
 
+        const chatId = chat || activeChatId;
         const operations = [];
         for (const command of commands) {
             operations.push(await executeAwsCommand(command));
         }
 
-        const result = await pushOperations(project, operations);
+        const result = await pushOperations(project, operations, chatId);
         const succeeded = operations.filter((op) => !op.error).length;
         const failed = operations.length - succeeded;
 
@@ -147,7 +159,7 @@ server.registerTool(
             op.error ? `✗ ${op.action}\n   ${op.error}` : `✓ ${op.action}`
         );
         const tail = result.ok
-            ? `\nVisualized at ${WEB_URL} (Deployed state → ${project}).`
+            ? `\nVisualized at ${WEB_URL} (Deployed state → chat ${chatId.slice(0, 8)} · ${project}).`
             : `\n⚠ Commands ran but the visualizer upload failed: ${result.text}`;
 
         return {
@@ -155,7 +167,7 @@ server.registerTool(
             content: [
                 {
                     type: 'text',
-                    text: `Ran ${operations.length} command(s) for "${project}": ${succeeded} ok, ${failed} failed.\n\n` +
+                    text: `Ran ${operations.length} command(s) for "${project}" (chat ${chatId}): ${succeeded} ok, ${failed} failed.\n\n` +
                         `${lines.join('\n')}\n` +
                         `${tail}\n\n` +
                         `Results:\n${JSON.stringify(operations, null, 2)}`
@@ -178,7 +190,7 @@ server.registerTool(
             'commands. If you want this tool to RUN the commands for you instead, use ' +
             'deploy_and_visualize.',
         inputSchema: {
-            project: z.string().describe('Project name to group this deployment under (e.g. "my-api"). Reused across pushes.'),
+            project: z.string().describe('Friendly label for this deployment (e.g. "my-api"), shown in the web UI.'),
             operations: z
                 .array(
                     z.object({
@@ -187,11 +199,16 @@ server.registerTool(
                         error: z.string().optional().describe('Error message if the command failed (omit on success).')
                     })
                 )
-                .describe('Every AWS CLI command executed in this deployment session.')
+                .describe('Every AWS CLI command executed in this deployment session.'),
+            chat: z
+                .string()
+                .optional()
+                .describe('Optional: target an explicit chat id (e.g. one from load_chat). Defaults to this session\'s chat — leave unset for normal use.')
         }
     },
-    async ({ project, operations }) => {
-        const result = await pushOperations(project, operations);
+    async ({ project, operations, chat }) => {
+        const chatId = chat || activeChatId;
+        const result = await pushOperations(project, operations, chatId);
         if (!result.ok) {
             return { isError: true, content: [{ type: 'text', text: result.text }] };
         }
@@ -199,8 +216,103 @@ server.registerTool(
             content: [
                 {
                     type: 'text',
-                    text: `Pushed ${operations.length} operation(s) to project "${project}". ` +
-                        `View the live deployed-state diagram at ${WEB_URL} (Deployed state → ${project}).`
+                    text: `Pushed ${operations.length} operation(s) to "${project}" (chat ${chatId}). ` +
+                        `View the live deployed-state diagram at ${WEB_URL} (Deployed state → chat ${chatId.slice(0, 8)} · ${project}).`
+                }
+            ]
+        };
+    }
+);
+
+server.registerTool(
+    'load_chat',
+    {
+        title: 'Resume a previous chat and load its deployed-state context',
+        description:
+            'Resume a PREVIOUS deployment session: switches this session to an existing ' +
+            'chat and returns its full operations log (every aws command run + the resulting ' +
+            'resource_state with real IDs/ARNs). Call this when the user wants to continue ' +
+            'working on infrastructure they deployed earlier, so you know what already exists ' +
+            'and can reference those IDs/ARNs in new commands. After loading, subsequent ' +
+            'deploy_and_visualize / push_deployment calls accumulate into THIS chat and the ' +
+            'diagram links the new resources to the existing ones automatically. Use list_chats ' +
+            'first to find the chat id.',
+        inputSchema: {
+            chat: z.string().describe('The chat id to resume (from list_chats).')
+        }
+    },
+    async ({ chat }) => {
+        if (!TOKEN) {
+            return { isError: true, content: [{ type: 'text', text: 'VISUALIZER_TOKEN is not set. Generate a token in the web UI and add it to this MCP server config.' }] };
+        }
+        let response;
+        try {
+            response = await fetch(`${BACKEND_URL}/api/chats/${encodeURIComponent(chat)}`, {
+                headers: { authorization: `Bearer ${TOKEN}` }
+            });
+        } catch (error) {
+            return { isError: true, content: [{ type: 'text', text: `Could not reach the visualizer backend at ${BACKEND_URL}: ${error?.message || error}` }] };
+        }
+        if (!response.ok) {
+            const text = await response.text();
+            return { isError: true, content: [{ type: 'text', text: `Could not load chat "${chat}" (HTTP ${response.status}): ${text}` }] };
+        }
+        const data = await response.json();
+        const operations = Array.isArray(data.operations) ? data.operations : [];
+        // Adopt the chat so follow-up deployments accumulate into it.
+        activeChatId = chat;
+        return {
+            content: [
+                {
+                    type: 'text',
+                    text: `Resumed chat ${chat}${data.project ? ` ("${data.project}")` : ''} with ${operations.length} prior operation(s). ` +
+                        `New deployments will link to these existing resources.\n\n` +
+                        `Existing operations:\n${JSON.stringify(operations, null, 2)}`
+                }
+            ]
+        };
+    }
+);
+
+server.registerTool(
+    'list_chats',
+    {
+        title: 'List previous deployment chats',
+        description:
+            'List the deployment chats available for your account (newest first), each with its ' +
+            'chat id, friendly label, and last-updated time. Use this to find a chat id to pass ' +
+            'to load_chat when resuming earlier work.',
+        inputSchema: {}
+    },
+    async () => {
+        if (!TOKEN) {
+            return { isError: true, content: [{ type: 'text', text: 'VISUALIZER_TOKEN is not set. Generate a token in the web UI and add it to this MCP server config.' }] };
+        }
+        let response;
+        try {
+            response = await fetch(`${BACKEND_URL}/api/chats`, {
+                headers: { authorization: `Bearer ${TOKEN}` }
+            });
+        } catch (error) {
+            return { isError: true, content: [{ type: 'text', text: `Could not reach the visualizer backend at ${BACKEND_URL}: ${error?.message || error}` }] };
+        }
+        if (!response.ok) {
+            const text = await response.text();
+            return { isError: true, content: [{ type: 'text', text: `Could not list chats (HTTP ${response.status}): ${text}` }] };
+        }
+        const data = await response.json();
+        const chats = Array.isArray(data.chats) ? data.chats : [];
+        if (chats.length === 0) {
+            return { content: [{ type: 'text', text: 'No previous chats yet.' }] };
+        }
+        const lines = chats.map(
+            (c) => `• ${c.chatId}${c.project ? ` — ${c.project}` : ''}${c.updatedAt ? ` (updated ${c.updatedAt})` : ''}`
+        );
+        return {
+            content: [
+                {
+                    type: 'text',
+                    text: `Chats (newest first):\n${lines.join('\n')}\n\nPass a chat id to load_chat to resume it.`
                 }
             ]
         };

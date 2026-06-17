@@ -48,10 +48,10 @@ function extractD2(text) {
     return noComments.trim();
 }
 
-// Builds (and persists) the deployed-state D2 for a project from its operations
-// log. Returns the D2 string ('' when nothing is deployed / generation failed).
-export async function runStateViz(projectId) {
-    const operations = await visualizerStore.readOperations(projectId);
+// Builds (and persists) the deployed-state D2 for a (user, chat) from its
+// operations log. Returns the D2 string ('' when nothing deployed / gen failed).
+export async function runStateViz(userId, chatId) {
+    const operations = await visualizerStore.readOperations(userId, chatId);
     if (operations.length === 0) {
         return '';
     }
@@ -77,6 +77,6 @@ export async function runStateViz(projectId) {
         return '';
     }
 
-    await visualizerStore.writeDiagram(projectId, d2Code);
+    await visualizerStore.writeDiagram(userId, chatId, d2Code);
     return d2Code;
 }

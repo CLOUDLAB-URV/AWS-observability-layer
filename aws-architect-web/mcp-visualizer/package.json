@@ -1,6 +1,6 @@
 {
   "name": "diagram-state-visualizer-mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Self-contained MCP server that runs AWS CLI commands and renders a live diagram of what is actually deployed in AWS, in the AWS Architect Web 'Deployed state' view.",
   "type": "module",
   "bin": {

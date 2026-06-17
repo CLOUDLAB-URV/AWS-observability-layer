@@ -12,6 +12,12 @@ constants at the top of `index.js`) because it targets one specific web app. The
 **only** thing you configure is your API token, via the `VISUALIZER_TOKEN`
 environment variable (optionally `AWS_REGION` / `AWS_PROFILE` for the CLI).
 
+**One diagram per chat.** Each MCP process gets its own chat id at startup, so every
+chat session keeps an isolated diagram — you don't manage project names. To resume a
+previous deployment (so the agent knows what already exists and links new resources
+to it), use the `load_chat` / `list_chats` tools, or pin a fixed chat with the
+optional `VISUALIZER_CHAT_ID` env var.
+
 ---
 
 ## 1. Prerequisites
@@ -97,9 +103,12 @@ Global: `~/.config/opencode/opencode.json`. Project: `opencode.json` in the repo
 2. In your agent, ask it to deploy something, e.g.
    *"Create an S3 bucket and an SQS queue under project `my-api`, and visualize it."*
 3. The agent calls **`deploy_and_visualize`** with the `aws` commands; this server
-   runs them and pushes the result.
-4. Open the web app → **Deployed state** → type the project name → see the live
-   diagram. It updates automatically after each call.
+   runs them and pushes the result to the current chat's diagram.
+4. Open the web app → **Deployed state** → pick the chat from the selector → see the
+   live diagram. It updates automatically after each call.
+5. To continue earlier work in a new session, ask the agent to **`list_chats`** then
+   **`load_chat`** with the id — it loads the prior resources as context and new
+   deployments link onto them.
 
 The agent receives the real command outputs (IDs/ARNs) back, so it can chain
 follow-up commands (e.g. use a VPC id from `create-vpc` in the next call).
@@ -120,6 +129,21 @@ JSON unless you pass `--output`. Returns per-command results plus the diagram li
 
 Use when you ran the `aws` commands yourself and just want to visualize them.
 `operations` is one entry per command: `{ action, resource_state?, error? }`.
+
+### `list_chats()` — discover previous chats
+
+Lists your deployment chats (newest first) with their id, label, and last-updated
+time, so you can pick one to resume.
+
+### `load_chat({ chat })` — resume a previous deployment
+
+Switches this session to an existing chat and returns its full operations log (every
+command + the resulting IDs/ARNs). After loading, `deploy_and_visualize` /
+`push_deployment` accumulate into that chat and the diagram links new resources to
+the existing ones.
+
+> Both `deploy_and_visualize` and `push_deployment` also accept an optional `chat`
+> argument to target an explicit chat for a single call.
 
 ---
 

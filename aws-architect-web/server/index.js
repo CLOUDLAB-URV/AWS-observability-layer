@@ -141,11 +141,11 @@ wss.on('connection', (socket) => {
 // "Deployed state" feature (MCP-push visualizer)
 // ---------------------------------------------------------------------------
 
-// Send a message to every visualizer client subscribed to a given project.
-function broadcastToProject(projectId, message) {
+// Send a message to every visualizer client subscribed to a given (user, chat).
+function broadcastToChat(userId, chatId, message) {
     const payload = JSON.stringify(message);
     for (const socket of vizWss.clients) {
-        if (socket.readyState === socket.OPEN && socket._projectId === projectId) {
+        if (socket.readyState === socket.OPEN && socket._userId === userId && socket._chatId === chatId) {
             socket.send(payload);
         }
     }
@@ -194,13 +194,24 @@ async function requireToken(req, res, next) {
     next();
 }
 
-// Ingest: the MCP tool POSTs a batch of AWS operations for a project. We append
-// them, regenerate the deployed-state D2, render it, and push it live to any web
-// clients watching that project.
-app.post('/api/projects/:id/deployments', requireToken, async (req, res) => {
-    const projectId = visualizerStore.sanitizeProjectId(req.params.id);
-    if (!projectId) {
-        res.status(400).json({ error: 'Invalid project id.' });
+// Optional Bearer auth → req.userId if a valid token is present, else 'local'.
+// Used by read endpoints the web UI hits same-origin without a token (v1 single
+// user); the MCP always sends a token and gets its real user.
+async function resolveUser(req, _res, next) {
+    const header = req.get('authorization') || '';
+    const token = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
+    const identity = token ? await tokenStore.verify(token) : null;
+    req.userId = identity ? identity.userId : 'local';
+    next();
+}
+
+// Ingest: the MCP tool POSTs a batch of AWS operations for a chat. We append them,
+// regenerate the deployed-state D2, render it, and push it live to any web clients
+// watching that chat. `project` is a friendly label stored in meta.
+app.post('/api/chats/:chatId/deployments', requireToken, async (req, res) => {
+    const chatId = visualizerStore.sanitizeChatId(req.params.chatId);
+    if (!chatId) {
+        res.status(400).json({ error: 'Invalid chat id.' });
         return;
     }
 
@@ -210,12 +221,14 @@ app.post('/api/projects/:id/deployments', requireToken, async (req, res) => {
         return;
     }
 
+    const project = visualizerStore.sanitizeProjectId(req.body?.project) || '';
+
     try {
-        await visualizerStore.appendDeployment(projectId, operations);
-        const d2 = await runStateViz(projectId);
+        await visualizerStore.appendDeployment(req.userId, chatId, operations, project);
+        const d2 = await runStateViz(req.userId, chatId);
         const { svg, error } = await renderDiagramSvg(d2);
-        broadcastToProject(projectId, { type: 'render-svg', svg, renderError: error });
-        res.json({ ok: true, project: projectId, operations: operations.length, rendered: Boolean(svg) });
+        broadcastToChat(req.userId, chatId, { type: 'render-svg', svg, renderError: error });
+        res.json({ ok: true, chat: chatId, project, operations: operations.length, rendered: Boolean(svg) });
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         console.error('[deployment ingest failed]', error);
@@ -223,21 +236,38 @@ app.post('/api/projects/:id/deployments', requireToken, async (req, res) => {
     }
 });
 
-// List projects that have a deployed-state diagram.
-app.get('/api/projects', requireToken, async (_req, res) => {
-    res.json({ projects: await visualizerStore.listProjects() });
+// List the user's chats (newest first). The MCP uses this (with a token) for
+// list_chats; the web UI hits it same-origin (no token → local user).
+app.get('/api/chats', resolveUser, async (req, res) => {
+    res.json({ chats: await visualizerStore.listChats(req.userId) });
 });
 
-// Current deployed-state diagram (SVG) for a project.
-app.get('/api/projects/:id/diagram', requireToken, async (req, res) => {
-    const projectId = visualizerStore.sanitizeProjectId(req.params.id);
-    if (!projectId) {
-        res.status(400).json({ error: 'Invalid project id.' });
+// Full context for one chat: label + cumulative operations + current D2. Used by
+// the MCP's load_chat so the agent can resume with the already-created IDs/ARNs.
+app.get('/api/chats/:chatId', requireToken, async (req, res) => {
+    const chatId = visualizerStore.sanitizeChatId(req.params.chatId);
+    if (!chatId) {
+        res.status(400).json({ error: 'Invalid chat id.' });
         return;
     }
-    const d2 = await visualizerStore.readDiagram(projectId);
+    const [meta, operations, d2] = await Promise.all([
+        visualizerStore.readMeta(req.userId, chatId),
+        visualizerStore.readOperations(req.userId, chatId),
+        visualizerStore.readDiagram(req.userId, chatId)
+    ]);
+    res.json({ chat: chatId, project: meta.project || '', operations, d2 });
+});
+
+// Current deployed-state diagram (SVG) for a chat.
+app.get('/api/chats/:chatId/diagram', resolveUser, async (req, res) => {
+    const chatId = visualizerStore.sanitizeChatId(req.params.chatId);
+    if (!chatId) {
+        res.status(400).json({ error: 'Invalid chat id.' });
+        return;
+    }
+    const d2 = await visualizerStore.readDiagram(req.userId, chatId);
     const { svg, error } = await renderDiagramSvg(d2);
-    res.json({ project: projectId, svg, renderError: error });
+    res.json({ chat: chatId, svg, renderError: error });
 });
 
 // Token management for the web UI (v1: single local user).
@@ -262,15 +292,17 @@ vizWss.on('connection', (socket) => {
             return;
         }
         if (message.type === 'subscribe') {
-            const projectId = visualizerStore.sanitizeProjectId(message.projectId);
-            if (!projectId) {
-                socket.send(JSON.stringify({ type: 'error', message: 'Invalid project id.' }));
+            const chatId = visualizerStore.sanitizeChatId(message.chatId);
+            if (!chatId) {
+                socket.send(JSON.stringify({ type: 'error', message: 'Invalid chat id.' }));
                 return;
             }
-            socket._projectId = projectId;
-            const d2 = await visualizerStore.readDiagram(projectId);
+            // v1 is single-user: the web client maps to the local user.
+            socket._userId = 'local';
+            socket._chatId = chatId;
+            const d2 = await visualizerStore.readDiagram(socket._userId, chatId);
             const { svg, error } = await renderDiagramSvg(d2);
-            socket.send(JSON.stringify({ type: 'init', project: projectId, svg, renderError: error }));
+            socket.send(JSON.stringify({ type: 'init', chat: chatId, svg, renderError: error }));
         }
     });
 });
