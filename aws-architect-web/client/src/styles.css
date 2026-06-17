@@ -872,3 +872,107 @@ body {
     body, .topbar, .chat, .chat-header, .chat-input-area, .stage { transition: none; }
     .stage-kb-hint         { transition: none; }
 }
+
+/* ---------------------------------------------------------------------------
+   Deployed-state view (MCP-push visualizer)
+   --------------------------------------------------------------------------- */
+.view-tabs {
+    display: flex;
+    gap: 4px;
+    margin-left: 8px;
+}
+.view-tab {
+    border: 1px solid var(--border-default);
+    background: transparent;
+    color: var(--text-secondary);
+    padding: 4px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: var(--transition-theme);
+}
+.view-tab:hover { color: var(--text-primary); }
+.view-tab-active {
+    background: var(--surface-panel);
+    color: var(--text-primary);
+    border-color: var(--border-focus);
+}
+
+.layout-deployed {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+.deployed-state {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+}
+.deployed-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border-default);
+    background: var(--surface-panel);
+}
+.project-form {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.project-form label { font-size: 13px; color: var(--text-secondary); }
+.project-form input {
+    border: 1px solid var(--border-input);
+    border-radius: 6px;
+    padding: 5px 9px;
+    background: var(--surface-app);
+    color: var(--text-primary);
+    font-size: 13px;
+}
+.project-form button,
+.settings-btn {
+    border: 1px solid var(--border-default);
+    background: var(--surface-app);
+    color: var(--text-primary);
+    padding: 5px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+}
+.settings-btn { margin-left: auto; }
+
+.viz-settings {
+    padding: 16px;
+    border-bottom: 1px solid var(--border-default);
+    background: var(--surface-app);
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+.viz-settings p { margin: 0 0 10px; }
+.viz-settings button {
+    border: 1px solid var(--border-focus);
+    background: var(--btn-deploy-bg);
+    color: var(--text-on-accent);
+    padding: 6px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+}
+.token-value { word-break: break-all; color: var(--text-primary); }
+.mcp-snippet {
+    margin-top: 12px;
+    padding: 12px;
+    background: var(--surface-panel);
+    border: 1px solid var(--border-default);
+    border-radius: 8px;
+    font-size: 12px;
+    overflow-x: auto;
+    color: var(--text-primary);
+}
+.token-list {
+    margin: 12px 0 0;
+    padding-left: 18px;
+    color: var(--text-secondary);
+}
+.token-list li { margin: 4px 0; }

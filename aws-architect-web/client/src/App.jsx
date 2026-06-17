@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Chat from './Chat.jsx';
 import Diagram from './Diagram.jsx';
+import DeployedState from './DeployedState.jsx';
 import ConfirmModal from './ConfirmModal.jsx';
 import { createSocket } from './ws.js';
 import { useDarkMode } from './hooks/useDarkMode.js';
@@ -9,6 +10,7 @@ import { useChatPanel } from './hooks/useChatPanel.js';
 const MODE_LABELS = { preview: 'Preview', deployed: 'Deployed', partial: 'Partial' };
 
 export default function App() {
+    const [view, setView] = useState('design');
     const [connected, setConnected] = useState(false);
     const [mode, setMode] = useState('preview');
     const [svg, setSvg] = useState('');
@@ -148,12 +150,32 @@ export default function App() {
             )}
             <header className="topbar" role="banner">
                 <h1>AWS Architect</h1>
-                <span
-                    className={`badge badge-${mode}`}
-                    aria-label={`Mode: ${MODE_LABELS[mode] || 'Preview'}`}
-                >
-                    {MODE_LABELS[mode] || 'Preview'}
-                </span>
+                <nav className="view-tabs" role="tablist" aria-label="View">
+                    <button
+                        role="tab"
+                        aria-selected={view === 'design'}
+                        className={`view-tab ${view === 'design' ? 'view-tab-active' : ''}`}
+                        onClick={() => setView('design')}
+                    >
+                        Design
+                    </button>
+                    <button
+                        role="tab"
+                        aria-selected={view === 'deployed'}
+                        className={`view-tab ${view === 'deployed' ? 'view-tab-active' : ''}`}
+                        onClick={() => setView('deployed')}
+                    >
+                        Deployed state
+                    </button>
+                </nav>
+                {view === 'design' && (
+                    <span
+                        className={`badge badge-${mode}`}
+                        aria-label={`Mode: ${MODE_LABELS[mode] || 'Preview'}`}
+                    >
+                        {MODE_LABELS[mode] || 'Preview'}
+                    </span>
+                )}
                 <output className="status-text" aria-live="polite" aria-atomic="true">
                     {status}
                 </output>
@@ -174,7 +196,7 @@ export default function App() {
                 >
                     {isDark ? '☀️' : '🌙'}
                 </button>
-                {(mode === 'preview' || mode === 'partial') && (
+                {view === 'design' && (mode === 'preview' || mode === 'partial') && (
                     <button
                         className="deploy-btn"
                         onClick={deploy}
@@ -185,7 +207,7 @@ export default function App() {
                         {mode === 'partial' ? 'Retry deploy' : 'Deploy to AWS'}
                     </button>
                 )}
-                {(mode === 'deployed' || mode === 'partial') && (
+                {view === 'design' && (mode === 'deployed' || mode === 'partial') && (
                     <button
                         className="teardown-btn"
                         onClick={teardown}
@@ -197,34 +219,40 @@ export default function App() {
                     </button>
                 )}
             </header>
-            <main
-                id="main-content"
-                className="layout"
-                role="main"
-                ref={chatPanel.layoutRef}
-                data-chat-collapsed={chatPanel.collapsed ? 'true' : undefined}
-                data-chat-floating={chatPanel.floating ? 'true' : undefined}
-            >
-                {chatPanel.collapsed && (
-                    <button
-                        className="chat-reopen-btn"
-                        onClick={chatPanel.toggleCollapse}
-                        aria-label="Open chat panel"
-                        title="Open chat"
-                    >
-                        💬 Chat
-                    </button>
-                )}
-                <Chat
-                    messages={messages}
-                    busy={busy}
-                    onSend={sendChat}
-                    chatPanel={chatPanel}
-                />
-                <section className="diagram-section" aria-label="Architecture diagram">
-                    <Diagram svg={svg} renderError={renderError} />
-                </section>
-            </main>
+            {view === 'deployed' ? (
+                <main id="main-content" className="layout layout-deployed" role="main">
+                    <DeployedState />
+                </main>
+            ) : (
+                <main
+                    id="main-content"
+                    className="layout"
+                    role="main"
+                    ref={chatPanel.layoutRef}
+                    data-chat-collapsed={chatPanel.collapsed ? 'true' : undefined}
+                    data-chat-floating={chatPanel.floating ? 'true' : undefined}
+                >
+                    {chatPanel.collapsed && (
+                        <button
+                            className="chat-reopen-btn"
+                            onClick={chatPanel.toggleCollapse}
+                            aria-label="Open chat panel"
+                            title="Open chat"
+                        >
+                            💬 Chat
+                        </button>
+                    )}
+                    <Chat
+                        messages={messages}
+                        busy={busy}
+                        onSend={sendChat}
+                        chatPanel={chatPanel}
+                    />
+                    <section className="diagram-section" aria-label="Architecture diagram">
+                        <Diagram svg={svg} renderError={renderError} />
+                    </section>
+                </main>
+            )}
         </div>
     );
 }

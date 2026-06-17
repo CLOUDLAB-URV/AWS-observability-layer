@@ -1,0 +1,46 @@
+{
+  "name": "diagram-state-visualizer-mcp",
+  "version": "0.1.0",
+  "description": "Self-contained MCP server that runs AWS CLI commands and renders a live diagram of what is actually deployed in AWS, in the AWS Architect Web 'Deployed state' view.",
+  "type": "module",
+  "bin": {
+    "diagram-state-visualizer-mcp": "index.js"
+  },
+  "main": "index.js",
+  "files": [
+    "index.js",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "aws",
+    "aws-cli",
+    "diagram",
+    "visualizer"
+  ],
+  "license": "MIT",
+  "author": "Alejandro Pozo Risquez",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CLOUDLAB-URV/AWS-observability-layer.git",
+    "directory": "mcp-visualizer"
+  },
+  "homepage": "https://github.com/CLOUDLAB-URV/AWS-observability-layer/tree/main/mcp-visualizer#readme",
+  "bugs": {
+    "url": "https://github.com/CLOUDLAB-URV/AWS-observability-layer/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "prepublishOnly": "node --check index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^4.4.3"
+  }
+}
