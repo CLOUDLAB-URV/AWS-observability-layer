@@ -80,3 +80,40 @@ export async function runStateViz(userId, chatId) {
     await visualizerStore.writeDiagram(userId, chatId, d2Code);
     return d2Code;
 }
+
+// Suggest a short, human-readable session name describing the deployed architecture
+// (e.g. "S3 + SQS pipeline"). Used to auto-name a brand-new session on its first
+// deploy; the user can rename it later from the web. Returns '' on any failure so the
+// caller can fall back gracefully. Cheap model, no tools.
+export async function suggestSessionName(operations) {
+    if (!Array.isArray(operations) || operations.length === 0) {
+        return '';
+    }
+
+    const prompt =
+        'You are naming an AWS architecture for a UI list. Given the AWS CLI ' +
+        'operations below, reply with ONLY a short descriptive name of at most 5 ' +
+        'words (no quotes, no punctuation at the ends, no trailing period). ' +
+        'Examples: "S3 static site", "SQS order pipeline", "VPC with RDS".\n\n' +
+        `Operations:\n${JSON.stringify(compactOperations(operations), null, 2)}`;
+
+    try {
+        const stream = getGemini().messages.stream({
+            // Gemini 2.5 is a thinking model: a tiny budget gets consumed before any
+            // text is emitted, so leave generous headroom for the short name.
+            model: MODELS.reconciler,
+            max_tokens: 256,
+            messages: [{ role: 'user', content: prompt }]
+        });
+        const message = await stream.finalMessage();
+        const text = message.content
+            .filter((block) => block.type === 'text')
+            .map((block) => block.text)
+            .join('')
+            .trim();
+        // Collapse to a single line and strip wrapping quotes the model may add.
+        return text.split('\n')[0].replace(/^["'`]+|["'`]+$/g, '').trim().slice(0, 60);
+    } catch {
+        return '';
+    }
+}

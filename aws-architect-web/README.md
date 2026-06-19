@@ -19,15 +19,16 @@ state graph (`server/graph.js`) over per-agent modules under `server/agents/`.
 ## Run
 
 ```bash
-# prerequisites: node 20+, uvx (uv), AWS SSO session
-aws sso login --profile apozo-cloudlab
+# prerequisites: node 20+, uvx (uv), AWS credentials for your default account
+aws sso login            # or: aws configure — uses your default AWS account
 
 cd server && npm install && npm start          # backend on :3001
 cd client && npm install && npm run dev        # frontend on :5173 (proxies /ws)
 ```
 
-Optional env: `AWS_PROFILE` (default `apozo-cloudlab`), `AWS_REGION` (default `us-east-1`),
-`PORT` (default 3001), `AWS_MCP_COMMAND`/`AWS_MCP_ARGS` to override the MCP server launch.
+Optional env: `AWS_PROFILE` (defaults to your default AWS account/profile), `AWS_REGION`
+(default `us-east-1`), `PORT` (default 3001), `AWS_MCP_COMMAND`/`AWS_MCP_ARGS` to override
+the MCP server launch.
 
 ## LLM credentials (Gemini via Vertex AI — pay with GCP credits)
 

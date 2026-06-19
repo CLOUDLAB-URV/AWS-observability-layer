@@ -2,25 +2,39 @@ import { useEffect, useRef, useState } from 'react';
 import Diagram from './Diagram.jsx';
 import { createSocket } from './ws.js';
 
+// localStorage flag so the first-run "Connect agent" pop-up only auto-opens once.
+const CONNECT_SEEN_KEY = 'viz.connectSeen';
+
 // "Deployed state" view: subscribes to one chat on the visualizer socket and
 // renders a live diagram of what is actually deployed in AWS (pushed from the
 // user's agent via the MCP tool). Each chat has its own isolated diagram. Also
-// hosts the API-token + MCP-config panel.
+// hosts the API-token + MCP-config "Connect agent" modal, which auto-opens the
+// first time a user enters this mode without a token yet.
 export default function DeployedState() {
     const [connected, setConnected] = useState(false);
     const [chats, setChats] = useState([]);
     const [chatId, setChatId] = useState('');
     const [svg, setSvg] = useState('');
     const [renderError, setRenderError] = useState(null);
-    const [showSettings, setShowSettings] = useState(false);
+    const [showConnect, setShowConnect] = useState(false);
     const [newToken, setNewToken] = useState('');
     const [tokens, setTokens] = useState([]);
+    const [copied, setCopied] = useState(false);
+    const [renameValue, setRenameValue] = useState('');
     const socketRef = useRef(null);
 
     useEffect(() => {
         const socket = createSocket(handleMessage, setConnected, '/ws-visualizer');
         socketRef.current = socket;
         loadChats();
+        // First run in MCP mode: if the user has no token yet, proactively open the
+        // Connect-agent pop-up (once — guarded by a localStorage flag).
+        loadTokens().then((list) => {
+            if (list.length === 0 && !localStorage.getItem(CONNECT_SEEN_KEY)) {
+                localStorage.setItem(CONNECT_SEEN_KEY, '1');
+                setShowConnect(true);
+            }
+        });
         return () => socket.close();
     }, []);
 
@@ -32,6 +46,20 @@ export default function DeployedState() {
             socketRef.current?.send({ type: 'subscribe', chatId });
         }
     }, [connected, chatId]);
+
+    // Keep the rename field in sync with the selected chat's current name.
+    useEffect(() => {
+        const current = chats.find((c) => c.chatId === chatId);
+        setRenameValue(current?.name || '');
+    }, [chatId, chats]);
+
+    // Close the Connect-agent modal on Escape while it's open.
+    useEffect(() => {
+        if (!showConnect) return undefined;
+        const onKey = (e) => { if (e.key === 'Escape') closeConnect(); };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [showConnect]);
 
     function handleMessage(message) {
         switch (message.type) {
@@ -63,13 +91,17 @@ export default function DeployedState() {
         }
     }
 
+    // Loads the masked token list and returns it (so callers can react to it).
     async function loadTokens() {
         try {
             const res = await fetch('/api/tokens');
             const data = await res.json();
-            setTokens(data.tokens || []);
+            const list = data.tokens || [];
+            setTokens(list);
+            return list;
         } catch {
             setTokens([]);
+            return [];
         }
     }
 
@@ -82,21 +114,53 @@ export default function DeployedState() {
             });
             const data = await res.json();
             setNewToken(data.token || '');
+            setCopied(false);
             loadTokens();
         } catch {
             setNewToken('');
         }
     }
 
-    function openSettings() {
-        setShowSettings((v) => !v);
-        if (!showSettings) loadTokens();
+    async function copyToken() {
+        if (!newToken) return;
+        try {
+            await navigator.clipboard.writeText(newToken);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        } catch {
+            // Clipboard unavailable (e.g. non-secure context) — the token stays
+            // visible for manual selection.
+        }
+    }
+
+    function openConnect() {
+        setShowConnect(true);
+        loadTokens();
+    }
+
+    function closeConnect() {
+        setShowConnect(false);
+    }
+
+    async function renameChat() {
+        const name = renameValue.trim();
+        if (!chatId || !name) return;
+        try {
+            await fetch(`/api/chats/${encodeURIComponent(chatId)}`, {
+                method: 'PATCH',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ name })
+            });
+            loadChats();
+        } catch {
+            // leave the field as-is; the user can retry
+        }
     }
 
     function chatLabel(c) {
         const short = c.chatId.slice(0, 8);
         const when = c.updatedAt ? ` · ${new Date(c.updatedAt).toLocaleString()}` : '';
-        return `${c.project || '(no label)'} · ${short}${when}`;
+        return `${c.name || '(unnamed)'} · ${short}${when}`;
     }
 
     const mcpSnippet = `{
@@ -129,42 +193,75 @@ export default function DeployedState() {
                         ))}
                     </select>
                     <button type="button" onClick={loadChats}>Refresh</button>
+                    {chatId && (
+                        <span className="chat-rename">
+                            <input
+                                type="text"
+                                aria-label="Session name"
+                                placeholder="Session name"
+                                value={renameValue}
+                                onChange={(e) => setRenameValue(e.target.value)}
+                                onKeyDown={(e) => e.key === 'Enter' && renameChat()}
+                            />
+                            <button type="button" onClick={renameChat}>Rename</button>
+                        </span>
+                    )}
                 </div>
                 <span className={`conn ${connected ? 'conn-on' : 'conn-off'}`} role="status">
                     {connected ? 'live' : 'reconnecting…'}
                 </span>
-                <button className="settings-btn" onClick={openSettings} aria-expanded={showSettings}>
+                <button className="settings-btn" onClick={openConnect} aria-haspopup="dialog">
                     ⚙ Connect agent
                 </button>
             </div>
 
-            {showSettings && (
-                <div className="viz-settings" role="region" aria-label="Connect your agent">
-                    <p>
-                        Generate an API token and paste it into the <code>diagram-state-visualizer</code> MCP server
-                        config in your coding agent (no AWS MCP needed — it runs the AWS CLI itself). Each chat
-                        automatically gets its own isolated diagram, so you don't manage project names. Then ask the
-                        agent to deploy and visualize; it calls <code>deploy_and_visualize</code> and the diagram
-                        appears here. To resume an earlier deployment, ask it to <code>list_chats</code> then{' '}
-                        <code>load_chat</code> (or pin a chat with the <code>VISUALIZER_CHAT_ID</code> env var).
-                    </p>
-                    <button onClick={generateToken}>Generate token</button>
-                    {newToken && (
-                        <p className="token-value">
-                            <strong>New token (copy it now):</strong> <code>{newToken}</code>
+            {showConnect && (
+                <div
+                    className="modal-backdrop"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="connect-title"
+                    onClick={(e) => { if (e.target === e.currentTarget) closeConnect(); }}
+                >
+                    <div className="modal-box connect-modal">
+                        <h2 className="modal-title" id="connect-title">Connect your agent</h2>
+                        <p>
+                            Generate an API token and paste it into the <code>diagram-state-visualizer</code> MCP
+                            server config in your coding agent (Claude Code / opencode — no AWS MCP needed, it runs
+                            the AWS CLI itself). Each session gets its own isolated diagram and is named
+                            automatically from its architecture (you can rename it here). Then ask the agent to
+                            deploy and visualize; it calls <code>deploy_and_visualize</code> and the diagram appears
+                            in this view.
                         </p>
-                    )}
-                    <pre className="mcp-snippet">{mcpSnippet}</pre>
-                    {tokens.length > 0 && (
-                        <ul className="token-list">
-                            {tokens.map((t, i) => (
-                                <li key={i}>
-                                    <code>{t.tokenPreview}</code> {t.label && `(${t.label})`}
-                                    {t.createdAt && ` — ${new Date(t.createdAt).toLocaleString()}`}
-                                </li>
-                            ))}
-                        </ul>
-                    )}
+                        <div className="connect-actions">
+                            <button onClick={generateToken}>Generate token</button>
+                        </div>
+                        {newToken && (
+                            <div className="token-value">
+                                <strong>New token — copy it now (shown only once):</strong>
+                                <div className="token-row">
+                                    <code>{newToken}</code>
+                                    <button type="button" className="token-copy-btn" onClick={copyToken}>
+                                        {copied ? 'Copied ✓' : 'Copy'}
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                        <pre className="mcp-snippet">{mcpSnippet}</pre>
+                        {tokens.length > 0 && (
+                            <ul className="token-list">
+                                {tokens.map((t, i) => (
+                                    <li key={i}>
+                                        <code>{t.tokenPreview}</code> {t.label && `(${t.label})`}
+                                        {t.createdAt && ` — ${new Date(t.createdAt).toLocaleString()}`}
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
+                        <div className="modal-actions">
+                            <button className="modal-cancel-btn" onClick={closeConnect}>Close</button>
+                        </div>
+                    </div>
                 </div>
             )}
 

@@ -111,7 +111,7 @@ export default function App() {
             title: retry ? 'Retry deploy' : 'Deploy to AWS',
             message: retry
                 ? 'This will try again to create the resources that failed, and finish deploying the rest of the architecture. Continue?'
-                : 'This will create real AWS resources in your cloudlab account. Continue?',
+                : 'This will create real AWS resources in your AWS account. Continue?',
             confirmLabel: retry ? 'Retry deploy' : 'Deploy',
             confirmClass: 'deploy-btn',
             onConfirm: () => {
@@ -156,16 +156,18 @@ export default function App() {
                         aria-selected={view === 'design'}
                         className={`view-tab ${view === 'design' ? 'view-tab-active' : ''}`}
                         onClick={() => setView('design')}
+                        title="Design an AWS architecture by chat and deploy it from the web"
                     >
-                        Design
+                        Design &amp; Deploy
                     </button>
                     <button
                         role="tab"
                         aria-selected={view === 'deployed'}
                         className={`view-tab ${view === 'deployed' ? 'view-tab-active' : ''}`}
                         onClick={() => setView('deployed')}
+                        title="Live diagram of what your coding agent (Claude Code / opencode) deploys via the MCP server"
                     >
-                        Deployed state
+                        Agent (MCP)
                     </button>
                 </nav>
                 {view === 'design' && (

@@ -68,7 +68,13 @@ async function pushOperations(project, operations, chatId) {
     if (!response.ok) {
         return { ok: false, text: `Visualizer rejected the upload (HTTP ${response.status}): ${text}` };
     }
-    return { ok: true, text };
+    let data = {};
+    try {
+        data = JSON.parse(text);
+    } catch {
+        // Non-JSON body — leave data empty; callers fall back to text.
+    }
+    return { ok: true, text, data };
 }
 
 // Run one AWS CLI command via the local terminal and normalize it into the
@@ -123,9 +129,14 @@ server.registerTool(
             'follow-up step with the resolved value (the previous results are returned to you). ' +
             'Each command must be a single "aws" command (no pipes, redirects, chaining, or ' +
             'substitutions). Avoid read-only describe/list/get commands — only include the ' +
-            'create/update/delete operations that change deployed state.',
+            'create/update/delete operations that change deployed state. The session is ' +
+            'named automatically from the architecture (the user can rename it in the web UI), ' +
+            'so you do not need to pass a name.',
         inputSchema: {
-            project: z.string().describe('Friendly label for this deployment (e.g. "my-api"), shown in the web UI.'),
+            project: z
+                .string()
+                .optional()
+                .describe('Optional name hint for a brand-new session. Leave unset — the backend auto-names it from the architecture.'),
             commands: z
                 .array(z.string())
                 .describe('Full AWS CLI commands to execute in order, e.g. ["aws ec2 create-vpc --cidr-block 10.0.0.0/16", "aws sqs create-queue --queue-name orders"].'),
@@ -152,6 +163,7 @@ server.registerTool(
         const result = await pushOperations(project, operations, chatId);
         const succeeded = operations.filter((op) => !op.error).length;
         const failed = operations.length - succeeded;
+        const name = result.data?.name || project || '(unnamed)';
 
         // Return the per-command outcomes so the agent can read real IDs/ARNs and
         // chain follow-up commands, plus the visualizer link.
@@ -159,7 +171,7 @@ server.registerTool(
             op.error ? `✗ ${op.action}\n   ${op.error}` : `✓ ${op.action}`
         );
         const tail = result.ok
-            ? `\nVisualized at ${WEB_URL} (Deployed state → chat ${chatId.slice(0, 8)} · ${project}).`
+            ? `\nVisualized at ${WEB_URL} (Deployed state → chat ${chatId.slice(0, 8)} · ${name}).`
             : `\n⚠ Commands ran but the visualizer upload failed: ${result.text}`;
 
         return {
@@ -167,7 +179,7 @@ server.registerTool(
             content: [
                 {
                     type: 'text',
-                    text: `Ran ${operations.length} command(s) for "${project}" (chat ${chatId}): ${succeeded} ok, ${failed} failed.\n\n` +
+                    text: `Ran ${operations.length} command(s) for "${name}" (chat ${chatId}): ${succeeded} ok, ${failed} failed.\n\n` +
                         `${lines.join('\n')}\n` +
                         `${tail}\n\n` +
                         `Results:\n${JSON.stringify(operations, null, 2)}`
@@ -190,7 +202,10 @@ server.registerTool(
             'commands. If you want this tool to RUN the commands for you instead, use ' +
             'deploy_and_visualize.',
         inputSchema: {
-            project: z.string().describe('Friendly label for this deployment (e.g. "my-api"), shown in the web UI.'),
+            project: z
+                .string()
+                .optional()
+                .describe('Optional name hint for a brand-new session. Leave unset — the backend auto-names it from the architecture.'),
             operations: z
                 .array(
                     z.object({
@@ -212,12 +227,13 @@ server.registerTool(
         if (!result.ok) {
             return { isError: true, content: [{ type: 'text', text: result.text }] };
         }
+        const name = result.data?.name || project || '(unnamed)';
         return {
             content: [
                 {
                     type: 'text',
-                    text: `Pushed ${operations.length} operation(s) to "${project}" (chat ${chatId}). ` +
-                        `View the live deployed-state diagram at ${WEB_URL} (Deployed state → chat ${chatId.slice(0, 8)} · ${project}).`
+                    text: `Pushed ${operations.length} operation(s) to "${name}" (chat ${chatId}). ` +
+                        `View the live deployed-state diagram at ${WEB_URL} (Deployed state → chat ${chatId.slice(0, 8)} · ${name}).`
                 }
             ]
         };
@@ -265,7 +281,7 @@ server.registerTool(
             content: [
                 {
                     type: 'text',
-                    text: `Resumed chat ${chat}${data.project ? ` ("${data.project}")` : ''} with ${operations.length} prior operation(s). ` +
+                    text: `Resumed chat ${chat}${data.name ? ` ("${data.name}")` : ''} with ${operations.length} prior operation(s). ` +
                         `New deployments will link to these existing resources.\n\n` +
                         `Existing operations:\n${JSON.stringify(operations, null, 2)}`
                 }
@@ -306,7 +322,7 @@ server.registerTool(
             return { content: [{ type: 'text', text: 'No previous chats yet.' }] };
         }
         const lines = chats.map(
-            (c) => `• ${c.chatId}${c.project ? ` — ${c.project}` : ''}${c.updatedAt ? ` (updated ${c.updatedAt})` : ''}`
+            (c) => `• ${c.chatId}${c.name ? ` — ${c.name}` : ''}${c.updatedAt ? ` (updated ${c.updatedAt})` : ''}`
         );
         return {
             content: [

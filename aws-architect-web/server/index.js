@@ -19,7 +19,7 @@ import * as store from './projectStore.js';
 import * as visualizerStore from './visualizerStore.js';
 import * as tokenStore from './tokenStore.js';
 import { extractOutputMessages } from './agents/aws/mcp.js';
-import { runStateViz } from './agents/stateviz/index.js';
+import { runStateViz, suggestSessionName } from './agents/stateviz/index.js';
 
 const PORT = Number(process.env.PORT || 3001);
 
@@ -194,14 +194,15 @@ async function requireToken(req, res, next) {
     next();
 }
 
-// Optional Bearer auth → req.userId if a valid token is present, else 'local'.
-// Used by read endpoints the web UI hits same-origin without a token (v1 single
-// user); the MCP always sends a token and gets its real user.
+// Optional Bearer auth → req.userId if a valid token is present, else the owner
+// user. Used by read endpoints the web UI hits same-origin without a token (the web
+// operates as the owner of this machine); the MCP always sends a token and gets its
+// real user.
 async function resolveUser(req, _res, next) {
     const header = req.get('authorization') || '';
     const token = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
     const identity = token ? await tokenStore.verify(token) : null;
-    req.userId = identity ? identity.userId : 'local';
+    req.userId = identity ? identity.userId : await tokenStore.getOwnerUserId();
     next();
 }
 
@@ -221,14 +222,32 @@ app.post('/api/chats/:chatId/deployments', requireToken, async (req, res) => {
         return;
     }
 
-    const project = visualizerStore.sanitizeProjectId(req.body?.project) || '';
+    // An agent-supplied label is only a hint for a brand-new session; the name is
+    // otherwise auto-assigned by the backend and editable from the web.
+    const nameHint = visualizerStore.sanitizeName(req.body?.project) || '';
 
     try {
-        await visualizerStore.appendDeployment(req.userId, chatId, operations, project);
+        // Is this a new session? (no name yet) — decide BEFORE the append seeds meta.
+        const priorMeta = await visualizerStore.readMeta(req.userId, chatId);
+        const isNewSession = !(priorMeta.name || priorMeta.project);
+
+        await visualizerStore.appendDeployment(req.userId, chatId, operations, nameHint);
+
+        // Auto-name a new session from its architecture when no hint was provided.
+        let name = nameHint || priorMeta.name || priorMeta.project || '';
+        if (isNewSession && !nameHint) {
+            const allOps = await visualizerStore.readOperations(req.userId, chatId);
+            const suggested = await suggestSessionName(allOps);
+            if (suggested) {
+                await visualizerStore.renameSession(req.userId, chatId, suggested);
+                name = suggested;
+            }
+        }
+
         const d2 = await runStateViz(req.userId, chatId);
         const { svg, error } = await renderDiagramSvg(d2);
         broadcastToChat(req.userId, chatId, { type: 'render-svg', svg, renderError: error });
-        res.json({ ok: true, chat: chatId, project, operations: operations.length, rendered: Boolean(svg) });
+        res.json({ ok: true, chat: chatId, name, operations: operations.length, rendered: Boolean(svg) });
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         console.error('[deployment ingest failed]', error);
@@ -237,12 +256,12 @@ app.post('/api/chats/:chatId/deployments', requireToken, async (req, res) => {
 });
 
 // List the user's chats (newest first). The MCP uses this (with a token) for
-// list_chats; the web UI hits it same-origin (no token → local user).
+// list_chats; the web UI hits it same-origin (no token → owner user).
 app.get('/api/chats', resolveUser, async (req, res) => {
     res.json({ chats: await visualizerStore.listChats(req.userId) });
 });
 
-// Full context for one chat: label + cumulative operations + current D2. Used by
+// Full context for one chat: name + cumulative operations + current D2. Used by
 // the MCP's load_chat so the agent can resume with the already-created IDs/ARNs.
 app.get('/api/chats/:chatId', requireToken, async (req, res) => {
     const chatId = visualizerStore.sanitizeChatId(req.params.chatId);
@@ -255,7 +274,24 @@ app.get('/api/chats/:chatId', requireToken, async (req, res) => {
         visualizerStore.readOperations(req.userId, chatId),
         visualizerStore.readDiagram(req.userId, chatId)
     ]);
-    res.json({ chat: chatId, project: meta.project || '', operations, d2 });
+    res.json({ chat: chatId, name: meta.name || meta.project || '', operations, d2 });
+});
+
+// Rename a session. Hit by the web UI same-origin (owner user) to override the
+// auto-assigned name.
+app.patch('/api/chats/:chatId', resolveUser, async (req, res) => {
+    const chatId = visualizerStore.sanitizeChatId(req.params.chatId);
+    if (!chatId) {
+        res.status(400).json({ error: 'Invalid chat id.' });
+        return;
+    }
+    const name = visualizerStore.sanitizeName(req.body?.name);
+    if (!name) {
+        res.status(400).json({ error: 'A non-empty name is required.' });
+        return;
+    }
+    const meta = await visualizerStore.renameSession(req.userId, chatId, name);
+    res.json({ chat: chatId, name: meta.name });
 });
 
 // Current deployed-state diagram (SVG) for a chat.
@@ -270,13 +306,14 @@ app.get('/api/chats/:chatId/diagram', resolveUser, async (req, res) => {
     res.json({ chat: chatId, svg, renderError: error });
 });
 
-// Token management for the web UI (v1: single local user).
+// Token management for the web UI (the owner user of this machine).
 app.get('/api/tokens', async (_req, res) => {
     res.json({ tokens: await tokenStore.list() });
 });
 
 app.post('/api/tokens', async (req, res) => {
-    const { token } = await tokenStore.create('local', String(req.body?.label || ''));
+    // userId defaults to the owner inside tokenStore.create.
+    const { token } = await tokenStore.create(undefined, String(req.body?.label || ''));
     // Returned in full exactly once so the user can copy it into the MCP config.
     res.json({ token });
 });
@@ -297,8 +334,8 @@ vizWss.on('connection', (socket) => {
                 socket.send(JSON.stringify({ type: 'error', message: 'Invalid chat id.' }));
                 return;
             }
-            // v1 is single-user: the web client maps to the local user.
-            socket._userId = 'local';
+            // The web client maps to the owner user of this machine.
+            socket._userId = await tokenStore.getOwnerUserId();
             socket._chatId = chatId;
             const d2 = await visualizerStore.readDiagram(socket._userId, chatId);
             const { svg, error } = await renderDiagramSvg(d2);
