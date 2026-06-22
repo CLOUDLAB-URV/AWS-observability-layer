@@ -45,10 +45,18 @@ const TRANSIENT_REASON_RE =
 const hasTransientReason = (remaining) =>
     (Array.isArray(remaining) ? remaining : []).some((r) => TRANSIENT_REASON_RE.test(String(r?.reason ?? '')));
 
-// Single shared session (demo scope): one running conversation for the architect.
-// Kept at module scope — same lifetime as the previous index.js implementation —
-// instead of a checkpointer, to avoid serializing Anthropic content blocks.
+// One running conversation for the architect, kept at module scope (instead of a
+// checkpointer, to avoid serializing Anthropic content blocks). It is per active
+// project: switching projects clears it via resetConversation() so each design has
+// its own fresh chat thread.
 const architectHistory = [];
+
+// Clear the in-memory architect conversation. Called when the active design project
+// switches so the new project starts a clean thread (its diagram is the persisted
+// state; the chat log is ephemeral and reset client-side too).
+export function resetConversation() {
+    architectHistory.length = 0;
+}
 
 const DEPLOY_TASK =
     'Deploy the architecture described in the current D2 diagram into AWS. Create every resource the diagram represents, using sensible defaults and free-tier-friendly sizes where the diagram does not specify them.';

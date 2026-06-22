@@ -1,34 +1,36 @@
 # diagram-state-visualizer-mcp
 
 A **self-contained** MCP server for the **AWS Architect Web** "Deployed state" view.
-It runs AWS CLI commands for you (directly, via the local terminal) and renders a
-live diagram of what is actually deployed in AWS — **no AWS MCP server required**.
+It renders a live diagram of what is actually deployed in AWS — **no AWS MCP server
+required**.
 
-You give it `aws …` CLI commands; it executes each with your local AWS CLI, captures
-the results, and uploads the batch to the backend, which generates the diagram.
+The server does **not** run AWS commands. Your agent deploys with its own tools and
+then **reports what changed**: after each deploy or modification it calls
+`push_deployment` with just the **delta** — the resources it created or modified
+(`upsert`) and the ones it removed (`delete`). The backend keeps the full,
+authoritative state by merging those changes and regenerates the diagram.
 
 The backend and web URLs are **baked into the server** (`BACKEND_URL` / `WEB_URL`
 constants at the top of `index.js`) because it targets one specific web app. The
 **only** thing you configure is your API token, via the `VISUALIZER_TOKEN`
-environment variable (optionally `AWS_REGION` / `AWS_PROFILE` for the CLI).
+environment variable.
 
 **One diagram per chat.** Each MCP process gets its own chat id at startup, so every
 chat session keeps an isolated diagram — you don't manage project names. To resume a
-previous deployment (so the agent knows what already exists and links new resources
-to it), use the `load_chat` / `list_chats` tools, or pin a fixed chat with the
-optional `VISUALIZER_CHAT_ID` env var.
+previous deployment (so the agent knows what already exists), use the `load_chat` /
+`list_chats` tools, or pin a fixed chat with the optional `VISUALIZER_CHAT_ID` env var.
 
 ---
 
 ## 1. Prerequisites
 
 - **Node.js 20+** (so `npx` can run this server).
-- **AWS CLI v2** installed and on your `PATH` (`aws --version`).
-- **AWS credentials** available to your shell (e.g. `aws sso login --profile <profile>`).
+- A way for your agent to **deploy to AWS** (its own AWS tooling / CLI / MCP). This
+  server does not deploy — it only receives the resulting changes.
 - The **AWS Architect Web app running** (backend on `:3001`, web on `:5173`).
 
-> You do **not** need `awslabs.aws-api-mcp-server` or any other AWS MCP server, and
-> you do **not** need to clone this repo — `npx` downloads and runs the server.
+> You do **not** need `awslabs.aws-api-mcp-server` for this server itself, and you
+> do **not** need to clone this repo — `npx` downloads and runs the server.
 
 ## 2. Get your API token
 
@@ -48,7 +50,6 @@ omit `-s` = local/private.
 ```bash
 claude mcp add diagram-state-visualizer -s user \
   -e VISUALIZER_TOKEN=viz_your_token_here \
-  -e AWS_REGION=us-east-1 -e AWS_PROFILE=apozo-cloudlab \
   -- npx -y diagram-state-visualizer-mcp@latest
 ```
 
@@ -63,9 +64,7 @@ Verify with `claude mcp list`.
       "command": "npx",
       "args": ["-y", "diagram-state-visualizer-mcp@latest"],
       "env": {
-        "VISUALIZER_TOKEN": "viz_your_token_here",
-        "AWS_REGION": "us-east-1",
-        "AWS_PROFILE": "apozo-cloudlab"
+        "VISUALIZER_TOKEN": "viz_your_token_here"
       }
     }
   }
@@ -84,9 +83,7 @@ Global: `~/.config/opencode/opencode.json`. Project: `opencode.json` in the repo
       "type": "local",
       "command": ["npx", "-y", "diagram-state-visualizer-mcp@latest"],
       "environment": {
-        "VISUALIZER_TOKEN": "viz_your_token_here",
-        "AWS_REGION": "us-east-1",
-        "AWS_PROFILE": "apozo-cloudlab"
+        "VISUALIZER_TOKEN": "viz_your_token_here"
       },
       "enabled": true
     }
@@ -98,37 +95,50 @@ Global: `~/.config/opencode/opencode.json`. Project: `opencode.json` in the repo
 
 ## 4. Use it
 
-1. Make sure the web app is running and your AWS session is valid
-   (`aws sso login --profile <profile>`).
+1. Make sure the web app is running and your agent can reach AWS.
 2. In your agent, ask it to deploy something, e.g.
    *"Create an S3 bucket and an SQS queue under project `my-api`, and visualize it."*
-3. The agent calls **`deploy_and_visualize`** with the `aws` commands; this server
-   runs them and pushes the result to the current chat's diagram.
+3. The agent deploys with its own tools and then calls **`push_deployment`** with the
+   resources it created (`op: "upsert"`). The diagram for the current chat appears.
 4. Open the web app → **Deployed state** → pick the chat from the selector → see the
-   live diagram. It updates automatically after each call.
-5. To continue earlier work in a new session, ask the agent to **`list_chats`** then
-   **`load_chat`** with the id — it loads the prior resources as context and new
-   deployments link onto them.
+   live diagram. It updates automatically after each push.
+5. Ask for a change — e.g. *"remove one of the EC2s"* — and the agent calls
+   `push_deployment` again with just that delta (`op: "delete"`); the diagram updates
+   in place, keeping the same layout.
+6. To continue earlier work in a new session, ask the agent to **`list_chats`** then
+   **`load_chat`** with the id — it loads the current live resources (IDs/ARNs) as
+   context and new changes merge onto them.
 
-The agent receives the real command outputs (IDs/ARNs) back, so it can chain
-follow-up commands (e.g. use a VPC id from `create-vpc` in the next call).
+The agent only ever reports the **delta**; the backend maintains the full state and
+the diagram, so the agent never has to resend the whole stack.
 
 ---
 
 ## Tools
 
-### `deploy_and_visualize({ project, commands })` — primary
+### `push_deployment({ project, changes })` — the push tool
 
-Runs each `aws` CLI command in order with the local AWS CLI, then uploads the batch
-and renders the diagram. `commands` is a list of full `aws …` strings. For safety,
-each must be a **single** `aws` command — no pipes, redirects, chaining, or
-substitutions (`| & ; \` $() <> ` and newlines are rejected). Output is forced to
-JSON unless you pass `--output`. Returns per-command results plus the diagram link.
+Report what changed in AWS after a deploy or modification. `changes` is the **delta**,
+one entry per resource that changed:
 
-### `push_deployment({ project, operations })` — for already-run deployments
+```jsonc
+{
+  "op": "upsert",            // "upsert" = created/modified, "delete" = removed
+  "type": "ec2",            // AWS service type
+  "id": "i-0abc",           // stable key (InstanceId / ARN / bucket name)
+  "state": "running",
+  "vpc": "vpc-9", "subnet": "subnet-1",
+  "connections": [{ "to": "db-1", "protocol": "TCP", "port": 5432 }],
+  "details": { /* full describe output, kept verbatim in the backend */ }
+}
+```
 
-Use when you ran the `aws` commands yourself and just want to visualize them.
-`operations` is one entry per command: `{ action, resource_state?, error? }`.
+- Send **only what changed**, not the whole deployment. `op: "delete"` needs just
+  `type` + `id`.
+- Always include the **relationships** (`connections`, `vpc`, `subnet`) — the diagram
+  draws those edges and containment.
+- The backend merges each change onto the chat's state (upsert sets the resource,
+  delete removes it) and regenerates the diagram, evolving the previous one.
 
 ### `list_chats()` — discover previous chats
 
@@ -137,13 +147,12 @@ time, so you can pick one to resume.
 
 ### `load_chat({ chat })` — resume a previous deployment
 
-Switches this session to an existing chat and returns its full operations log (every
-command + the resulting IDs/ARNs). After loading, `deploy_and_visualize` /
-`push_deployment` accumulate into that chat and the diagram links new resources to
-the existing ones.
+Switches this session to an existing chat and returns its **current live resources**
+(real IDs/ARNs, state, relationships). After loading, `push_deployment` merges onto
+that chat's state.
 
-> Both `deploy_and_visualize` and `push_deployment` also accept an optional `chat`
-> argument to target an explicit chat for a single call.
+> `push_deployment` also accepts an optional `chat` argument to target an explicit
+> chat for a single call.
 
 ---
 

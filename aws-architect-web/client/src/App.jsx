@@ -18,6 +18,8 @@ export default function App() {
     const [messages, setMessages] = useState([]);
     const [status, setStatus] = useState('');
     const [busy, setBusy] = useState(false);
+    const [projects, setProjects] = useState([]);
+    const [currentProject, setCurrentProject] = useState('');
     const socketRef = useRef(null);
 
     const [isDark, toggleDark] = useDarkMode();
@@ -27,8 +29,47 @@ export default function App() {
     useEffect(() => {
         const socket = createSocket(handleMessage, setConnected);
         socketRef.current = socket;
+        loadProjects();
         return () => socket.close();
     }, []);
+
+    async function loadProjects() {
+        try {
+            const res = await fetch('/api/projects');
+            const data = await res.json();
+            setProjects(data.projects || []);
+            if (data.current) setCurrentProject(data.current);
+        } catch {
+            setProjects([]);
+        }
+    }
+
+    function selectProject(projectId) {
+        if (busy || !projectId || projectId === currentProject) return;
+        setCurrentProject(projectId);
+        setMessages([]);
+        setStatus('');
+        socketRef.current?.send({ type: 'select-project', projectId });
+    }
+
+    async function createProject() {
+        const name = window.prompt('New project name:');
+        if (!name || !name.trim()) return;
+        try {
+            const res = await fetch('/api/projects', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ name: name.trim() })
+            });
+            const data = await res.json();
+            if (data.id) {
+                await loadProjects();
+                selectProject(data.id);
+            }
+        } catch {
+            // ignore — the selector simply won't update
+        }
+    }
 
     function appendAssistantDelta(text) {
         setMessages((current) => {
@@ -48,6 +89,7 @@ export default function App() {
                 setMode(message.mode);
                 setSvg(message.svg || '');
                 setRenderError(message.renderError || null);
+                if (message.project) setCurrentProject(message.project);
                 break;
             case 'chat-delta':
                 appendAssistantDelta(message.text);
@@ -168,6 +210,26 @@ export default function App() {
                         Deployed state
                     </button>
                 </nav>
+                {view === 'design' && (
+                    <div className="project-form topbar-projects">
+                        <label htmlFor="design-project" className="sr-only">Project</label>
+                        <select
+                            id="design-project"
+                            value={currentProject}
+                            onChange={(e) => selectProject(e.target.value)}
+                            disabled={busy}
+                            aria-label="Active design project"
+                        >
+                            {projects.length === 0 && <option value="">Loading…</option>}
+                            {projects.map((p) => (
+                                <option key={p.id} value={p.id}>{p.name}</option>
+                            ))}
+                        </select>
+                        <button type="button" onClick={createProject} disabled={busy} title="New project">
+                            + New
+                        </button>
+                    </div>
+                )}
                 {view === 'design' && (
                     <span
                         className={`badge badge-${mode}`}

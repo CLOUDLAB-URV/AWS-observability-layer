@@ -14,11 +14,10 @@ import http from 'node:http';
 import express from 'express';
 import { WebSocketServer } from 'ws';
 import { renderDiagramSvg } from './diagram.js';
-import { runFlow } from './graph.js';
+import { runFlow, resetConversation } from './graph.js';
 import * as store from './projectStore.js';
 import * as visualizerStore from './visualizerStore.js';
 import * as tokenStore from './tokenStore.js';
-import { extractOutputMessages } from './agents/aws/mcp.js';
 import { runStateViz } from './agents/stateviz/index.js';
 
 const PORT = Number(process.env.PORT || 3001);
@@ -57,12 +56,28 @@ function broadcast(message) {
     }
 }
 
-async function pushState(socket) {
+// Build the design-flow init payload (active project + its mode + rendered svg).
+async function buildInit() {
     const mode = await store.getMode();
     const d2 = await store.readDiagram();
     const { svg, error } = await renderDiagramSvg(d2);
-    const message = JSON.stringify({ type: 'init', mode, svg, renderError: error });
-    socket.send(message);
+    return { type: 'init', project: store.getCurrentProjectId(), mode, svg, renderError: error };
+}
+
+async function pushState(socket) {
+    socket.send(JSON.stringify(await buildInit()));
+}
+
+// Switch the active design project and re-init every connected design client so the
+// whole UI follows (single active project, demo scope). Clears the architect thread.
+async function handleSelectProject(projectId) {
+    const ok = await store.setCurrentProject(projectId);
+    if (!ok) {
+        broadcast({ type: 'error', message: 'Unknown project.' });
+        return;
+    }
+    resetConversation();
+    broadcast(await buildInit());
 }
 
 // Transport-level guards, then hand the turn to the orchestration graph.
@@ -125,6 +140,8 @@ wss.on('connection', (socket) => {
                 await handleDeploy();
             } else if (message.type === 'teardown') {
                 await handleTeardown();
+            } else if (message.type === 'select-project' && typeof message.projectId === 'string') {
+                await handleSelectProject(message.projectId);
             }
         } catch (error) {
             const text = error instanceof Error ? error.message : String(error);
@@ -141,44 +158,39 @@ wss.on('connection', (socket) => {
 // "Deployed state" feature (MCP-push visualizer)
 // ---------------------------------------------------------------------------
 
-// Send a message to every visualizer client subscribed to a given (user, chat).
-function broadcastToChat(userId, chatId, message) {
+// Send a message to every visualizer client subscribed to a given chat.
+function broadcastToChat(chatId, message) {
     const payload = JSON.stringify(message);
     for (const socket of vizWss.clients) {
-        if (socket.readyState === socket.OPEN && socket._userId === userId && socket._chatId === chatId) {
+        if (socket.readyState === socket.OPEN && socket._chatId === chatId) {
             socket.send(payload);
         }
     }
 }
 
-// Normalize whatever the MCP tool uploaded into the canonical operation shape
-// ({ action, resource_state?, error? }) that the rest of the pipeline expects.
-// Accepts: an array already in that shape, raw call_aws results, or a
-// structuredContent envelope.
-function normalizeOperations(body) {
-    if (Array.isArray(body?.operations)) {
-        return body.operations
-            .map((op) => {
-                const action = op.action || op.cli_command || op.command;
-                if (!action) {
-                    return null;
-                }
-                const entry = { action: String(action) };
-                const state = op.resource_state ?? op.response ?? op.result;
-                if (state !== undefined) {
-                    entry.resource_state = state;
-                }
-                if (op.error) {
-                    entry.error = String(op.error);
-                }
-                return entry;
-            })
-            .filter(Boolean);
+// Normalize the incremental changes the MCP tool uploaded into the canonical shape
+// the state-merge pipeline expects: `{ op, type, id, ...resourceFields }`. Each
+// change must carry a `type` and a stable `id` (the key it merges under); `op`
+// defaults to 'upsert'. Entries missing type+id, or with an unknown op, are dropped.
+function normalizeChanges(body) {
+    if (!Array.isArray(body?.changes)) {
+        return [];
     }
-    if (body?.structuredContent) {
-        return extractOutputMessages(body.structuredContent);
-    }
-    return [];
+    return body.changes
+        .map((change) => {
+            if (!change || typeof change !== 'object') {
+                return null;
+            }
+            const type = String(change.type ?? '').trim();
+            const id = String(change.id ?? '').trim();
+            if (!type || !id) {
+                return null;
+            }
+            const op = change.op === 'delete' ? 'delete' : 'upsert';
+            // Carry the whole detailed record through; only normalize the controls.
+            return { ...change, op, type, id };
+        })
+        .filter(Boolean);
 }
 
 // Bearer-token auth → resolves req.userId, or 401.
@@ -205,7 +217,8 @@ async function resolveUser(req, _res, next) {
     next();
 }
 
-// Ingest: the MCP tool POSTs a batch of AWS operations for a chat. We append them,
+// Ingest: the MCP tool POSTs a batch of incremental changes (upsert/delete per
+// resource) for a chat. We merge them into the chat's authoritative state,
 // regenerate the deployed-state D2, render it, and push it live to any web clients
 // watching that chat. `project` is a friendly label stored in meta.
 app.post('/api/chats/:chatId/deployments', requireToken, async (req, res) => {
@@ -215,20 +228,20 @@ app.post('/api/chats/:chatId/deployments', requireToken, async (req, res) => {
         return;
     }
 
-    const operations = normalizeOperations(req.body);
-    if (operations.length === 0) {
-        res.status(400).json({ error: 'No operations to ingest.' });
+    const changes = normalizeChanges(req.body);
+    if (changes.length === 0) {
+        res.status(400).json({ error: 'No changes to ingest (each change needs a type and id).' });
         return;
     }
 
     const project = visualizerStore.sanitizeProjectId(req.body?.project) || '';
 
     try {
-        await visualizerStore.appendDeployment(req.userId, chatId, operations, project);
-        const d2 = await runStateViz(req.userId, chatId);
+        const resources = await visualizerStore.applyChanges(chatId, changes, project);
+        const d2 = await runStateViz(chatId);
         const { svg, error } = await renderDiagramSvg(d2);
-        broadcastToChat(req.userId, chatId, { type: 'render-svg', svg, renderError: error });
-        res.json({ ok: true, chat: chatId, project, operations: operations.length, rendered: Boolean(svg) });
+        broadcastToChat(chatId, { type: 'render-svg', svg, renderError: error });
+        res.json({ ok: true, chat: chatId, project, changes: changes.length, resources: resources.length, rendered: Boolean(svg) });
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         console.error('[deployment ingest failed]', error);
@@ -236,26 +249,27 @@ app.post('/api/chats/:chatId/deployments', requireToken, async (req, res) => {
     }
 });
 
-// List the user's chats (newest first). The MCP uses this (with a token) for
-// list_chats; the web UI hits it same-origin (no token → local user).
-app.get('/api/chats', resolveUser, async (req, res) => {
-    res.json({ chats: await visualizerStore.listChats(req.userId) });
+// List all chats (newest first). The MCP uses this (with a token) for list_chats;
+// the web UI hits it same-origin (no token needed in single-user v1).
+app.get('/api/chats', resolveUser, async (_req, res) => {
+    res.json({ chats: await visualizerStore.listChats() });
 });
 
-// Full context for one chat: label + cumulative operations + current D2. Used by
-// the MCP's load_chat so the agent can resume with the already-created IDs/ARNs.
+// Full context for one chat: label + current deployed-state resources + current D2.
+// Used by the MCP's load_chat so the agent can resume knowing what already exists
+// (real IDs/ARNs) before sending its next delta of changes.
 app.get('/api/chats/:chatId', requireToken, async (req, res) => {
     const chatId = visualizerStore.sanitizeChatId(req.params.chatId);
     if (!chatId) {
         res.status(400).json({ error: 'Invalid chat id.' });
         return;
     }
-    const [meta, operations, d2] = await Promise.all([
-        visualizerStore.readMeta(req.userId, chatId),
-        visualizerStore.readOperations(req.userId, chatId),
-        visualizerStore.readDiagram(req.userId, chatId)
+    const [meta, state, d2] = await Promise.all([
+        visualizerStore.readMeta(chatId),
+        visualizerStore.readState(chatId),
+        visualizerStore.readDiagram(chatId)
     ]);
-    res.json({ chat: chatId, project: meta.project || '', operations, d2 });
+    res.json({ chat: chatId, project: meta.project || '', resources: Object.values(state), d2 });
 });
 
 // Current deployed-state diagram (SVG) for a chat.
@@ -265,9 +279,25 @@ app.get('/api/chats/:chatId/diagram', resolveUser, async (req, res) => {
         res.status(400).json({ error: 'Invalid chat id.' });
         return;
     }
-    const d2 = await visualizerStore.readDiagram(req.userId, chatId);
+    const d2 = await visualizerStore.readDiagram(chatId);
     const { svg, error } = await renderDiagramSvg(d2);
     res.json({ chat: chatId, svg, renderError: error });
+});
+
+// Design projects: list (newest activity first) and create. The active project is
+// switched over the /ws socket (select-project), which re-inits all design clients.
+app.get('/api/projects', async (_req, res) => {
+    res.json({ projects: await store.listProjects(), current: store.getCurrentProjectId() });
+});
+
+app.post('/api/projects', async (req, res) => {
+    const name = String(req.body?.name || '').trim();
+    if (!name) {
+        res.status(400).json({ error: 'A project name is required.' });
+        return;
+    }
+    const project = await store.createProject(name);
+    res.json(project);
 });
 
 // Token management for the web UI (v1: single local user).
@@ -297,10 +327,8 @@ vizWss.on('connection', (socket) => {
                 socket.send(JSON.stringify({ type: 'error', message: 'Invalid chat id.' }));
                 return;
             }
-            // v1 is single-user: the web client maps to the local user.
-            socket._userId = 'local';
             socket._chatId = chatId;
-            const d2 = await visualizerStore.readDiagram(socket._userId, chatId);
+            const d2 = await visualizerStore.readDiagram(chatId);
             const { svg, error } = await renderDiagramSvg(d2);
             socket.send(JSON.stringify({ type: 'init', chat: chatId, svg, renderError: error }));
         }

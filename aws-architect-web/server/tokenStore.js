@@ -6,9 +6,9 @@
 //
 // v1 is single-user: if VISUALIZER_TOKEN is set in the environment it is always
 // accepted (seeded user "local"), so the feature works out of the box without any
-// token-management UI. Generated tokens are persisted to data/tokens.json. The
-// API (verify/create/list/revoke) is shaped so phase 2 can swap in real accounts
-// without changing call sites.
+// token-management UI. Generated tokens are persisted to persistence/tokens.json.
+// The API (verify/create/list/revoke) is shaped so phase 2 can swap in real
+// accounts without changing call sites.
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -17,7 +17,7 @@ import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const TOKENS_FILE = path.join(__dirname, 'data', 'tokens.json');
+const TOKENS_FILE = path.join(__dirname, 'persistence', 'tokens.json');
 
 const ENV_TOKEN = process.env.VISUALIZER_TOKEN || '';
 const LOCAL_USER = 'local';

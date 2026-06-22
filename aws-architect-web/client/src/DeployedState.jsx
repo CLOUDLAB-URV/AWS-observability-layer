@@ -14,7 +14,7 @@ export default function DeployedState() {
     const [renderError, setRenderError] = useState(null);
     const [showSettings, setShowSettings] = useState(false);
     const [newToken, setNewToken] = useState('');
-    const [tokens, setTokens] = useState([]);
+    const [copied, setCopied] = useState('');
     const socketRef = useRef(null);
 
     useEffect(() => {
@@ -24,11 +24,12 @@ export default function DeployedState() {
         return () => socket.close();
     }, []);
 
-    // (Re)subscribe whenever the active chat changes or we (re)connect.
+    // (Re)subscribe whenever the active chat changes or we (re)connect. With no chat
+    // selected we show nothing — the diagram only loads once the user picks a chat.
     useEffect(() => {
+        setSvg('');
+        setRenderError(null);
         if (connected && chatId) {
-            setSvg('');
-            setRenderError(null);
             socketRef.current?.send({ type: 'subscribe', chatId });
         }
     }, [connected, chatId]);
@@ -56,20 +57,9 @@ export default function DeployedState() {
             const data = await res.json();
             const list = data.chats || [];
             setChats(list);
-            // Default to the newest chat if none selected yet.
-            setChatId((current) => current || (list[0] ? list[0].chatId : ''));
+            // No auto-select: the diagram only appears once the user picks a chat.
         } catch {
             setChats([]);
-        }
-    }
-
-    async function loadTokens() {
-        try {
-            const res = await fetch('/api/tokens');
-            const data = await res.json();
-            setTokens(data.tokens || []);
-        } catch {
-            setTokens([]);
         }
     }
 
@@ -82,7 +72,6 @@ export default function DeployedState() {
             });
             const data = await res.json();
             setNewToken(data.token || '');
-            loadTokens();
         } catch {
             setNewToken('');
         }
@@ -90,7 +79,6 @@ export default function DeployedState() {
 
     function openSettings() {
         setShowSettings((v) => !v);
-        if (!showSettings) loadTokens();
     }
 
     function chatLabel(c) {
@@ -99,17 +87,25 @@ export default function DeployedState() {
         return `${c.project || '(no label)'} · ${short}${when}`;
     }
 
-    const mcpSnippet = `{
-  "mcpServers": {
-    "diagram-state-visualizer": {
-      "command": "npx",
-      "args": ["-y", "diagram-state-visualizer-mcp@latest"],
-      "env": {
-        "VISUALIZER_TOKEN": "${newToken || 'viz_…your token…'}"
-      }
+    // Unique-per-OS-user server name ($USER expands when pasted into a shell), so the
+    // same command is safe to run on any machine without colliding with other configs.
+    const SERVER_NAME = 'diagram-state-visualizer-$USER';
+    // Use the freshly generated token if we have one; otherwise a placeholder the user
+    // replaces. The full secret of an existing token is never returned to the UI, so a
+    // ready-to-paste command is only possible right after generating it.
+    const tokenForCmd = newToken || 'viz_your_token_here';
+    // Ready-to-paste Claude Code CLI command: registers the published MCP at user scope
+    // (loaded in every session on this machine) with the token baked in.
+    const addCommand = `claude mcp add --scope user ${SERVER_NAME} \\
+    --env VISUALIZER_TOKEN=${tokenForCmd} \\
+    -- npx -y diagram-state-visualizer-mcp@latest`;
+    const removeCommand = `claude mcp remove --scope user ${SERVER_NAME}`;
+
+    function copy(text, key) {
+        navigator.clipboard?.writeText(text).catch(() => {});
+        setCopied(key);
+        setTimeout(() => setCopied((k) => (k === key ? '' : k)), 1500);
     }
-  }
-}`;
 
     return (
         <div className="deployed-state">
@@ -121,7 +117,7 @@ export default function DeployedState() {
                         value={chatId}
                         onChange={(e) => setChatId(e.target.value)}
                     >
-                        {chats.length === 0 && <option value="">No chats yet</option>}
+                        <option value="">{chats.length ? 'Select a chat…' : 'No chats yet'}</option>
                         {chats.map((c) => (
                             <option key={c.chatId} value={c.chatId}>
                                 {chatLabel(c)}
@@ -140,31 +136,93 @@ export default function DeployedState() {
 
             {showSettings && (
                 <div className="viz-settings" role="region" aria-label="Connect your agent">
-                    <p>
-                        Generate an API token and paste it into the <code>diagram-state-visualizer</code> MCP server
-                        config in your coding agent (no AWS MCP needed — it runs the AWS CLI itself). Each chat
-                        automatically gets its own isolated diagram, so you don't manage project names. Then ask the
-                        agent to deploy and visualize; it calls <code>deploy_and_visualize</code> and the diagram
-                        appears here. To resume an earlier deployment, ask it to <code>list_chats</code> then{' '}
-                        <code>load_chat</code> (or pin a chat with the <code>VISUALIZER_CHAT_ID</code> env var).
-                    </p>
-                    <button onClick={generateToken}>Generate token</button>
-                    {newToken && (
-                        <p className="token-value">
-                            <strong>New token (copy it now):</strong> <code>{newToken}</code>
+                    <div className="viz-settings-head">
+                        <h3>Connect your agent</h3>
+                        <p className="viz-settings-sub">
+                            Register the <code>diagram-state-visualizer</code> MCP in Claude Code, then ask your
+                            agent to deploy — after each change it reports what it created or removed and a live
+                            diagram appears here. Each chat gets its own diagram. No AWS MCP needed; your agent
+                            deploys with its own tools and just reports the result.
                         </p>
-                    )}
-                    <pre className="mcp-snippet">{mcpSnippet}</pre>
-                    {tokens.length > 0 && (
-                        <ul className="token-list">
-                            {tokens.map((t, i) => (
-                                <li key={i}>
-                                    <code>{t.tokenPreview}</code> {t.label && `(${t.label})`}
-                                    {t.createdAt && ` — ${new Date(t.createdAt).toLocaleString()}`}
-                                </li>
-                            ))}
-                        </ul>
-                    )}
+                    </div>
+
+                    <ol className="viz-steps">
+                        <li className="viz-step">
+                            <div className="viz-step-num">1</div>
+                            <div className="viz-step-body">
+                                <div className="viz-step-title">Generate an API token</div>
+                                <p className="viz-step-hint">
+                                    It authenticates your agent's pushes. Copy it now — for security it's shown
+                                    only once.
+                                </p>
+                                <button className="viz-primary-btn" onClick={generateToken}>
+                                    {newToken ? 'Generate another' : 'Generate token'}
+                                </button>
+                                {newToken && (
+                                    <div className="token-chip">
+                                        <code>{newToken}</code>
+                                        <button
+                                            type="button"
+                                            className={`copy-btn ${copied === 'tok' ? 'is-copied' : ''}`}
+                                            onClick={() => copy(newToken, 'tok')}
+                                        >
+                                            {copied === 'tok' ? 'Copied' : 'Copy'}
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        </li>
+
+                        <li className="viz-step">
+                            <div className="viz-step-num">2</div>
+                            <div className="viz-step-body">
+                                <div className="viz-step-title">Add the MCP to Claude Code</div>
+                                <p className="viz-step-hint">
+                                    Paste the whole command in your terminal. User scope = loaded in every session
+                                    on this machine (works on any device with Claude Code installed). The token
+                                    above is already baked in.
+                                </p>
+                                <div className="cmd-block">
+                                    <button
+                                        type="button"
+                                        className={`copy-btn ${copied === 'add' ? 'is-copied' : ''}`}
+                                        onClick={() => copy(addCommand, 'add')}
+                                    >
+                                        {copied === 'add' ? 'Copied' : 'Copy'}
+                                    </button>
+                                    <pre className="mcp-snippet">{addCommand}</pre>
+                                </div>
+                            </div>
+                        </li>
+
+                        <li className="viz-step">
+                            <div className="viz-step-num">3</div>
+                            <div className="viz-step-body">
+                                <div className="viz-step-title">Deploy &amp; visualize</div>
+                                <p className="viz-step-hint">
+                                    Ask your agent to deploy — after each change it calls{' '}
+                                    <code>push_deployment</code> with just what changed and the diagram updates
+                                    here. Resume an earlier one with <code>list_chats</code> →{' '}
+                                    <code>load_chat</code>, or pin a chat via the <code>VISUALIZER_CHAT_ID</code> env
+                                    var.
+                                </p>
+                            </div>
+                        </li>
+                    </ol>
+
+                    <details className="viz-remove">
+                        <summary>Remove the MCP later</summary>
+                        <div className="cmd-block">
+                            <button
+                                type="button"
+                                className={`copy-btn ${copied === 'rm' ? 'is-copied' : ''}`}
+                                onClick={() => copy(removeCommand, 'rm')}
+                            >
+                                {copied === 'rm' ? 'Copied' : 'Copy'}
+                            </button>
+                            <pre className="mcp-snippet">{removeCommand}</pre>
+                        </div>
+                    </details>
                 </div>
             )}
 
@@ -175,10 +233,17 @@ export default function DeployedState() {
                     <div className="diagram-empty">
                         {chatId ? (
                             <>No deployed state yet for this chat. Deploy with your agent (it calls{' '}
-                            <code>deploy_and_visualize</code>) to see the live diagram here.</>
+                            <code>push_deployment</code>) to see the live diagram here.</>
                         ) : (
-                            <>No chats yet. Connect your agent and ask it to deploy and visualize — a chat will
-                            appear here automatically.</>
+                            <div className="diagram-empty-hint">
+                                <span className="diagram-empty-icon" aria-hidden="true">◇</span>
+                                <span className="diagram-empty-title">Select a chat to view its diagram</span>
+                                <span>
+                                    {chats.length
+                                        ? 'Pick a deployment from the Chat menu above.'
+                                        : 'Connect your agent and ask it to deploy — a chat will appear here.'}
+                                </span>
+                            </div>
                         )}
                     </div>
                 )}

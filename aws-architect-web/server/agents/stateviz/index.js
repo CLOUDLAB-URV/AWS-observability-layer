@@ -1,10 +1,11 @@
 'use strict';
 
-// State visualizer agent: given the real log of AWS operations pushed from a
-// user's agent (via the MCP tool), generate a D2 diagram of the architecture as
-// it is ACTUALLY deployed. Unlike the reconciler (which annotates an existing
-// design), there is no prior diagram here — the D2 is built from scratch from the
-// operations log. Cheap model (Gemini Flash), no tools.
+// State visualizer agent: given the current deployed-state inventory (the resource
+// map the backend maintains by applying the agent's incremental changes), generate
+// a D2 diagram of the architecture as it is ACTUALLY deployed right now. To keep the
+// picture stable across edits, the PREVIOUS diagram is passed in as a base so the
+// model evolves it (same layout/style) instead of rebuilding from scratch. Cheap
+// model (Gemini Flash), no tools.
 
 import { getGemini, MODELS } from '../shared/client.js';
 import { loadPrompt, fill } from '../shared/prompt.js';
@@ -13,21 +14,20 @@ import * as visualizerStore from '../../visualizerStore.js';
 
 const D2_MARKER = '===D2===';
 
-// Compact the operations log for the prompt: keep the command and error, and a
-// trimmed resource_state (real IDs/ARNs matter, but full API payloads would blow
-// the context window). Drops nothing semantically — just truncates verbose state.
-function compactOperations(operations) {
-    return operations.map((op) => {
-        const entry = { action: op.action };
-        if (op.error) {
-            entry.error = String(op.error).split('\n')[0].slice(0, 240);
-        }
-        if (op.resource_state && typeof op.resource_state === 'object') {
-            let state = JSON.stringify(op.resource_state);
-            if (state.length > 1500) {
-                state = `${state.slice(0, 1500)}…(truncated)`;
+// Compact the resource inventory for the prompt: keep identity, state and ALL the
+// relationship fields (connections / vpc / subnet — the diagram needs them to draw
+// edges and containment), and only truncate the verbose `details` blob, whose full
+// form is preserved in state.json regardless.
+function compactResources(resources) {
+    return resources.map((resource) => {
+        const { details, ...rest } = resource;
+        const entry = { ...rest };
+        if (details && typeof details === 'object') {
+            let blob = JSON.stringify(details);
+            if (blob.length > 1500) {
+                blob = `${blob.slice(0, 1500)}…(truncated)`;
             }
-            entry.resource_state = state;
+            entry.details = blob;
         }
         return entry;
     });
@@ -48,16 +48,22 @@ function extractD2(text) {
     return noComments.trim();
 }
 
-// Builds (and persists) the deployed-state D2 for a (user, chat) from its
-// operations log. Returns the D2 string ('' when nothing deployed / gen failed).
-export async function runStateViz(userId, chatId) {
-    const operations = await visualizerStore.readOperations(userId, chatId);
-    if (operations.length === 0) {
+// Builds (and persists) the deployed-state D2 for a (user, chat) from its current
+// resource inventory, evolving the previous diagram for layout stability. Returns
+// the D2 string ('' when nothing is deployed / generation failed).
+export async function runStateViz(chatId) {
+    const [state, previousD2] = await Promise.all([
+        visualizerStore.readState(chatId),
+        visualizerStore.readDiagram(chatId)
+    ]);
+    const resources = Object.values(state);
+    if (resources.length === 0) {
         return '';
     }
 
     const prompt = fill(await loadPrompt(import.meta.url), {
-        OPERATIONS_LOG: JSON.stringify(compactOperations(operations), null, 2)
+        RESOURCE_INVENTORY: JSON.stringify(compactResources(resources), null, 2),
+        PREVIOUS_D2: previousD2 ? previousD2.trim() : '(none — build the diagram from scratch)'
     });
 
     const stream = getGemini().messages.stream({
@@ -77,6 +83,6 @@ export async function runStateViz(userId, chatId) {
         return '';
     }
 
-    await visualizerStore.writeDiagram(userId, chatId, d2Code);
+    await visualizerStore.writeDiagram(chatId, d2Code);
     return d2Code;
 }
