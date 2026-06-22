@@ -945,6 +945,29 @@ body {
 .topbar-projects { gap: 6px; }
 .topbar-projects select { max-width: 200px; }
 .topbar-projects button { padding: 4px 10px; }
+
+/* Rename control in the deployed-state (Agent / MCP) toolbar. */
+.chat-rename { display: flex; align-items: center; gap: 6px; }
+.chat-rename input {
+    border: 1px solid var(--border-input);
+    border-radius: 6px;
+    padding: 5px 9px;
+    background: var(--surface-app);
+    color: var(--text-primary);
+    font-size: 13px;
+    min-width: 160px;
+}
+.chat-rename button {
+    border: 1px solid var(--border-default);
+    background: var(--surface-app);
+    color: var(--text-primary);
+    padding: 5px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: border-color 120ms ease, color 120ms ease;
+}
+.chat-rename button:hover { border-color: var(--border-focus); }
 .project-form label { font-size: 13px; color: var(--text-secondary); }
 .project-form input {
     border: 1px solid var(--border-input);

@@ -41,8 +41,9 @@ const TOKEN = process.env.VISUALIZER_TOKEN || '';
 let activeChatId = process.env.VISUALIZER_CHAT_ID || randomUUID();
 
 // Upload a batch of incremental changes for a chat to the visualizer backend
-// ({ ok, text }). `project` is a friendly label; `chatId` is the storage key.
-async function pushChanges(project, changes, chatId) {
+// ({ ok, text, data }). `nameHint` is an optional name hint for a brand-new session
+// (the backend otherwise auto-names it); `chatId` is the storage key.
+async function pushChanges(nameHint, changes, chatId) {
     if (!TOKEN) {
         return { ok: false, text: 'VISUALIZER_TOKEN is not set. Generate a token in the web UI and add it to this MCP server config.' };
     }
@@ -51,7 +52,8 @@ async function pushChanges(project, changes, chatId) {
         response = await fetch(`${BACKEND_URL}/api/chats/${encodeURIComponent(chatId)}/deployments`, {
             method: 'POST',
             headers: { 'content-type': 'application/json', authorization: `Bearer ${TOKEN}` },
-            body: JSON.stringify({ project, changes })
+            // `project` is the backend's name-hint field (kept for wire-compat).
+            body: JSON.stringify({ project: nameHint, changes })
         });
     } catch (error) {
         return { ok: false, text: `Could not reach the visualizer backend at ${BACKEND_URL}: ${error?.message || error}` };
@@ -60,7 +62,13 @@ async function pushChanges(project, changes, chatId) {
     if (!response.ok) {
         return { ok: false, text: `Visualizer rejected the upload (HTTP ${response.status}): ${text}` };
     }
-    return { ok: true, text };
+    let data = {};
+    try {
+        data = JSON.parse(text);
+    } catch {
+        // Non-JSON body — leave data empty; callers fall back to text.
+    }
+    return { ok: true, text, data };
 }
 
 const server = new McpServer({ name: 'diagram-state-visualizer', version: '0.3.0' });
@@ -106,9 +114,14 @@ server.registerTool(
             'with protocol and port) and containment in `vpc`/`subnet`, because the diagram draws ' +
             'those edges. The backend keeps the full, authoritative state by merging your changes ' +
             'onto what it already has — you only ever report the delta. Example: after creating ' +
-            '3 EC2s, send 3 upserts; if the user later asks to remove one, send a single delete.',
+            '3 EC2s, send 3 upserts; if the user later asks to remove one, send a single delete. ' +
+            'The session is named automatically from the architecture (the user can rename it in ' +
+            'the web UI), so you do not need to pass a name.',
         inputSchema: {
-            project: z.string().describe('Friendly label for this deployment (e.g. "my-api"), shown in the web UI.'),
+            project: z
+                .string()
+                .optional()
+                .describe('Optional name hint for a brand-new session. Leave unset — the backend auto-names it from the architecture.'),
             changes: z.array(changeSchema).describe('The resources that changed in this step (upsert/delete each).'),
             chat: z
                 .string()
@@ -130,6 +143,8 @@ server.registerTool(
             return { isError: true, content: [{ type: 'text', text: result.text }] };
         }
 
+        // The backend returns the session name (auto-assigned for a new session).
+        const name = result.data?.name || project || '(unnamed)';
         const upserts = changes.filter((c) => c.op !== 'delete').length;
         const deletes = changes.length - upserts;
         const lines = changes.map((c) =>
@@ -139,9 +154,9 @@ server.registerTool(
             content: [
                 {
                     type: 'text',
-                    text: `Reported ${changes.length} change(s) for "${project}" (chat ${chatId}): ${upserts} upsert, ${deletes} delete.\n\n` +
+                    text: `Reported ${changes.length} change(s) for "${name}" (chat ${chatId}): ${upserts} upsert, ${deletes} delete.\n\n` +
                         `${lines.join('\n')}\n\n` +
-                        `Live diagram updated at ${WEB_URL} (Deployed state → chat ${chatId.slice(0, 8)} · ${project}).`
+                        `Live diagram updated at ${WEB_URL} (Deployed state → chat ${chatId.slice(0, 8)} · ${name}).`
                 }
             ]
         };
@@ -187,7 +202,7 @@ server.registerTool(
             content: [
                 {
                     type: 'text',
-                    text: `Resumed chat ${chat}${data.project ? ` ("${data.project}")` : ''} with ${resources.length} live resource(s). ` +
+                    text: `Resumed chat ${chat}${data.name ? ` ("${data.name}")` : ''} with ${resources.length} live resource(s). ` +
                         `Report new changes with push_deployment and they will merge onto this state.\n\n` +
                         `Current deployed resources:\n${JSON.stringify(resources, null, 2)}`
                 }
@@ -228,7 +243,7 @@ server.registerTool(
             return { content: [{ type: 'text', text: 'No previous chats yet.' }] };
         }
         const lines = chats.map(
-            (c) => `• ${c.chatId}${c.project ? ` — ${c.project}` : ''}${c.updatedAt ? ` (updated ${c.updatedAt})` : ''}`
+            (c) => `• ${c.chatId}${c.name ? ` — ${c.name}` : ''}${c.updatedAt ? ` (updated ${c.updatedAt})` : ''}`
         );
         return {
             content: [

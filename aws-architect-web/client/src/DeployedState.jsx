@@ -15,6 +15,7 @@ export default function DeployedState() {
     const [showSettings, setShowSettings] = useState(false);
     const [newToken, setNewToken] = useState('');
     const [copied, setCopied] = useState('');
+    const [renameValue, setRenameValue] = useState('');
     const socketRef = useRef(null);
 
     useEffect(() => {
@@ -33,6 +34,12 @@ export default function DeployedState() {
             socketRef.current?.send({ type: 'subscribe', chatId });
         }
     }, [connected, chatId]);
+
+    // Keep the rename field in sync with the selected chat's current name.
+    useEffect(() => {
+        const current = chats.find((c) => c.chatId === chatId);
+        setRenameValue(current?.name || '');
+    }, [chatId, chats]);
 
     function handleMessage(message) {
         switch (message.type) {
@@ -81,10 +88,26 @@ export default function DeployedState() {
         setShowSettings((v) => !v);
     }
 
+    // Override the auto-assigned session name for the selected chat.
+    async function renameChat() {
+        const name = renameValue.trim();
+        if (!chatId || !name) return;
+        try {
+            await fetch(`/api/chats/${encodeURIComponent(chatId)}`, {
+                method: 'PATCH',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ name })
+            });
+            loadChats();
+        } catch {
+            // ignore — the list simply won't update
+        }
+    }
+
     function chatLabel(c) {
         const short = c.chatId.slice(0, 8);
         const when = c.updatedAt ? ` · ${new Date(c.updatedAt).toLocaleString()}` : '';
-        return `${c.project || '(no label)'} · ${short}${when}`;
+        return `${c.name || '(unnamed)'} · ${short}${when}`;
     }
 
     // Unique-per-OS-user server name ($USER expands when pasted into a shell), so the
@@ -126,6 +149,19 @@ export default function DeployedState() {
                     </select>
                     <button type="button" onClick={loadChats}>Refresh</button>
                 </div>
+                {chatId && (
+                    <span className="chat-rename">
+                        <input
+                            type="text"
+                            aria-label="Session name"
+                            placeholder="Session name"
+                            value={renameValue}
+                            onChange={(e) => setRenameValue(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && renameChat()}
+                        />
+                        <button type="button" onClick={renameChat}>Rename</button>
+                    </span>
+                )}
                 <span className={`conn ${connected ? 'conn-on' : 'conn-off'}`} role="status">
                     {connected ? 'live' : 'reconnecting…'}
                 </span>
