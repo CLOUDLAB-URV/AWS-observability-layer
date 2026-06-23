@@ -238,9 +238,9 @@ export default function DeployedState() {
                                 <p className="viz-step-hint">
                                     Ask your agent to deploy — after each change it calls{' '}
                                     <code>push_deployment</code> with just what changed and the diagram updates
-                                    here. Resume an earlier one with <code>list_chats</code> →{' '}
-                                    <code>load_chat</code>, or pin a chat via the <code>VISUALIZER_CHAT_ID</code> env
-                                    var.
+                                    here. To resume an earlier diagram, your agent runs <code>list_chats</code> and
+                                    then <code>load_chat</code> with the closest diagram name (matched by
+                                    proximity); or pin one via the <code>VISUALIZER_CHAT_ID</code> env var.
                                 </p>
                             </div>
                         </li>

@@ -11,8 +11,9 @@
 //
 // Three tools:
 //   - push_deployment : report the delta of changes (the only push tool).
-//   - list_chats      : discover previous deployment chats.
-//   - load_chat       : resume a chat and load its current deployed state.
+//   - list_chats      : discover previous deployment diagrams (id + name).
+//   - load_chat       : resume a previous diagram BY NAME (resolved by proximity)
+//                       and load its full current deployed state into context.
 //
 // This server is dedicated to ONE web app, so the backend and web URLs are baked
 // in here (the two constants below) — the only thing the user configures is their
@@ -71,7 +72,59 @@ async function pushChanges(nameHint, changes, chatId) {
     return { ok: true, text, data };
 }
 
-const server = new McpServer({ name: 'diagram-state-visualizer', version: '0.3.0' });
+const server = new McpServer({ name: 'diagram-state-visualizer', version: '0.4.0' });
+
+// Resolve a free-text diagram name to a chat from `list_chats` by proximity.
+// The calling agent is expected to pick the semantically closest name (it sees the
+// list); this just maps that name back to a chat id robustly. Scoring, in order:
+//   1. exact normalized match wins outright;
+//   2. otherwise substring containment + token overlap (Jaccard) over the threshold;
+//   3. ties break toward the more recent chat (the list is already newest-first).
+// Returns the best chat object, or null when nothing is close enough.
+function normalizeName(raw) {
+    return String(raw ?? '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function matchByName(query, chats) {
+    const q = normalizeName(query);
+    if (!q || !Array.isArray(chats) || chats.length === 0) {
+        return null;
+    }
+    const qTokens = new Set(q.split(' ').filter(Boolean));
+    let best = null;
+    let bestScore = 0;
+    // chats is newest-first; iterating in order means equal scores keep the earlier
+    // (more recent) entry, so ties break toward recency.
+    for (const chat of chats) {
+        const name = normalizeName(chat.name);
+        if (!name) {
+            continue;
+        }
+        if (name === q) {
+            return chat; // exact normalized match — done.
+        }
+        const nameTokens = new Set(name.split(' ').filter(Boolean));
+        const overlap = [...qTokens].filter((t) => nameTokens.has(t)).length;
+        const union = new Set([...qTokens, ...nameTokens]).size;
+        const jaccard = union ? overlap / union : 0;
+        const contains = name.includes(q) || q.includes(name) ? 0.5 : 0;
+        // Coverage: how much of the shorter side is shared. Lets a short, distinctive
+        // query ("rds") match a longer name ("vpc with rds") without a single token
+        // dominating the Jaccard ratio. Weighted below 1 so exact names still win.
+        const coverage = overlap ? 0.6 * (overlap / Math.min(qTokens.size, nameTokens.size)) : 0;
+        const score = Math.max(jaccard, contains, coverage);
+        if (score > bestScore) {
+            bestScore = score;
+            best = chat;
+        }
+    }
+    // Require a meaningful overlap so unrelated names resolve to "no match".
+    return bestScore >= 0.34 ? best : null;
+}
 
 // One connection between two resources, drawn as an edge in the diagram.
 const connectionSchema = z
@@ -116,7 +169,9 @@ server.registerTool(
             'onto what it already has — you only ever report the delta. Example: after creating ' +
             '3 EC2s, send 3 upserts; if the user later asks to remove one, send a single delete. ' +
             'The session is named automatically from the architecture (the user can rename it in ' +
-            'the web UI), so you do not need to pass a name.',
+            'the web UI), so you do not need to pass a name. By default the changes go to THIS ' +
+            'session\'s diagram (a fresh diagram id per session); if you previously called ' +
+            'load_chat, they merge onto that loaded diagram instead.',
         inputSchema: {
             project: z
                 .string()
@@ -163,28 +218,74 @@ server.registerTool(
     }
 );
 
+// Fetch the account's diagrams (newest first) from the backend. Returns
+// { ok, chats, text } — `text` carries an error message when ok is false.
+async function fetchChats() {
+    let response;
+    try {
+        response = await fetch(`${BACKEND_URL}/api/chats`, {
+            headers: { authorization: `Bearer ${TOKEN}` }
+        });
+    } catch (error) {
+        return { ok: false, text: `Could not reach the visualizer backend at ${BACKEND_URL}: ${error?.message || error}` };
+    }
+    if (!response.ok) {
+        const text = await response.text();
+        return { ok: false, text: `Could not list diagrams (HTTP ${response.status}): ${text}` };
+    }
+    const data = await response.json();
+    return { ok: true, chats: Array.isArray(data.chats) ? data.chats : [] };
+}
+
 server.registerTool(
     'load_chat',
     {
-        title: 'Resume a previous chat and load its deployed-state context',
+        title: 'Resume a previous diagram by name and load its deployed state',
         description:
-            'Resume a PREVIOUS deployment session: switches this session to an existing chat and ' +
-            'returns its CURRENT deployed state — every resource that is live (real IDs/ARNs, ' +
-            'state, relationships). Call this when the user wants to continue working on ' +
-            'infrastructure deployed earlier, so you know what already exists and can reference ' +
-            'those IDs/ARNs. After loading, subsequent push_deployment calls apply onto THIS ' +
-            'chat\'s state and the diagram updates accordingly. Use list_chats first to find the id.',
+            'Resume a PREVIOUS deployment diagram BY ITS NAME. To use it: call list_chats ' +
+            'first, look at the diagram names, pick the one whose name is the CLOSEST ' +
+            'semantically to what the user is asking for, and pass that name here. If none of ' +
+            'the existing names is a reasonable semantic match, do NOT call this with a made-up ' +
+            'name — tell the user there is no similar diagram. On a match this switches the ' +
+            'active diagram and returns its FULL current deployed state (every live resource, ' +
+            'real IDs/ARNs, relationships) — that becomes the one and only architecture in ' +
+            'context, and every later push_deployment merges onto it. Use this when the user ' +
+            'wants to keep working on infrastructure deployed earlier.',
         inputSchema: {
-            chat: z.string().describe('The chat id to resume (from list_chats).')
+            name: z
+                .string()
+                .describe('The diagram NAME to resume (choose the closest one from list_chats). Resolved by proximity to an existing diagram.')
         }
     },
-    async ({ chat }) => {
+    async ({ name }) => {
         if (!TOKEN) {
             return { isError: true, content: [{ type: 'text', text: 'VISUALIZER_TOKEN is not set. Generate a token in the web UI and add it to this MCP server config.' }] };
         }
+
+        const listed = await fetchChats();
+        if (!listed.ok) {
+            return { isError: true, content: [{ type: 'text', text: listed.text }] };
+        }
+        if (listed.chats.length === 0) {
+            return { content: [{ type: 'text', text: 'There are no diagrams yet, so there is nothing to resume. Start a new architecture and it will be created on the first push_deployment.' }] };
+        }
+
+        const match = matchByName(name, listed.chats);
+        if (!match) {
+            const available = listed.chats.map((c) => `• ${c.name || '(unnamed)'}`).join('\n');
+            return {
+                content: [
+                    {
+                        type: 'text',
+                        text: `No diagram is semantically similar to "${name}". Tell the user there is no matching diagram and, if useful, offer the available ones:\n${available}`
+                    }
+                ]
+            };
+        }
+
         let response;
         try {
-            response = await fetch(`${BACKEND_URL}/api/chats/${encodeURIComponent(chat)}`, {
+            response = await fetch(`${BACKEND_URL}/api/chats/${encodeURIComponent(match.chatId)}`, {
                 headers: { authorization: `Bearer ${TOKEN}` }
             });
         } catch (error) {
@@ -192,18 +293,24 @@ server.registerTool(
         }
         if (!response.ok) {
             const text = await response.text();
-            return { isError: true, content: [{ type: 'text', text: `Could not load chat "${chat}" (HTTP ${response.status}): ${text}` }] };
+            return { isError: true, content: [{ type: 'text', text: `Could not load diagram "${match.name}" (HTTP ${response.status}): ${text}` }] };
         }
         const data = await response.json();
         const resources = Array.isArray(data.resources) ? data.resources : [];
-        // Adopt the chat so follow-up changes apply onto it.
-        activeChatId = chat;
+        const resolvedName = data.name || match.name || '(unnamed)';
+        // Adopt the diagram so follow-up changes apply onto it.
+        activeChatId = match.chatId;
         return {
             content: [
                 {
                     type: 'text',
-                    text: `Resumed chat ${chat}${data.name ? ` ("${data.name}")` : ''} with ${resources.length} live resource(s). ` +
-                        `Report new changes with push_deployment and they will merge onto this state.\n\n` +
+                    text: `Loaded the diagram "${resolvedName}" (chat ${match.chatId}). ` +
+                        `THIS is now the ONLY active architecture in AWS and the only valid context. ` +
+                        `The ${resources.length} resource(s) below are what is ACTUALLY deployed right now ` +
+                        `(real IDs/ARNs, state and relationships). From now on, EVERYTHING the user asks ` +
+                        `refers EXCLUSIVELY to this architecture; any architecture worked on earlier in this ` +
+                        `session belongs to a different diagram and must be ignored. Report changes with ` +
+                        `push_deployment and they will merge onto this state (it already targets this diagram).\n\n` +
                         `Current deployed resources:\n${JSON.stringify(resources, null, 2)}`
                 }
             ]
@@ -214,42 +321,34 @@ server.registerTool(
 server.registerTool(
     'list_chats',
     {
-        title: 'List previous deployment chats',
+        title: 'List previous deployment diagrams',
         description:
-            'List the deployment chats available for your account (newest first), each with its ' +
-            'chat id, friendly label, and last-updated time. Use this to find a chat id to pass ' +
-            'to load_chat when resuming earlier work.',
+            'List the deployment diagrams available for your account (newest first), each with ' +
+            'its name, id, and last-updated time. This is the FIRST step when the user wants to ' +
+            'resume earlier work: look at the names, pick the one closest semantically to what ' +
+            'the user means, then pass that NAME to load_chat (load_chat resolves it by ' +
+            'proximity). If no name is a reasonable match, tell the user there is no similar diagram.',
         inputSchema: {}
     },
     async () => {
         if (!TOKEN) {
             return { isError: true, content: [{ type: 'text', text: 'VISUALIZER_TOKEN is not set. Generate a token in the web UI and add it to this MCP server config.' }] };
         }
-        let response;
-        try {
-            response = await fetch(`${BACKEND_URL}/api/chats`, {
-                headers: { authorization: `Bearer ${TOKEN}` }
-            });
-        } catch (error) {
-            return { isError: true, content: [{ type: 'text', text: `Could not reach the visualizer backend at ${BACKEND_URL}: ${error?.message || error}` }] };
+        const listed = await fetchChats();
+        if (!listed.ok) {
+            return { isError: true, content: [{ type: 'text', text: listed.text }] };
         }
-        if (!response.ok) {
-            const text = await response.text();
-            return { isError: true, content: [{ type: 'text', text: `Could not list chats (HTTP ${response.status}): ${text}` }] };
+        if (listed.chats.length === 0) {
+            return { content: [{ type: 'text', text: 'No previous diagrams yet.' }] };
         }
-        const data = await response.json();
-        const chats = Array.isArray(data.chats) ? data.chats : [];
-        if (chats.length === 0) {
-            return { content: [{ type: 'text', text: 'No previous chats yet.' }] };
-        }
-        const lines = chats.map(
-            (c) => `• ${c.chatId}${c.name ? ` — ${c.name}` : ''}${c.updatedAt ? ` (updated ${c.updatedAt})` : ''}`
+        const lines = listed.chats.map(
+            (c) => `• ${c.name || '(unnamed)'}${c.updatedAt ? ` (updated ${c.updatedAt})` : ''} — id ${c.chatId}`
         );
         return {
             content: [
                 {
                     type: 'text',
-                    text: `Chats (newest first):\n${lines.join('\n')}\n\nPass a chat id to load_chat to resume it.`
+                    text: `Diagrams (newest first):\n${lines.join('\n')}\n\nPass the closest NAME to load_chat to resume it.`
                 }
             ]
         };

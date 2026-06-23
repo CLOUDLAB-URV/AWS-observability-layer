@@ -1,7 +1,7 @@
 {
   "name": "diagram-state-visualizer-mcp",
-  "version": "0.3.0",
-  "description": "Self-contained MCP server: the agent reports the delta of deployed AWS changes (upsert/delete) and it renders a live diagram of what is actually deployed in AWS, in the AWS Architect Web 'Deployed state' view.",
+  "version": "0.4.0",
+  "description": "Self-contained MCP server: the agent reports the delta of deployed AWS changes (upsert/delete) and it renders a live diagram of what is actually deployed in AWS, in the AWS Architect Web 'Deployed state' view. Resume earlier diagrams by name via list_chats + load_chat.",
   "type": "module",
   "bin": {
     "diagram-state-visualizer-mcp": "index.js"
