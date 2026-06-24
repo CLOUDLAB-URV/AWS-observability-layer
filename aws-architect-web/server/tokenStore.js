@@ -21,7 +21,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TOKENS_FILE = path.join(__dirname, 'persistence', 'tokens.json');
 const OWNER_FILE = path.join(__dirname, 'persistence', 'owner.json');
 
-const ENV_TOKEN = process.env.VISUALIZER_TOKEN || '';
+// Read lazily, NOT at import time: in ESM, this module is evaluated before
+// index.js runs process.loadEnvFile(), so a const captured here would be '' even
+// when .env defines the token. Reading inside the functions sees the loaded value.
+function getEnvToken() {
+    return process.env.VISUALIZER_TOKEN || '';
+}
 
 // The owner userId is created once and persisted, then reused for every credential
 // on this machine. Cached in-process after the first resolve.
@@ -73,7 +78,8 @@ export async function verify(token) {
     if (!t) {
         return null;
     }
-    if (ENV_TOKEN && t === ENV_TOKEN) {
+    const envToken = getEnvToken();
+    if (envToken && t === envToken) {
         return { userId: await getOwnerUserId(), label: 'env' };
     }
     const map = await readAll();
@@ -103,7 +109,7 @@ export async function list(userId) {
             label: v.label,
             createdAt: v.createdAt
         }));
-    if (ENV_TOKEN && owner === (await getOwnerUserId())) {
+    if (getEnvToken() && owner === (await getOwnerUserId())) {
         out.unshift({ tokenPreview: 'env (VISUALIZER_TOKEN)', label: 'env', createdAt: null });
     }
     return out;
