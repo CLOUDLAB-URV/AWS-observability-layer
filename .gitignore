@@ -2,4 +2,8 @@ node_modules/
 dist/
 server/data/
 server/persistence/
-.env
+
+# Env files: commit non-secret flag files (.env, .env.development, .env.production);
+# keep secrets and machine-specific overrides out of git.
+.env.local
+.env.*.local

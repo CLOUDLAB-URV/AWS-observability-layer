@@ -916,6 +916,24 @@ body {
     color: var(--text-primary);
     border-color: var(--border-focus);
 }
+/* Standby/WIP: visible pero deshabilitada y no clicable. */
+.view-tab:disabled,
+.view-tab-wip {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+.view-tab-wip:hover { color: var(--text-secondary); }
+.wip-tag {
+    margin-left: 6px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: var(--border-default);
+    color: var(--text-secondary);
+}
 
 .layout-deployed {
     display: flex;

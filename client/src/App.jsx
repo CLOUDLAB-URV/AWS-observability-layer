@@ -6,11 +6,20 @@ import ConfirmModal from './ConfirmModal.jsx';
 import { createSocket } from './ws.js';
 import { useDarkMode } from './hooks/useDarkMode.js';
 import { useChatPanel } from './hooks/useChatPanel.js';
+import { features } from './features.js';
 
 const MODE_LABELS = { preview: 'Preview', deployed: 'Deployed', partial: 'Partial' };
 
+// Which modes are available, driven by VITE_DESIGN_ENABLED / VITE_AGENT_ENABLED in
+// client/.env. A disabled mode's tab is shown disabled (WIP) and its view is unreachable;
+// the backend has matching DESIGN_ENABLED / AGENT_ENABLED flags that gate the server side.
+const DESIGN_ENABLED = features.design;
+const AGENT_ENABLED = features.agent;
+// Open on the first enabled mode (Design takes priority when both are on).
+const INITIAL_VIEW = DESIGN_ENABLED ? 'design' : 'deployed';
+
 export default function App() {
-    const [view, setView] = useState('design');
+    const [view, setView] = useState(INITIAL_VIEW);
     const [connected, setConnected] = useState(false);
     const [mode, setMode] = useState('preview');
     const [svg, setSvg] = useState('');
@@ -29,7 +38,9 @@ export default function App() {
     useEffect(() => {
         const socket = createSocket(handleMessage, setConnected);
         socketRef.current = socket;
-        loadProjects();
+        // Projects belong to Design & Deploy; only fetch them when that mode is enabled
+        // (the backend gates /api/projects behind DESIGN_ENABLED → 503 otherwise).
+        if (DESIGN_ENABLED) loadProjects();
         return () => socket.close();
     }, []);
 
@@ -196,20 +207,30 @@ export default function App() {
                     <button
                         role="tab"
                         aria-selected={view === 'design'}
-                        className={`view-tab ${view === 'design' ? 'view-tab-active' : ''}`}
-                        onClick={() => setView('design')}
-                        title="Design an AWS architecture by chat and deploy it from the web"
+                        aria-disabled={!DESIGN_ENABLED}
+                        disabled={!DESIGN_ENABLED}
+                        className={`view-tab ${view === 'design' ? 'view-tab-active' : ''} ${!DESIGN_ENABLED ? 'view-tab-wip' : ''}`}
+                        onClick={() => { if (DESIGN_ENABLED) setView('design'); }}
+                        title={DESIGN_ENABLED
+                            ? 'Design an AWS architecture by chat and deploy it from the web'
+                            : 'Design & Deploy — en desarrollo (standby)'}
                     >
                         Design &amp; Deploy
+                        {!DESIGN_ENABLED && <span className="wip-tag">WIP</span>}
                     </button>
                     <button
                         role="tab"
                         aria-selected={view === 'deployed'}
-                        className={`view-tab ${view === 'deployed' ? 'view-tab-active' : ''}`}
-                        onClick={() => setView('deployed')}
-                        title="Live diagram of what your coding agent (Claude Code / opencode) deploys via the MCP server"
+                        aria-disabled={!AGENT_ENABLED}
+                        disabled={!AGENT_ENABLED}
+                        className={`view-tab ${view === 'deployed' ? 'view-tab-active' : ''} ${!AGENT_ENABLED ? 'view-tab-wip' : ''}`}
+                        onClick={() => { if (AGENT_ENABLED) setView('deployed'); }}
+                        title={AGENT_ENABLED
+                            ? 'Live diagram of what your coding agent (Claude Code / opencode) deploys via the MCP server'
+                            : 'Agent (MCP) — en desarrollo (standby)'}
                     >
                         Agent (MCP)
+                        {!AGENT_ENABLED && <span className="wip-tag">WIP</span>}
                     </button>
                 </nav>
                 {view === 'design' && (
@@ -283,7 +304,20 @@ export default function App() {
                     </button>
                 )}
             </header>
-            {view === 'deployed' ? (
+            {!DESIGN_ENABLED && !AGENT_ENABLED ? (
+                <main id="main-content" className="layout" role="main">
+                    <div className="diagram-empty">
+                        <div className="diagram-empty-hint">
+                            <span className="diagram-empty-icon" aria-hidden="true">◇</span>
+                            <span className="diagram-empty-title">No modes enabled</span>
+                            <span>
+                                Enable a mode via <code>VITE_DESIGN_ENABLED</code> or{' '}
+                                <code>VITE_AGENT_ENABLED</code> in <code>client/.env</code>.
+                            </span>
+                        </div>
+                    </div>
+                </main>
+            ) : view === 'deployed' ? (
                 <main id="main-content" className="layout layout-deployed" role="main">
                     <DeployedState />
                 </main>

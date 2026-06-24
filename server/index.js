@@ -1,13 +1,16 @@
 'use strict';
 
-// Load .env (GCP_PROJECT_ID, CLOUD_ML_REGION, …) before anything reads it, so the
-// backend is self-configured on start without injecting env vars on the CLI.
-// Optional: the server still boots (and renders diagrams) if .env is absent.
+// Load env before anything reads it, so the backend is self-configured on start. One
+// centralized .env (non-secret config / feature flags) plus .env.local (secrets, e.g.
+// tokens). process.loadEnvFile does NOT override already-set vars, so we load .env.local
+// FIRST — it (and the real OS environment) wins over .env. Both files are optional.
 import process from 'node:process';
-try {
-    process.loadEnvFile(new URL('.env', import.meta.url));
-} catch {
-    // No .env file — rely on whatever is already in the environment.
+for (const file of ['.env.local', '.env']) {
+    try {
+        process.loadEnvFile(new URL(file, import.meta.url));
+    } catch {
+        // File absent — skip it.
+    }
 }
 
 import http from 'node:http';
@@ -18,9 +21,15 @@ import { runFlow, resetConversation } from './graph.js';
 import * as store from './projectStore.js';
 import * as visualizerStore from './visualizerStore.js';
 import * as tokenStore from './tokenStore.js';
+import { features } from './features.js';
 import { runStateViz, suggestSessionName } from './agents/stateviz/index.js';
 
 const PORT = Number(process.env.PORT || 3001);
+
+// Feature flags are driven by the environment (.env). Design & Deploy (the LangGraph
+// orchestration flow: chat/deploy/teardown/projects) stays in STANDBY while
+// features.design is off — the code is untouched but the server refuses to run runFlow,
+// so no design request is ever processed. Set DESIGN_ENABLED=true in .env to reactivate.
 
 const app = express();
 app.use(express.json({ limit: '5mb' }));
@@ -38,6 +47,11 @@ server.on('upgrade', (req, socket, head) => {
     if (pathname === '/ws') {
         wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
     } else if (pathname === '/ws-visualizer') {
+        // Agent (MCP) in standby: refuse the visualizer socket entirely.
+        if (!features.agent) {
+            socket.destroy();
+            return;
+        }
         vizWss.handleUpgrade(req, socket, head, (ws) => vizWss.emit('connection', ws, req));
     } else {
         socket.destroy();
@@ -127,6 +141,13 @@ wss.on('connection', (socket) => {
             return;
         }
 
+        // Design & Deploy is in standby: never invoke the LangGraph flow.
+        const DESIGN_MESSAGES = ['chat', 'deploy', 'teardown', 'select-project'];
+        if (!features.design && DESIGN_MESSAGES.includes(message.type)) {
+            socket.send(JSON.stringify({ type: 'status', text: 'Design & Deploy is in development (standby).' }));
+            return;
+        }
+
         if (busy) {
             socket.send(JSON.stringify({ type: 'error', message: 'An operation is already running — wait for it to finish.' }));
             return;
@@ -193,6 +214,21 @@ function normalizeChanges(body) {
         .filter(Boolean);
 }
 
+// Feature gate: short-circuits a route with 503 when its mode is disabled by config, so
+// a mode in standby is truly inert (not just hidden in the UI). `isOn` is read per
+// request (lazy) so flipping the env + restart is enough — no stale capture.
+function requireFeature(isOn, label) {
+    return (_req, res, next) => {
+        if (!isOn()) {
+            res.status(503).json({ error: `${label} is not available (disabled by configuration).` });
+            return;
+        }
+        next();
+    };
+}
+const agentGate = requireFeature(() => features.agent, 'Agent (MCP)');
+const designGate = requireFeature(() => features.design, 'Design & Deploy');
+
 // Bearer-token auth → resolves req.userId, or 401.
 async function requireToken(req, res, next) {
     const header = req.get('authorization') || '';
@@ -223,7 +259,7 @@ async function resolveUser(req, _res, next) {
 // regenerate the deployed-state D2, render it, and push it live to any web clients
 // watching that chat. A brand-new session (no name yet) is auto-named from its
 // architecture; an agent-supplied `project` is only a name hint.
-app.post('/api/chats/:chatId/deployments', requireToken, async (req, res) => {
+app.post('/api/chats/:chatId/deployments', agentGate, requireToken, async (req, res) => {
     const chatId = visualizerStore.sanitizeChatId(req.params.chatId);
     if (!chatId) {
         res.status(400).json({ error: 'Invalid chat id.' });
@@ -270,14 +306,14 @@ app.post('/api/chats/:chatId/deployments', requireToken, async (req, res) => {
 
 // List the user's chats (newest first). The MCP uses this (with a token) for
 // list_chats; the web UI hits it same-origin (no token → owner user).
-app.get('/api/chats', resolveUser, async (req, res) => {
+app.get('/api/chats', agentGate, resolveUser, async (req, res) => {
     res.json({ chats: await visualizerStore.listChats(req.userId) });
 });
 
 // Full context for one chat: name + current deployed-state resources + current D2.
 // Used by the MCP's load_chat so the agent can resume knowing what already exists
 // (real IDs/ARNs) before sending its next delta of changes.
-app.get('/api/chats/:chatId', requireToken, async (req, res) => {
+app.get('/api/chats/:chatId', agentGate, requireToken, async (req, res) => {
     const chatId = visualizerStore.sanitizeChatId(req.params.chatId);
     if (!chatId) {
         res.status(400).json({ error: 'Invalid chat id.' });
@@ -293,7 +329,7 @@ app.get('/api/chats/:chatId', requireToken, async (req, res) => {
 
 // Rename a session. Hit by the web UI same-origin (owner user) to override the
 // auto-assigned name.
-app.patch('/api/chats/:chatId', resolveUser, async (req, res) => {
+app.patch('/api/chats/:chatId', agentGate, resolveUser, async (req, res) => {
     const chatId = visualizerStore.sanitizeChatId(req.params.chatId);
     if (!chatId) {
         res.status(400).json({ error: 'Invalid chat id.' });
@@ -309,7 +345,7 @@ app.patch('/api/chats/:chatId', resolveUser, async (req, res) => {
 });
 
 // Current deployed-state diagram (SVG) for a chat.
-app.get('/api/chats/:chatId/diagram', resolveUser, async (req, res) => {
+app.get('/api/chats/:chatId/diagram', agentGate, resolveUser, async (req, res) => {
     const chatId = visualizerStore.sanitizeChatId(req.params.chatId);
     if (!chatId) {
         res.status(400).json({ error: 'Invalid chat id.' });
@@ -322,11 +358,11 @@ app.get('/api/chats/:chatId/diagram', resolveUser, async (req, res) => {
 
 // Design projects: list (newest activity first) and create. The active project is
 // switched over the /ws socket (select-project), which re-inits all design clients.
-app.get('/api/projects', async (_req, res) => {
+app.get('/api/projects', designGate, async (_req, res) => {
     res.json({ projects: await store.listProjects(), current: store.getCurrentProjectId() });
 });
 
-app.post('/api/projects', async (req, res) => {
+app.post('/api/projects', designGate, async (req, res) => {
     const name = String(req.body?.name || '').trim();
     if (!name) {
         res.status(400).json({ error: 'A project name is required.' });
@@ -337,11 +373,11 @@ app.post('/api/projects', async (req, res) => {
 });
 
 // Token management for the web UI (the owner user of this machine).
-app.get('/api/tokens', async (_req, res) => {
+app.get('/api/tokens', agentGate, async (_req, res) => {
     res.json({ tokens: await tokenStore.list() });
 });
 
-app.post('/api/tokens', async (req, res) => {
+app.post('/api/tokens', agentGate, async (req, res) => {
     // userId defaults to the owner inside tokenStore.create.
     const { token } = await tokenStore.create(undefined, String(req.body?.label || ''));
     // Returned in full exactly once so the user can copy it into the MCP config.
