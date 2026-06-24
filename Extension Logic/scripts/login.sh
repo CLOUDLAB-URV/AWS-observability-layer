@@ -1,1 +1,0 @@
-aws sso login --profile cloudlab
