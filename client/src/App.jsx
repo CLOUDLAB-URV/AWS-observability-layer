@@ -6,13 +6,15 @@ import ConfirmModal from './ConfirmModal.jsx';
 import { createSocket } from './ws.js';
 import { useDarkMode } from './hooks/useDarkMode.js';
 import { useChatPanel } from './hooks/useChatPanel.js';
+import { logout } from './auth.js';
 
 const MODE_LABELS = { preview: 'Preview', deployed: 'Deployed', partial: 'Partial' };
 
 // `features` come from the backend at runtime (GET /api/config, fetched in main.jsx). A
 // disabled mode's tab is shown disabled (WIP) and its view is unreachable; the backend gates
-// the matching routes server-side, so one environment controls both sides.
-export default function App({ features }) {
+// the matching routes server-side, so one environment controls both sides. `user` is the
+// logged-in account (or the synthetic "dev" user when auth is disabled locally).
+export default function App({ features, user }) {
     const DESIGN_ENABLED = features.design;
     const AGENT_ENABLED = features.agent;
     // Open on the first enabled mode (Design takes priority when both are on).
@@ -280,6 +282,19 @@ export default function App({ features }) {
                 >
                     {isDark ? '☀️' : '🌙'}
                 </button>
+                {user && (
+                    <div className="user-menu" title={user.email || user.name}>
+                        {user.picture
+                            ? <img className="user-avatar" src={user.picture} alt="" referrerPolicy="no-referrer" />
+                            : <span className="user-avatar user-avatar-fallback" aria-hidden="true">
+                                {(user.name || user.email || '?').trim().charAt(0).toUpperCase()}
+                            </span>}
+                        <span className="user-name">{user.name || user.email}</span>
+                        <button type="button" className="logout-btn" onClick={logout} title="Sign out">
+                            Logout
+                        </button>
+                    </div>
+                )}
                 {view === 'design' && (mode === 'preview' || mode === 'partial') && (
                     <button
                         className="deploy-btn"

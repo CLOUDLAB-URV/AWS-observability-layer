@@ -1,15 +1,19 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.jsx';
+import Login from './Login.jsx';
 import { loadFeatures } from './features.js';
+import { loadSession } from './auth.js';
 import './styles.css';
 
-// Fetch which modes are available from the backend before rendering, so the UI matches the
-// deploy's environment with no build-time flags baked in.
-loadFeatures().then((features) => {
-    createRoot(document.getElementById('root')).render(
+// Before rendering, fetch which modes are available and the current session. If auth is on and
+// nobody is logged in, show the login screen; otherwise render the app for the resolved user.
+Promise.all([loadFeatures(), loadSession()]).then(([features, session]) => {
+    const root = createRoot(document.getElementById('root'));
+    const needsLogin = session.authEnabled && !session.user;
+    root.render(
         <React.StrictMode>
-            <App features={features} />
+            {needsLogin ? <Login /> : <App features={features} user={session.user} />}
         </React.StrictMode>
     );
 });

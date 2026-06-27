@@ -15,12 +15,15 @@ services:
   backend:
     image: ${IMAGE_BACKEND}
     restart: unless-stopped
-    environment:                   # injected from .env (generic image carries no config)
+    environment:                   # non-secret config from .env (committed)
       AGENT_ENABLED: ${AGENT_ENABLED:-}
       DESIGN_ENABLED: ${DESIGN_ENABLED:-}
-      VISUALIZER_TOKEN: ${VISUALIZER_TOKEN:-}
-      GCP_PROJECT_ID: ${GCP_PROJECT_ID:-}
-      CLOUD_ML_REGION: ${CLOUD_ML_REGION:-}
+      APP_URL: ${APP_URL:-}        # public base URL (OAuth redirect + Secure cookies)
+      MAX_USERS: ${MAX_USERS:-}    # cap on how many users can register
+    env_file:
+      - .env.local                 # secrets (gitignored): GOOGLE_*, SESSION_SECRET, VISUALIZER_TOKEN, GCP_*
+    volumes:
+      - app_data:/app/persistence  # users, sessions, tokens, deployed-state — survives recreation
     expose:
       - "3001"                     # internal only; reached via the compose network / Caddy
     labels:
@@ -79,3 +82,4 @@ services:
 volumes:
   caddy_data:
   caddy_config:
+  app_data:        # backend persistence/ (users, sessions, tokens, deployed-state)

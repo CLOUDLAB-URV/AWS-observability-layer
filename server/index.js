@@ -22,6 +22,7 @@ import * as store from './projectStore.js';
 import * as visualizerStore from './visualizerStore.js';
 import * as tokenStore from './tokenStore.js';
 import { features } from './features.js';
+import * as auth from './auth.js';
 import { runStateViz, suggestSessionName } from './agents/stateviz/index.js';
 
 const PORT = Number(process.env.PORT || 3001);
@@ -33,6 +34,9 @@ const PORT = Number(process.env.PORT || 3001);
 
 const app = express();
 app.use(express.json({ limit: '5mb' }));
+// Google OAuth login + session endpoints (/api/auth/*, /api/me). No-op auth when GOOGLE_*
+// creds are absent (local dev): requests resolve to the owner as a "dev" user.
+auth.registerRoutes(app);
 const server = http.createServer(app);
 // Two WebSocket endpoints on one HTTP server: '/ws' (legacy design flow) and
 // '/ws-visualizer' (deployed-state feature). They MUST use noServer + manual
@@ -52,7 +56,18 @@ server.on('upgrade', (req, socket, head) => {
             socket.destroy();
             return;
         }
-        vizWss.handleUpgrade(req, socket, head, (ws) => vizWss.emit('connection', ws, req));
+        // Resolve the logged-in user from the request's cookies; reject if not authenticated
+        // (when auth is on). The socket is then bound to that user's data.
+        auth.resolveUser(req).then((user) => {
+            if (!user) {
+                socket.destroy();
+                return;
+            }
+            vizWss.handleUpgrade(req, socket, head, (ws) => {
+                ws._userId = user.userId;
+                vizWss.emit('connection', ws, req);
+            });
+        }).catch(() => socket.destroy());
     } else {
         socket.destroy();
     }
@@ -242,17 +257,10 @@ async function requireToken(req, res, next) {
     next();
 }
 
-// Optional Bearer auth → req.userId if a valid token is present, else the owner
-// user. Used by read endpoints the web UI hits same-origin without a token (the web
-// operates as the owner of this machine); the MCP always sends a token and gets its
-// real user.
-async function resolveUser(req, _res, next) {
-    const header = req.get('authorization') || '';
-    const token = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
-    const identity = token ? await tokenStore.verify(token) : null;
-    req.userId = identity ? identity.userId : await tokenStore.getOwnerUserId();
-    next();
-}
+// Session auth for the web UI: resolves req.userId from the login session (or the owner as a
+// "dev" user when auth is disabled locally), else 401. The MCP never hits these — it uses the
+// Bearer-token routes (requireToken) instead.
+const requireSession = auth.requireSession;
 
 // Ingest: the MCP tool POSTs a batch of incremental changes (upsert/delete per
 // resource) for a chat. We merge them into the chat's authoritative state,
@@ -306,7 +314,7 @@ app.post('/api/chats/:chatId/deployments', agentGate, requireToken, async (req, 
 
 // List the user's chats (newest first). The MCP uses this (with a token) for
 // list_chats; the web UI hits it same-origin (no token → owner user).
-app.get('/api/chats', agentGate, resolveUser, async (req, res) => {
+app.get('/api/chats', agentGate, requireSession, async (req, res) => {
     res.json({ chats: await visualizerStore.listChats(req.userId) });
 });
 
@@ -329,7 +337,7 @@ app.get('/api/chats/:chatId', agentGate, requireToken, async (req, res) => {
 
 // Rename a session. Hit by the web UI same-origin (owner user) to override the
 // auto-assigned name.
-app.patch('/api/chats/:chatId', agentGate, resolveUser, async (req, res) => {
+app.patch('/api/chats/:chatId', agentGate, requireSession, async (req, res) => {
     const chatId = visualizerStore.sanitizeChatId(req.params.chatId);
     if (!chatId) {
         res.status(400).json({ error: 'Invalid chat id.' });
@@ -345,7 +353,7 @@ app.patch('/api/chats/:chatId', agentGate, resolveUser, async (req, res) => {
 });
 
 // Current deployed-state diagram (SVG) for a chat.
-app.get('/api/chats/:chatId/diagram', agentGate, resolveUser, async (req, res) => {
+app.get('/api/chats/:chatId/diagram', agentGate, requireSession, async (req, res) => {
     const chatId = visualizerStore.sanitizeChatId(req.params.chatId);
     if (!chatId) {
         res.status(400).json({ error: 'Invalid chat id.' });
@@ -372,14 +380,14 @@ app.post('/api/projects', designGate, async (req, res) => {
     res.json(project);
 });
 
-// Token management for the web UI (the owner user of this machine).
-app.get('/api/tokens', agentGate, async (_req, res) => {
-    res.json({ tokens: await tokenStore.list() });
+// Token management for the web UI, scoped to the logged-in user (the MCP uses these tokens to
+// push deployments into that user's space).
+app.get('/api/tokens', agentGate, requireSession, async (req, res) => {
+    res.json({ tokens: await tokenStore.list(req.userId) });
 });
 
-app.post('/api/tokens', agentGate, async (req, res) => {
-    // userId defaults to the owner inside tokenStore.create.
-    const { token } = await tokenStore.create(undefined, String(req.body?.label || ''));
+app.post('/api/tokens', agentGate, requireSession, async (req, res) => {
+    const { token } = await tokenStore.create(req.userId, String(req.body?.label || ''));
     // Returned in full exactly once so the user can copy it into the MCP config.
     res.json({ token });
 });
@@ -400,8 +408,7 @@ vizWss.on('connection', (socket) => {
                 socket.send(JSON.stringify({ type: 'error', message: 'Invalid chat id.' }));
                 return;
             }
-            // The web client maps to the owner user of this machine.
-            socket._userId = await tokenStore.getOwnerUserId();
+            // socket._userId was bound to the logged-in user at upgrade time.
             socket._chatId = chatId;
             const d2 = await visualizerStore.readDiagram(socket._userId, chatId);
             const { svg, error } = await renderDiagramSvg(d2);

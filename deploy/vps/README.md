@@ -22,36 +22,56 @@ published**.
 
 ### DNS / firewall (required for HTTPS)
 
-Before `up -d`: point a DNS **A record** (and AAAA if you have IPv6) for `diagrammer.alejandropozo.com`
+Before `up -d`: point a DNS **A record** (and AAAA if you have IPv6) for `diagrams.alejandropozo.com`
 at the server's public IP, and make sure inbound **ports 80 and 443** are open. Port 80 is
 needed for the ACME challenge and the HTTP→HTTPS redirect.
 
 ## Files
 
-| File           | Purpose                                                      |
-|----------------|-------------------------------------------------------------|
-| `compose.yaml` | The 4 services (backend, frontend, caddy, watchtower).      |
-| `Caddyfile`    | Edge proxy + automatic HTTPS for `$DOMAIN` → frontend.      |
-| `.env`         | **The single source of config** — images, domain, modes, secrets (already filled in). |
+| File                | Purpose                                                  |
+|---------------------|----------------------------------------------------------|
+| `compose.yaml`      | The 4 services (backend, frontend, caddy, watchtower).   |
+| `Caddyfile`         | Edge proxy + automatic HTTPS for `$DOMAIN` → frontend.   |
+| `.env`              | Non-secret config — images, domain, modes (committed).   |
+| `.env.local`        | **Secrets** — OAuth, session key, MCP token (gitignored).|
+| `.env.local.example`| Template for `.env.local`.                               |
 
-**The images are generic** — nothing is baked in, anyone can run them. All config for this
-deployment lives in the one `.env`:
+**The images are generic** — nothing is baked in, anyone can run them. Config is split:
 
+**`.env` (committed, non-secret):**
 - `IMAGE_BACKEND` / `IMAGE_FRONTEND` → used by compose.
 - `DOMAIN` / `ACME_EMAIL` → the HTTPS domain Caddy serves and the Let's Encrypt account email.
+- `APP_URL` → public base URL (used to build the OAuth redirect and mark cookies `Secure`).
+- `MAX_USERS` → how many accounts may register before new logins are blocked.
 - `AGENT_ENABLED` / `DESIGN_ENABLED` → which modes are available. **A mode is enabled unless
-  set to `false`.** These control **both the UI and the API**: the frontend fetches them at
-  runtime from `GET /api/config`, so flipping one here (then `docker compose up -d`) changes
-  both sides with no image rebuild.
-- `VISUALIZER_TOKEN` (the MCP shared secret), and `GCP_PROJECT_ID` / `CLOUD_ML_REGION` (only
-  needed if you enable Design).
+  set to `false`.** These control **both the UI and the API** (the frontend reads them at
+  runtime from `GET /api/config`), so flipping one then `docker compose up -d` changes both
+  sides with no image rebuild.
 
-> A bare container with no env = everything enabled (the "test" environment). This `.env` is
-> what turns it into your real deployment.
->
+**`.env.local` (gitignored, secrets):** `VISUALIZER_TOKEN` (MCP shared secret),
+`SESSION_SECRET` (signs session cookies), `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` (OAuth),
+and `GCP_PROJECT_ID` / `CLOUD_ML_REGION` (only for Design).
+
 > **Design & Deploy** is `false` by default: enabling it needs `uv`/python + AWS credentials
 > that aren't in the image (the Design tab would appear but its AWS deploy would fail). Set
 > `DESIGN_ENABLED=true` only once the image is made Design-capable.
+
+## Login (Google OAuth)
+
+Auth turns **on automatically when `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` are set** in
+`.env.local`; with them empty (e.g. local dev) the app runs open as a single "dev" user.
+
+Set it up once in **Google Cloud Console** → *APIs & Services*:
+1. **OAuth consent screen** → External → add app name + your support email. (Add test users, or
+   publish the app, depending on who should be able to sign in.)
+2. **Credentials → Create credentials → OAuth client ID → Web application.**
+3. **Authorized redirect URIs** → add `https://diagrams.alejandropozo.com/api/auth/google/callback`
+   (and `http://localhost:5173/api/auth/google/callback` if you want to test OAuth locally).
+4. Copy the **Client ID** and **Client secret** into `.env.local`, then `docker compose up -d`.
+
+Users are isolated: each account sees only its own sessions/diagrams and generates its own MCP
+tokens. Login (users, sessions), tokens and deployed-state all live in the `app_data` volume, so
+they **survive container recreation / Watchtower updates**.
 
 ## Deploy on a machine
 
@@ -62,8 +82,10 @@ Requires Docker Engine + the Compose plugin.
 git clone <repo-url> && cd <repo>/deploy/vps
 #   or:  scp -r deploy/vps vps:~/aws-architect && ssh vps; cd ~/aws-architect
 
-# 2. (optional) edit .env in place — images, DOMAIN, modes, token, GCP
-#    Make sure DNS for $DOMAIN points here and ports 80/443 are open (see above).
+# 2. Secrets + config
+cp .env.local.example .env.local     # then fill in GOOGLE_*, SESSION_SECRET, VISUALIZER_TOKEN
+#    edit .env if needed (DOMAIN, MAX_USERS, modes). Make sure DNS for $DOMAIN points here and
+#    ports 80/443 are open (see above).
 
 # 3. Run (stays up across reboots; restart: unless-stopped)
 docker compose up -d
@@ -71,10 +93,10 @@ docker compose up -d
 # 4. Check
 docker compose ps                          # backend + frontend should be "healthy"
 docker compose logs -f caddy               # watch it obtain the Let's Encrypt cert
-curl https://diagrammer.alejandropozo.com/health   # {"ok":true}  (once the cert is issued)
+curl https://diagrams.alejandropozo.com/health   # {"ok":true}  (once the cert is issued)
 ```
 
-Open `https://diagrammer.alejandropozo.com/` for the app; the **Agent** tab connects over a
+Open `https://diagrams.alejandropozo.com/` for the app; the **Agent** tab connects over a
 secure `wss://` WebSocket automatically.
 
 ## Auto-update

@@ -14,6 +14,7 @@
     "@langchain/langgraph": "^1.4.2",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@terrastruct/d2": "^0.1.33",
+    "cookie": "^1.1.1",
     "express": "^5.2.1",
     "ws": "^8.20.1"
   }
