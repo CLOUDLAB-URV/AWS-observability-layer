@@ -1,10 +1,10 @@
 name: CI · Publish MCP to npm
 
-# On push to main that touches the MCP server: test, then publish to npm — but skip if the
-# package.json version is already published (bump the version to release a new one).
+# On push to ANY branch that touches the MCP server: test and validate the package is
+# publishable (npm publish --dry-run). The real publish to npm happens ONLY on `main`, and
+# is skipped if package.json version is already published (bump the version to release).
 on:
   push:
-    branches: [main]
     paths:
       - 'mcp-visualizer/**'
 
@@ -28,7 +28,11 @@ jobs:
         run: npm run check
       - name: Unit tests
         run: npm test
+      - name: Validate package is publishable (branches)
+        if: github.ref != 'refs/heads/main'
+        run: npm publish --dry-run
       - name: Publish if version is new
+        if: github.ref == 'refs/heads/main'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
