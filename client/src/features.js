@@ -1,25 +1,23 @@
-// Centralized feature flags for the web UI. Single source of truth = the environment
-// (client/.env; only VITE_-prefixed vars reach the browser). Vite inlines these at build.
+// Feature flags for the web UI. The single source of truth is the BACKEND: we fetch them at
+// runtime from GET /api/config (same-origin, proxied to the backend), so the deploy's one
+// environment controls both the UI and the API. Nothing is baked into the frontend bundle —
+// the image is generic and reacts to whatever the backend reports.
 //
-// Policy:
-//   - DEVELOPMENT (`vite` / `vite dev`, import.meta.env.DEV): everything is available. The
-//     flags are IGNORED so you always get the full UI locally.
-//   - PRODUCTION build (`vite build`, import.meta.env.PROD): a view is available only if its
-//     flag is enabled; anything unset is OFF.
+// Policy mirrors the backend: a mode is enabled unless explicitly disabled. If the request
+// fails we fall back to everything enabled (default-enabled), so the UI never gets stuck.
 
-// Parse a boolean-ish env var. Accepts 1/true/yes/on (case-insensitive); else `fallback`.
-function envFlag(raw, fallback = false) {
-    if (raw == null || raw === '') {
-        return fallback;
+export async function loadFeatures() {
+    try {
+        const res = await fetch('/api/config', { headers: { Accept: 'application/json' } });
+        if (!res.ok) throw new Error(`/api/config ${res.status}`);
+        const data = await res.json();
+        const f = (data && data.features) || {};
+        return {
+            design: f.design !== false,
+            agent: f.agent !== false
+        };
+    } catch {
+        // Backend unreachable / unexpected response → default to everything enabled.
+        return { design: true, agent: true };
     }
-    return /^(1|true|yes|on)$/i.test(String(raw).trim());
 }
-
-const isProduction = import.meta.env.PROD;
-
-export const features = {
-    // Design & Deploy view. On in dev; in prod only when VITE_DESIGN_ENABLED is set.
-    design: isProduction ? envFlag(import.meta.env.VITE_DESIGN_ENABLED, false) : true,
-    // Agent (MCP) view. On in dev; in prod only when VITE_AGENT_ENABLED is set.
-    agent: isProduction ? envFlag(import.meta.env.VITE_AGENT_ENABLED, false) : true
-};

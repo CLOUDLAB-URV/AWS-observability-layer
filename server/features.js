@@ -1,21 +1,23 @@
 'use strict';
 
-// Centralized feature flags for the backend. Single source of truth = the environment
-// (.env, with secrets in .env.local). Standard "config in the environment" (12-factor).
+// Centralized feature flags for the backend, and the single source of truth for the whole
+// app: the frontend reads these at runtime via GET /api/config, so one environment controls
+// both sides. Config comes from the environment (injected by the deploy, or .env.local in
+// local dev) — nothing is baked into the image.
 //
-// Policy:
-//   - DEVELOPMENT (default; NODE_ENV != "production"): everything is available. The flags
-//     are IGNORED so you always get the full app locally.
-//   - PRODUCTION (NODE_ENV=production): a feature is available only if its flag is enabled
-//     in the environment; anything unset is OFF.
+// Policy: a mode is ENABLED unless explicitly disabled.
+//   - unset / empty           → enabled  (a bare container = full "test" environment)
+//   - false / 0 / no / off     → disabled
+//   - 1 / true / yes / on      → enabled
 //
 // Read LAZILY (getters): in ESM this module is evaluated before index.js runs
-// process.loadEnvFile(), so reading at import time would miss the .env values.
+// process.loadEnvFile(), so reading at import time would miss the .env.local values.
 
 import process from 'node:process';
 
-// Parse a boolean-ish env var. Accepts 1/true/yes/on (case-insensitive); else `fallback`.
-function envFlag(name, fallback = false) {
+// Parse a boolean-ish env var. Unset/empty → `fallback`; otherwise enabled only for an
+// affirmative value (1/true/yes/on), so false/0/no/off disable it.
+function envFlag(name, fallback = true) {
     const raw = process.env[name];
     if (raw == null || raw === '') {
         return fallback;
@@ -23,19 +25,15 @@ function envFlag(name, fallback = false) {
     return /^(1|true|yes|on)$/i.test(raw.trim());
 }
 
-function isProduction() {
-    return (process.env.NODE_ENV || 'development') === 'production';
-}
-
 export const features = {
     // Design & Deploy: the LangGraph orchestration flow (chat / deploy / teardown /
-    // projects). On in dev; in prod only when DESIGN_ENABLED is set.
+    // projects). Disable with DESIGN_ENABLED=false.
     get design() {
-        return isProduction() ? envFlag('DESIGN_ENABLED', false) : true;
+        return envFlag('DESIGN_ENABLED', true);
     },
     // Agent (MCP): the deployed-state visualizer (/api/chats, /api/tokens, push
-    // deployments, /ws-visualizer). On in dev; in prod only when AGENT_ENABLED is set.
+    // deployments, /ws-visualizer). Disable with AGENT_ENABLED=false.
     get agent() {
-        return isProduction() ? envFlag('AGENT_ENABLED', false) : true;
+        return envFlag('AGENT_ENABLED', true);
     }
 };

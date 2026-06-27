@@ -1,9 +1,9 @@
 'use strict';
 
-// Load env before anything reads it, so the backend is self-configured on start. One
-// centralized .env (non-secret config / feature flags) plus .env.local (secrets, e.g.
-// tokens). process.loadEnvFile does NOT override already-set vars, so we load .env.local
-// FIRST — it (and the real OS environment) wins over .env. Both files are optional.
+// Load env before anything reads it. In production the config is injected by the environment
+// (the deploy's .env / container env) — nothing is baked into the image. For LOCAL dev without
+// containers we load .env.local (gitignored secrets: GCP, token). process.loadEnvFile does NOT
+// override already-set vars, so injected/OS env always wins. Both files are optional.
 import process from 'node:process';
 for (const file of ['.env.local', '.env']) {
     try {
@@ -412,6 +412,12 @@ vizWss.on('connection', (socket) => {
 
 app.get('/health', (_req, res) => {
     res.json({ ok: true });
+});
+
+// Public runtime config: the frontend fetches this to know which modes are available, so a
+// single environment (the deploy's .env) drives both the UI and the API. Never gated.
+app.get('/api/config', (_req, res) => {
+    res.json({ features: { design: features.design, agent: features.agent } });
 });
 
 await store.initProject();

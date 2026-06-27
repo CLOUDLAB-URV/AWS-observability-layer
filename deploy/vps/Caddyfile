@@ -1,0 +1,18 @@
+# Edge proxy with AUTOMATIC HTTPS. Caddy listens on 443 (and redirects 80→443), and obtains +
+# renews a Let's Encrypt certificate for $DOMAIN on its own. WebSockets (/ws, /ws-visualizer)
+# work with no extra config. The whole app is served from one domain: Caddy → frontend (nginx),
+# which proxies /api and the WebSockets to the backend.
+#
+# Prerequisites on the server:
+#   - a DNS A/AAAA record for $DOMAIN pointing at this machine's public IP
+#   - inbound ports 80 and 443 open (80 is needed for the ACME challenge + the HTTPS redirect)
+#
+# $DOMAIN and $ACME_EMAIL are injected from the deployment's .env (see compose.yaml).
+
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	reverse_proxy frontend:80
+}

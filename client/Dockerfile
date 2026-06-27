@@ -8,7 +8,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
-# Production build — picks up VITE_* flags from client/.env (PROD mode).
+# Generic build — no feature flags baked in; the UI fetches them at runtime from /api/config.
 RUN npm run build
 
 # --- runtime stage ---

@@ -1,0 +1,81 @@
+# VPS runtime stack: serves both Docker Hub images behind a Caddy proxy, and auto-redeploys
+# whenever a new image digest is published (Watchtower). Portable: copy this folder to any
+# machine with Docker and `docker compose up -d` — the single `.env` ships filled in.
+#
+#   caddy (443, auto-HTTPS for $DOMAIN; 80→443) → frontend (SPA + same-origin
+#         /api,/ws,/ws-visualizer → backend)
+#   watchtower ─ watches Docker Hub :latest → pull + recreate frontend/backend
+#
+# The images are GENERIC (nothing baked in). All config for THIS deployment lives in the one
+# `.env` next to this file: image names + ports for compose, and the app vars injected below.
+# Modes are enabled unless set to false; the frontend reads them at runtime via /api/config,
+# so the single `.env` controls both UI and API.
+
+services:
+  backend:
+    image: ${IMAGE_BACKEND}
+    restart: unless-stopped
+    environment:                   # injected from .env (generic image carries no config)
+      AGENT_ENABLED: ${AGENT_ENABLED:-}
+      DESIGN_ENABLED: ${DESIGN_ENABLED:-}
+      VISUALIZER_TOKEN: ${VISUALIZER_TOKEN:-}
+      GCP_PROJECT_ID: ${GCP_PROJECT_ID:-}
+      CLOUD_ML_REGION: ${CLOUD_ML_REGION:-}
+    expose:
+      - "3001"                     # internal only; reached via the compose network / Caddy
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  frontend:
+    image: ${IMAGE_FRONTEND}
+    restart: unless-stopped
+    environment:
+      BACKEND_URL: http://backend:3001   # nginx proxies /api,/ws,/ws-visualizer here
+    expose:
+      - "80"
+    depends_on:
+      - backend
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"                    # HTTP → redirected to HTTPS (and ACME challenge)
+      - "443:443"                  # HTTPS (automatic Let's Encrypt cert for $DOMAIN)
+    environment:
+      DOMAIN: ${DOMAIN}            # the site Caddy serves + gets a cert for
+      ACME_EMAIL: ${ACME_EMAIL:-}  # Let's Encrypt account email (optional but recommended)
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data           # persists certs across restarts (avoid re-issuing)
+      - caddy_config:/config
+    depends_on:
+      - frontend
+
+  watchtower:
+    image: containrrr/watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      WATCHTOWER_POLL_INTERVAL: "30"     # check Docker Hub every 30s
+      WATCHTOWER_LABEL_ENABLE: "true"    # only watch labeled containers (frontend/backend)
+      WATCHTOWER_CLEANUP: "true"         # remove old images after updating
+
+volumes:
+  caddy_data:
+  caddy_config:
