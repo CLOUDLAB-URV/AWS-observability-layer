@@ -9,6 +9,7 @@
   "main": "index.js",
   "files": [
     "index.js",
+    "match.js",
     "README.md"
   ],
   "engines": {
@@ -37,6 +38,8 @@
     "access": "public"
   },
   "scripts": {
+    "check": "node --check index.js",
+    "test": "node --test",
     "prepublishOnly": "node --check index.js"
   },
   "dependencies": {

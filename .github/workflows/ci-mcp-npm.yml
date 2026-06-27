@@ -1,0 +1,44 @@
+name: CI · Publish MCP to npm
+
+# On push to main that touches the MCP server: test, then publish to npm — but skip if the
+# package.json version is already published (bump the version to release a new one).
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'mcp-visualizer/**'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mcp-visualizer
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: mcp-visualizer/package-lock.json
+          registry-url: https://registry.npmjs.org
+      - name: Install
+        run: npm ci
+      - name: Syntax check
+        run: npm run check
+      - name: Unit tests
+        run: npm test
+      - name: Publish if version is new
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          name=$(node -p "require('./package.json').name")
+          local=$(node -p "require('./package.json').version")
+          published=$(npm view "$name" version 2>/dev/null || echo none)
+          echo "local=$local published=$published"
+          if [ "$local" = "$published" ]; then
+            echo "Version $local already on npm — skipping publish."
+          else
+            npm publish
+            echo "Published $name@$local."
+          fi

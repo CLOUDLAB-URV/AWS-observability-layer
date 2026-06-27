@@ -1,0 +1,11 @@
+# Keep deps, build output, and local overrides out of the build context.
+node_modules
+dist
+.env.local
+*.env.local
+**/.env.local
+.git
+.gitignore
+Dockerfile
+.dockerignore
+npm-debug.log*

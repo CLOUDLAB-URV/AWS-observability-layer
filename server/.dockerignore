@@ -1,0 +1,12 @@
+# Never ship secrets, local state, or deps into the image.
+node_modules
+.env.local
+*.env.local
+**/.env.local
+persistence
+data
+.git
+.gitignore
+Dockerfile
+.dockerignore
+npm-debug.log*

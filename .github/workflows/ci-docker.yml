@@ -1,0 +1,106 @@
+name: CI · Docker images
+
+# Only on push to main. Builds/tests, and pushes to Docker Hub ONLY the image whose
+# code changed (backend vs frontend), tagged :latest and :<short-sha>.
+on:
+  push:
+    branches: [main]
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      sha7: ${{ steps.sha.outputs.sha7 }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            backend:
+              - 'server/**'
+            frontend:
+              - 'client/**'
+      - id: sha
+        run: echo "sha7=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+  backend:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - name: Install
+        working-directory: server
+        run: npm ci
+      - name: Syntax check
+        working-directory: server
+        run: npm run check
+      - name: Unit tests
+        working-directory: server
+        run: npm test
+      - name: Boot smoke test (/health)
+        working-directory: server
+        env:
+          NODE_ENV: production
+          AGENT_ENABLED: 'true'
+        run: |
+          node index.js &
+          pid=$!
+          for i in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:3001/health; then ok=1; break; fi
+            sleep 1
+          done
+          kill "$pid" 2>/dev/null || true
+          test "$ok" = "1"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Build & push backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: server
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/aws-architect-backend:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/aws-architect-backend:${{ needs.changes.outputs.sha7 }}
+
+  frontend:
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - name: Install
+        working-directory: client
+        run: npm ci
+      - name: Build (gate)
+        working-directory: client
+        run: npm run build
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Build & push frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: client
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/aws-architect-frontend:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/aws-architect-frontend:${{ needs.changes.outputs.sha7 }}
