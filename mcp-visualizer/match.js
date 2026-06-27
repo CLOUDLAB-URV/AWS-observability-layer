@@ -36,7 +36,7 @@ export function matchByName(query, chats) {
             continue;
         }
         if (name === q) {
-            return chat; // exact normalized match — done.
+            return chat; // exact normalized match — done
         }
         const nameTokens = new Set(name.split(' ').filter(Boolean));
         const overlap = [...qTokens].filter((t) => nameTokens.has(t)).length;
