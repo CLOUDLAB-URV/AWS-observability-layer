@@ -3,7 +3,10 @@ import { useEffect, useRef, useCallback } from 'react';
 export default function Diagram({ svg, renderError }) {
     const stageRef = useRef(null);
     const canvasRef = useRef(null);
-    const view = useRef({ scale: 1, x: 0, y: 0, panning: false, startX: 0, startY: 0 });
+    // `userAdjusted` tracks whether the user has manually panned/zoomed. While false,
+    // the diagram stays auto-fit & centered (and refits on stage resize); once the
+    // user interacts we leave their view alone.
+    const view = useRef({ scale: 1, x: 0, y: 0, panning: false, startX: 0, startY: 0, userAdjusted: false });
 
     const applyTransform = useCallback(() => {
         const canvas = canvasRef.current;
@@ -36,7 +39,7 @@ export default function Diagram({ svg, renderError }) {
         // Center the SVG inside the stage; the canvas has 24px CSS padding so offset by that.
         const x = (stageW - svgW * scale) / 2 - 24 * scale;
         const y = (stageH - svgH * scale) / 2 - 24 * scale;
-        Object.assign(view.current, { scale, x, y });
+        Object.assign(view.current, { scale, x, y, userAdjusted: false });
         applyTransform();
     }, [applyTransform]);
 
@@ -59,6 +62,7 @@ export default function Diagram({ svg, renderError }) {
             view.current.x = cx - (cx - view.current.x) * actualFactor;
             view.current.y = cy - (cy - view.current.y) * actualFactor;
             view.current.scale = next;
+            view.current.userAdjusted = true;
             scheduleApply();
         };
 
@@ -75,6 +79,7 @@ export default function Diagram({ svg, renderError }) {
             event.preventDefault();
             view.current.x = event.clientX - view.current.startX;
             view.current.y = event.clientY - view.current.startY;
+            view.current.userAdjusted = true;
             scheduleApply();
         };
         const onWheel = (event) => {
@@ -90,11 +95,12 @@ export default function Diagram({ svg, renderError }) {
             const PAN_STEP = 40;
             const cx = stage.clientWidth / 2;
             const cy = stage.clientHeight / 2;
+            const pan = (dx, dy) => { view.current.x += dx; view.current.y += dy; view.current.userAdjusted = true; scheduleApply(); };
             const handlers = {
-                ArrowLeft:  () => { view.current.x += PAN_STEP; scheduleApply(); },
-                ArrowRight: () => { view.current.x -= PAN_STEP; scheduleApply(); },
-                ArrowUp:    () => { view.current.y += PAN_STEP; scheduleApply(); },
-                ArrowDown:  () => { view.current.y -= PAN_STEP; scheduleApply(); },
+                ArrowLeft:  () => pan(PAN_STEP, 0),
+                ArrowRight: () => pan(-PAN_STEP, 0),
+                ArrowUp:    () => pan(0, PAN_STEP),
+                ArrowDown:  () => pan(0, -PAN_STEP),
                 '+':        () => applyZoomAtPoint(1.15, cx, cy),
                 '=':        () => applyZoomAtPoint(1.15, cx, cy),
                 '-':        () => applyZoomAtPoint(0.87, cx, cy),
@@ -112,12 +118,22 @@ export default function Diagram({ svg, renderError }) {
         stage.addEventListener('wheel', onWheel, { passive: false });
         stage.addEventListener('keydown', onKeyDown);
 
+        // Keep the diagram fit & centered when the stage resizes (window resize, the
+        // Details panel opening, the chat panel docking/floating) — but only while the
+        // user hasn't taken manual control of the view.
+        const resizeObserver = new ResizeObserver(() => {
+            if (view.current.userAdjusted) return;
+            requestAnimationFrame(() => fitToScreen());
+        });
+        resizeObserver.observe(stage);
+
         return () => {
             stage.removeEventListener('mousedown', onMouseDown);
             window.removeEventListener('mouseup', onMouseUp);
             window.removeEventListener('mousemove', onMouseMove);
             stage.removeEventListener('wheel', onWheel);
             stage.removeEventListener('keydown', onKeyDown);
+            resizeObserver.disconnect();
             if (rafId) cancelAnimationFrame(rafId);
         };
     }, [applyTransform, fitToScreen]);
@@ -147,6 +163,7 @@ export default function Diagram({ svg, renderError }) {
         view.current.x = cx - (cx - view.current.x) * factor;
         view.current.y = cy - (cy - view.current.y) * factor;
         view.current.scale = next;
+        view.current.userAdjusted = true;
         applyTransform();
     };
 
@@ -160,6 +177,7 @@ export default function Diagram({ svg, renderError }) {
         view.current.x = cx - (cx - view.current.x) * factor;
         view.current.y = cy - (cy - view.current.y) * factor;
         view.current.scale = next;
+        view.current.userAdjusted = true;
         applyTransform();
     };
 

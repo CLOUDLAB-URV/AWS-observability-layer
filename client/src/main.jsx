@@ -4,6 +4,10 @@ import App from './App.jsx';
 import Login from './Login.jsx';
 import { loadFeatures } from './features.js';
 import { loadSession } from './auth.js';
+// Self-hosted elegant typefaces (bundled by Vite — no external CDN). Geist for the UI,
+// Geist Mono for logs/diagram. The single dark theme references these in styles.css.
+import '@fontsource-variable/geist';
+import '@fontsource-variable/geist-mono';
 import './styles.css';
 
 // Before rendering, fetch which modes are available and the current session. If auth is on and

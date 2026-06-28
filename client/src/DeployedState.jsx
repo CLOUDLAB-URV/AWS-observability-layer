@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import Diagram from './Diagram.jsx';
+import McpGuide from './McpGuide.jsx';
 import { createSocket } from './ws.js';
 
 // "Deployed state" view: subscribes to one chat on the visualizer socket and
@@ -13,9 +14,12 @@ export default function DeployedState() {
     const [svg, setSvg] = useState('');
     const [renderError, setRenderError] = useState(null);
     const [showSettings, setShowSettings] = useState(false);
+    const [showGuide, setShowGuide] = useState(false);
     const [newToken, setNewToken] = useState('');
     const [copied, setCopied] = useState('');
     const [renameValue, setRenameValue] = useState('');
+    const [showDetails, setShowDetails] = useState(false);
+    const [editingName, setEditingName] = useState(false);
     const socketRef = useRef(null);
 
     useEffect(() => {
@@ -35,10 +39,12 @@ export default function DeployedState() {
         }
     }, [connected, chatId]);
 
-    // Keep the rename field in sync with the selected chat's current name.
+    // Keep the rename field in sync with the selected chat's current name, and leave
+    // edit mode whenever the selected chat changes.
     useEffect(() => {
         const current = chats.find((c) => c.chatId === chatId);
         setRenameValue(current?.name || '');
+        setEditingName(false);
     }, [chatId, chats]);
 
     function handleMessage(message) {
@@ -86,6 +92,12 @@ export default function DeployedState() {
 
     function openSettings() {
         setShowSettings((v) => !v);
+        setShowGuide(false);
+    }
+
+    function openGuide() {
+        setShowGuide((v) => !v);
+        setShowSettings(false);
     }
 
     // Override the auto-assigned session name for the selected chat.
@@ -98,17 +110,36 @@ export default function DeployedState() {
                 headers: { 'content-type': 'application/json' },
                 body: JSON.stringify({ name })
             });
+            setEditingName(false);
             loadChats();
         } catch {
             // ignore — the list simply won't update
         }
     }
 
-    function chatLabel(c) {
-        const short = c.chatId.slice(0, 8);
-        const when = c.updatedAt ? ` · ${new Date(c.updatedAt).toLocaleString()}` : '';
-        return `${c.name || '(unnamed)'} · ${short}${when}`;
+    function startRename() {
+        setRenameValue(selectedChat?.name || '');
+        setEditingName(true);
     }
+
+    function cancelRename() {
+        setRenameValue(selectedChat?.name || '');
+        setEditingName(false);
+    }
+
+    // The dropdown shows only the human name (fall back to a short id for unnamed
+    // chats). Dates / full id / rename live in the Details panel below.
+    function chatLabel(c) {
+        return c.name || `Chat ${c.chatId.slice(0, 8)}`;
+    }
+
+    function formatDate(iso) {
+        if (!iso) return '—';
+        const d = new Date(iso);
+        return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString();
+    }
+
+    const selectedChat = chats.find((c) => c.chatId === chatId) || null;
 
     // Unique-per-OS-user server name ($USER expands when pasted into a shell), so the
     // same command is safe to run on any machine without colliding with other configs.
@@ -147,28 +178,97 @@ export default function DeployedState() {
                             </option>
                         ))}
                     </select>
-                    <button type="button" onClick={loadChats}>Refresh</button>
+                    <button
+                        type="button"
+                        className="icon-btn"
+                        onClick={loadChats}
+                        title="Refresh chats"
+                        aria-label="Refresh chats"
+                    >
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none"
+                            stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+                            strokeLinejoin="round" aria-hidden="true">
+                            <polyline points="23 4 23 10 17 10" />
+                            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                        </svg>
+                    </button>
                 </div>
                 {chatId && (
-                    <span className="chat-rename">
-                        <input
-                            type="text"
-                            aria-label="Session name"
-                            placeholder="Session name"
-                            value={renameValue}
-                            onChange={(e) => setRenameValue(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && renameChat()}
-                        />
-                        <button type="button" onClick={renameChat}>Rename</button>
-                    </span>
+                    <button
+                        type="button"
+                        className="details-btn"
+                        onClick={() => setShowDetails((v) => !v)}
+                        aria-expanded={showDetails}
+                    >
+                        Details
+                    </button>
                 )}
                 <span className={`conn ${connected ? 'conn-on' : 'conn-off'}`} role="status">
                     {connected ? 'live' : 'reconnecting…'}
                 </span>
+                <button className="guide-btn" onClick={openGuide} aria-expanded={showGuide}>
+                    📘 Guide
+                </button>
                 <button className="settings-btn" onClick={openSettings} aria-expanded={showSettings}>
                     ⚙ Connect agent
                 </button>
             </div>
+
+            {showGuide && <McpGuide onOpenConnect={openSettings} />}
+
+            {chatId && showDetails && selectedChat && (
+                <div className="chat-details" role="region" aria-label="Chat details">
+                    <div className="chat-details-row">
+                        <label htmlFor={editingName ? 'chat-name' : undefined}>Name</label>
+                        {editingName ? (
+                            <span className="chat-details-edit">
+                                <input
+                                    id="chat-name"
+                                    type="text"
+                                    autoFocus
+                                    placeholder="Session name"
+                                    value={renameValue}
+                                    onChange={(e) => setRenameValue(e.target.value)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') renameChat();
+                                        if (e.key === 'Escape') cancelRename();
+                                    }}
+                                />
+                                <button type="button" className="details-save-btn" onClick={renameChat}>Save</button>
+                                <button type="button" className="link-btn" onClick={cancelRename}>Cancel</button>
+                            </span>
+                        ) : (
+                            <span className="chat-details-value chat-details-inline">
+                                <span className="chat-details-name-text">
+                                    {selectedChat.name || 'Untitled'}
+                                </span>
+                                <button type="button" className="link-btn" onClick={startRename}>Rename</button>
+                            </span>
+                        )}
+                    </div>
+                    <div className="chat-details-row">
+                        <label>Created</label>
+                        <span className="chat-details-value">{formatDate(selectedChat.createdAt)}</span>
+                    </div>
+                    <div className="chat-details-row">
+                        <label>Last update</label>
+                        <span className="chat-details-value">{formatDate(selectedChat.updatedAt)}</span>
+                    </div>
+                    <div className="chat-details-row">
+                        <label>Chat ID</label>
+                        <span className="chat-details-value chat-details-inline">
+                            <span className="chat-details-id-text">{selectedChat.chatId}</span>
+                            <button
+                                type="button"
+                                className={`link-btn ${copied === 'cid' ? 'is-copied' : ''}`}
+                                onClick={() => copy(selectedChat.chatId, 'cid')}
+                            >
+                                {copied === 'cid' ? 'Copied' : 'Copy'}
+                            </button>
+                        </span>
+                    </div>
+                </div>
+            )}
 
             {showSettings && (
                 <div className="viz-settings" role="region" aria-label="Connect your agent">

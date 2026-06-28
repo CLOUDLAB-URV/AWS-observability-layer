@@ -33,7 +33,7 @@ needed for the ACME challenge and the HTTP→HTTPS redirect.
 | `compose.yaml`      | The 4 services (backend, frontend, caddy, watchtower).   |
 | `Caddyfile`         | Edge proxy + automatic HTTPS for `$DOMAIN` → frontend.   |
 | `.env`              | Non-secret config — images, domain, modes (committed).   |
-| `.env.local`        | **Secrets** — OAuth, session key, MCP token (gitignored).|
+| `.env.local`        | **Secrets** — OAuth, session key (gitignored).           |
 | `.env.local.example`| Template for `.env.local`.                               |
 
 **The images are generic** — nothing is baked in, anyone can run them. Config is split:
@@ -48,9 +48,10 @@ needed for the ACME challenge and the HTTP→HTTPS redirect.
   runtime from `GET /api/config`), so flipping one then `docker compose up -d` changes both
   sides with no image rebuild.
 
-**`.env.local` (gitignored, secrets):** `VISUALIZER_TOKEN` (MCP shared secret),
-`SESSION_SECRET` (signs session cookies), `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` (OAuth),
-and `GCP_PROJECT_ID` / `CLOUD_ML_REGION` (only for Design).
+**`.env.local` (gitignored, secrets):** `SESSION_SECRET` (signs session cookies),
+`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` (OAuth), and `GCP_PROJECT_ID` / `CLOUD_ML_REGION`
+(only for Design). There is **no MCP token here** — each user generates their own from the UI
+(Agent → Deployed state) after logging in.
 
 > **Design & Deploy** is `false` by default: enabling it needs `uv`/python + AWS credentials
 > that aren't in the image (the Design tab would appear but its AWS deploy would fail). Set
@@ -83,7 +84,7 @@ git clone <repo-url> && cd <repo>/deploy/vps
 #   or:  scp -r deploy/vps vps:~/aws-architect && ssh vps; cd ~/aws-architect
 
 # 2. Secrets + config
-cp .env.local.example .env.local     # then fill in GOOGLE_*, SESSION_SECRET, VISUALIZER_TOKEN
+cp .env.local.example .env.local     # then fill in GOOGLE_*, SESSION_SECRET
 #    edit .env if needed (DOMAIN, MAX_USERS, modes). Make sure DNS for $DOMAIN points here and
 #    ports 80/443 are open (see above).
 
@@ -127,4 +128,6 @@ docker compose down                           # stop everything (volumes kept)
   domain, edit `DOMAIN` in `.env` and `docker compose up -d`.
 - **Extra hostnames** (e.g. a dedicated `api.` subdomain) can be added as more site blocks in
   `Caddyfile`; today everything is served under the one `$DOMAIN`.
-- The `VISUALIZER_TOKEN` here must match the `VISUALIZER_TOKEN` the MCP server sends.
+- **MCP tokens** are generated per user in the UI (Agent → Deployed state) after logging in;
+  there is no shared token to configure on the server. The user pastes the generated `viz_…`
+  value into their MCP server's `VISUALIZER_TOKEN`.

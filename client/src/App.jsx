@@ -4,7 +4,7 @@ import Diagram from './Diagram.jsx';
 import DeployedState from './DeployedState.jsx';
 import ConfirmModal from './ConfirmModal.jsx';
 import { createSocket } from './ws.js';
-import { useDarkMode } from './hooks/useDarkMode.js';
+import DevPanel from './DevPanel.jsx';
 import { useChatPanel } from './hooks/useChatPanel.js';
 import { logout } from './auth.js';
 
@@ -32,7 +32,6 @@ export default function App({ features, user }) {
     const [currentProject, setCurrentProject] = useState('');
     const socketRef = useRef(null);
 
-    const [isDark, toggleDark] = useDarkMode();
     const chatPanel = useChatPanel();
     const [confirmModal, setConfirmModal] = useState(null);
 
@@ -273,15 +272,6 @@ export default function App({ features, user }) {
                 >
                     {connected ? 'connected' : 'reconnecting…'}
                 </span>
-                <button
-                    className="dark-toggle-btn"
-                    onClick={toggleDark}
-                    aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-                    aria-pressed={isDark}
-                    title={isDark ? 'Light mode' : 'Dark mode'}
-                >
-                    {isDark ? '☀️' : '🌙'}
-                </button>
                 {user && (
                     <div className="user-menu" title={user.email || user.name}>
                         {user.picture
@@ -366,6 +356,7 @@ export default function App({ features, user }) {
                     </section>
                 </main>
             )}
+            <DevPanel />
         </div>
     );
 }

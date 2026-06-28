@@ -4,29 +4,20 @@
 // tool authenticates its uploads with a Bearer token the user generates in the web
 // UI; this maps token → { userId, label, createdAt }.
 //
-// Identity model: every credential resolves to a REAL userId (not the literal
-// "local"). This machine has one persisted "owner" user (persistence/owner.json);
-// the web UI operates as that owner, and every token it generates — plus the env
-// token — maps to the owner userId, so all of the owner's tokens see the same
-// sessions. The layout already carries userId everywhere, so multiple users (a
-// different owner id) can be added later without changing call sites.
+// Identity model: every credential resolves to a REAL userId. A logged-in user
+// generates tokens that map to their own userId; with auth off (local dev) the
+// single "dev" user is the persisted owner (persistence/owner.json). There is no
+// shared env token — the only way to authenticate is a token generated in the UI,
+// so every token is tied to the user who created it.
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import process from 'node:process';
 import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TOKENS_FILE = path.join(__dirname, 'persistence', 'tokens.json');
 const OWNER_FILE = path.join(__dirname, 'persistence', 'owner.json');
-
-// Read lazily, NOT at import time: in ESM, this module is evaluated before
-// index.js runs process.loadEnvFile(), so a const captured here would be '' even
-// when .env defines the token. Reading inside the functions sees the loaded value.
-function getEnvToken() {
-    return process.env.VISUALIZER_TOKEN || '';
-}
 
 // The owner userId is created once and persisted, then reused for every credential
 // on this machine. Cached in-process after the first resolve.
@@ -71,16 +62,12 @@ async function writeAll(map) {
     await fs.writeFile(TOKENS_FILE, `${JSON.stringify(map, null, 2)}\n`, 'utf8');
 }
 
-// Returns { userId, label } for a valid token, or null. The env token (if set) is
-// always valid and maps to the owner user — the zero-config path.
+// Returns { userId, label } for a valid token, or null. Tokens are only ever the
+// ones generated in the web UI; there is no shared env token.
 export async function verify(token) {
     const t = String(token ?? '').trim();
     if (!t) {
         return null;
-    }
-    const envToken = getEnvToken();
-    if (envToken && t === envToken) {
-        return { userId: await getOwnerUserId(), label: 'env' };
     }
     const map = await readAll();
     const entry = map[t];
@@ -109,9 +96,6 @@ export async function list(userId) {
             label: v.label,
             createdAt: v.createdAt
         }));
-    if (getEnvToken() && owner === (await getOwnerUserId())) {
-        out.unshift({ tokenPreview: 'env (VISUALIZER_TOKEN)', label: 'env', createdAt: null });
-    }
     return out;
 }
 
