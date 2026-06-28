@@ -34,7 +34,7 @@ Two config buckets — **what the app runs with** (`.env`) and **how you deploy 
 |-----------------------|-------------------------------------------------------------------|
 | `compose.yaml`        | The 4 services (backend, frontend, caddy, watchtower).            |
 | `Caddyfile`           | Edge proxy + automatic HTTPS for `$DOMAIN` → frontend.            |
-| `.env`                | **All app config + secrets** — images, domain, modes, OAuth, keys (gitignored). |
+| `.env`                | **All app config + secrets** — images, domain, modes, SMTP, keys (gitignored). |
 | `.env.example`        | Template for `.env`.                                              |
 | `.env.deploy`         | Local-only `push-deploy.sh` target — SSH host + path (gitignored). |
 | `.env.deploy.example` | Template for `.env.deploy`.                                       |
@@ -49,36 +49,35 @@ needs lives in one file:
 gets every key via `env_file: .env`:**
 - `IMAGE_BACKEND` / `IMAGE_FRONTEND` → used by compose.
 - `DOMAIN` / `ACME_EMAIL` → the HTTPS domain Caddy serves and the Let's Encrypt account email.
-- `APP_URL` → public base URL (used to build the OAuth redirect and mark cookies `Secure`).
+- `APP_URL` → public base URL (used to mark session cookies `Secure` under https).
 - `MAX_USERS` → how many accounts may register before new logins are blocked.
 - `AGENT_ENABLED` / `DESIGN_ENABLED` → which modes are available. **A mode is enabled unless
   set to `false`.** These control **both the UI and the API** (the frontend reads them at
   runtime from `GET /api/config`), so flipping one then re-applying changes both sides with no
   image rebuild.
-- **Secrets:** `SESSION_SECRET` (signs session cookies), `GOOGLE_CLIENT_ID` /
-  `GOOGLE_CLIENT_SECRET` (OAuth), `GCP_PROJECT_ID` / `CLOUD_ML_REGION` (only for Design). There is
+- **Secrets:** `SESSION_SECRET` (signs session cookies), `SMTP_HOST/PORT/USER/PASS` + `MAIL_FROM`
+  (email verification codes), `GCP_PROJECT_ID` / `CLOUD_ML_REGION` (only for Design). There is
   **no MCP token here** — each user generates their own from the UI (Agent → Deployed state).
 
 > **Design & Deploy** is `false` by default: enabling it needs `uv`/python + AWS credentials
 > that aren't in the image (the Design tab would appear but its AWS deploy would fail). Set
 > `DESIGN_ENABLED=true` only once the image is made Design-capable.
 
-## Login (Google OAuth)
+## Login (internal: email + username + password)
 
-Auth turns **on automatically when `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` are set** in
-`.env`; with them empty (e.g. local dev) the app runs open as a single "dev" user.
+Auth is **on by default**. Users sign up with **username + email + password** and confirm their
+email with a **6-digit code**; then they log in with email-or-username + password. (Set
+`AUTH_DISABLED=true` in `.env` to run open as a single "dev" user, e.g. for local poking.)
 
-Set it up once in **Google Cloud Console** → *APIs & Services*:
-1. **OAuth consent screen** → External → add app name + your support email. (Add test users, or
-   publish the app, depending on who should be able to sign in.)
-2. **Credentials → Create credentials → OAuth client ID → Web application.**
-3. **Authorized redirect URIs** → add `https://diagrams.alejandropozo.com/api/auth/google/callback`
-   (and `http://localhost:5173/api/auth/google/callback` if you want to test OAuth locally).
-4. Copy the **Client ID** and **Client secret** into `.env`, then re-apply (`./apply.sh`).
+**Email delivery (verification codes)** — set SMTP in `.env`:
+- `SMTP_HOST`, `SMTP_PORT` (587 STARTTLS / 465 TLS), `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM`.
+- Gmail works with an **App Password** (`SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=587`).
+- **No SMTP set?** The backend logs the code to its output instead of emailing it
+  (`docker compose logs backend`) — handy for local dev; not for production.
 
-Users are isolated: each account sees only its own sessions/diagrams and generates its own MCP
-tokens. Login (users, sessions), tokens and deployed-state all live in the `app_data` volume, so
-they **survive container recreation / Watchtower updates**.
+`MAX_USERS` caps how many accounts can register. Users are isolated: each sees only its own
+sessions/diagrams and generates its own MCP tokens. Accounts, sessions, tokens and deployed-state
+all live in the `app_data` volume, so they **survive container recreation / Watchtower updates**.
 
 ## Deploy on a machine
 
@@ -141,7 +140,7 @@ docker compose logs -f watchtower
 
 ## Apply config changes (`.env`)
 
-After editing `.env` (domain, modes, `MAX_USERS`, OAuth/secrets, image names…) **on the server**,
+After editing `.env` (domain, modes, `MAX_USERS`, SMTP/secrets, image names…) **on the server**,
 apply it with the helper script:
 
 ```bash

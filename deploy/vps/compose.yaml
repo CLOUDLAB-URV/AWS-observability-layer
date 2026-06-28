@@ -17,7 +17,7 @@ services:
     restart: unless-stopped
     env_file:
       - .env                       # all app config + secrets (gitignored): modes, APP_URL,
-                                   # MAX_USERS, GOOGLE_*, SESSION_SECRET, GCP_* …
+                                   # MAX_USERS, SESSION_SECRET, SMTP_*, GCP_* …
     volumes:
       - app_data:/app/persistence  # users, sessions, tokens, deployed-state — survives recreation
     expose:

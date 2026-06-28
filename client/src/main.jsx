@@ -1,7 +1,7 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.jsx';
-import Login from './Login.jsx';
+import Auth from './Auth.jsx';
 import { loadFeatures } from './features.js';
 import { loadSession } from './auth.js';
 // Self-hosted elegant typefaces (bundled by Vite — no external CDN). Geist for the UI,
@@ -17,7 +17,7 @@ Promise.all([loadFeatures(), loadSession()]).then(([features, session]) => {
     const needsLogin = session.authEnabled && !session.user;
     root.render(
         <React.StrictMode>
-            {needsLogin ? <Login /> : <App features={features} user={session.user} />}
+            {needsLogin ? <Auth /> : <App features={features} user={session.user} />}
         </React.StrictMode>
     );
 });

@@ -273,13 +273,11 @@ export default function App({ features, user }) {
                     {connected ? 'connected' : 'reconnecting…'}
                 </span>
                 {user && (
-                    <div className="user-menu" title={user.email || user.name}>
-                        {user.picture
-                            ? <img className="user-avatar" src={user.picture} alt="" referrerPolicy="no-referrer" />
-                            : <span className="user-avatar user-avatar-fallback" aria-hidden="true">
-                                {(user.name || user.email || '?').trim().charAt(0).toUpperCase()}
-                            </span>}
-                        <span className="user-name">{user.name || user.email}</span>
+                    <div className="user-menu" title={user.email || user.username}>
+                        <span className="user-avatar user-avatar-fallback" aria-hidden="true">
+                            {(user.username || user.name || user.email || '?').trim().charAt(0).toUpperCase()}
+                        </span>
+                        <span className="user-name">{user.username || user.name || user.email}</span>
                         <button type="button" className="logout-btn" onClick={logout} title="Sign out">
                             Logout
                         </button>

@@ -1,40 +1,29 @@
 'use strict';
 
-// Google OAuth 2.0 login (Authorization Code + PKCE + state) and signed session cookies.
-// Hand-rolled with the built-in fetch + node:crypto to keep deps minimal (only `cookie` for
-// safe header parse/serialize), matching the rest of the codebase's small file-based stores.
+// Internal login: email + username + password with an email verification code. Hand-rolled with
+// node:crypto + the `cookie` dep for signed session cookies, reusing the file-based session store
+// in authStore.js. (Google OAuth was removed.)
 //
-// Auth is ACTIVE only when GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET are configured. Locally
-// (no creds) it's OFF: requests resolve to a single "dev" user (the machine owner), so local
-// dev keeps working with no login. In the deploy (creds set) login is required.
+// Auth is ON by default. Set AUTH_DISABLED=true to run open locally: requests resolve to a single
+// "dev" user (the machine owner) so the app works with no login.
 
 import process from 'node:process';
 import crypto from 'node:crypto';
 import * as cookie from 'cookie';
 import * as authStore from './authStore.js';
 import * as tokenStore from './tokenStore.js';
+import { sendVerificationCode, smtpConfigured } from './mailer.js';
 
 const SESSION_COOKIE = 'sid';
-const STATE_COOKIE = 'oauth_state';
-const GOOGLE_AUTH = 'https://accounts.google.com/o/oauth2/v2/auth';
-const GOOGLE_TOKEN = 'https://oauth2.googleapis.com/token';
-const GOOGLE_USERINFO = 'https://openidconnect.googleapis.com/v1/userinfo';
+const SESSION_MAX_AGE = 30 * 24 * 60 * 60; // seconds (matches authStore session TTL)
 
-// --- config (read lazily; env is loaded by index.js before requests) ----------------------
 const cfg = {
-    clientId: () => process.env.GOOGLE_CLIENT_ID || '',
-    clientSecret: () => process.env.GOOGLE_CLIENT_SECRET || '',
     appUrl: () => (process.env.APP_URL || '').replace(/\/+$/, ''),
     sessionSecret: () => process.env.SESSION_SECRET || 'dev-insecure-secret'
 };
 
 export function authEnabled() {
-    return Boolean(cfg.clientId() && cfg.clientSecret());
-}
-
-function redirectUri() {
-    // Falls back to a relative path only matters when auth is on, where APP_URL must be set.
-    return `${cfg.appUrl()}/api/auth/google/callback`;
+    return !/^(1|true|yes|on)$/i.test(String(process.env.AUTH_DISABLED || '').trim());
 }
 
 function isSecure() {
@@ -65,36 +54,29 @@ function readCookies(req) {
     return cookie.parse(req.headers?.cookie || '');
 }
 
-function setCookie(res, name, value, { maxAge } = {}) {
-    res.append('Set-Cookie', cookie.serialize(name, value, {
-        httpOnly: true,
-        secure: isSecure(),
-        sameSite: 'lax',
-        path: '/',
-        ...(maxAge != null ? { maxAge } : {})
+function setSessionCookie(res, sid) {
+    res.append('Set-Cookie', cookie.serialize(SESSION_COOKIE, sign(sid), {
+        httpOnly: true, secure: isSecure(), sameSite: 'lax', path: '/', maxAge: SESSION_MAX_AGE
     }));
 }
 
-function clearCookie(res, name) {
-    res.append('Set-Cookie', cookie.serialize(name, '', {
+function clearSessionCookie(res) {
+    res.append('Set-Cookie', cookie.serialize(SESSION_COOKIE, '', {
         httpOnly: true, secure: isSecure(), sameSite: 'lax', path: '/', maxAge: 0
     }));
 }
 
 // --- session resolution (HTTP + WS share this) --------------------------------------------
-// Returns the public user for the request, or null. When auth is OFF, returns the owner as a
-// synthetic "dev" user so the whole app works locally without login.
 export async function resolveUser(req) {
     if (!authEnabled()) {
         const userId = await tokenStore.getOwnerUserId();
-        return { userId, email: 'dev@localhost', name: 'Local dev', picture: '', dev: true };
+        return { userId, email: 'dev@localhost', username: 'dev', name: 'Local dev', dev: true };
     }
     const signed = readCookies(req)[SESSION_COOKIE];
     const sid = signed ? unsign(signed) : null;
     return sid ? authStore.getSessionUser(sid) : null;
 }
 
-// Express middleware: 401 when auth is on and there is no valid session. Sets req.userId.
 export function requireSession(req, res, next) {
     resolveUser(req).then((user) => {
         if (!user) {
@@ -107,106 +89,157 @@ export function requireSession(req, res, next) {
     }).catch(next);
 }
 
-// --- OAuth endpoints ----------------------------------------------------------------------
+// --- validation ---------------------------------------------------------------------------
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const USERNAME_RE = /^[A-Za-z0-9_]{3,30}$/;
+
+function validateRegistration({ email, username, password }) {
+    if (!EMAIL_RE.test(String(email || ''))) {
+        return 'Enter a valid email address.';
+    }
+    if (!USERNAME_RE.test(String(username || ''))) {
+        return 'Username must be 3–30 characters: letters, numbers or underscore.';
+    }
+    if (String(password || '').length < 8) {
+        return 'Password must be at least 8 characters.';
+    }
+    return null;
+}
+
+async function startSession(res, userId) {
+    const sid = await authStore.createSession(userId);
+    setSessionCookie(res, sid);
+}
+
+// --- routes -------------------------------------------------------------------------------
 export function registerRoutes(app) {
-    // Begin login: stash state + PKCE verifier (signed cookie), redirect to Google.
-    app.get('/api/auth/google/login', (req, res) => {
-        if (!authEnabled()) {
-            res.redirect('/');
-            return;
-        }
-        const state = crypto.randomBytes(16).toString('hex');
-        const verifier = crypto.randomBytes(32).toString('base64url');
-        const challenge = crypto.createHash('sha256').update(verifier).digest('base64url');
-        // Pack state + verifier into one short-lived signed cookie.
-        setCookie(res, STATE_COOKIE, sign(`${state}:${verifier}`), { maxAge: 600 });
-        const params = new URLSearchParams({
-            client_id: cfg.clientId(),
-            redirect_uri: redirectUri(),
-            response_type: 'code',
-            scope: 'openid email profile',
-            state,
-            code_challenge: challenge,
-            code_challenge_method: 'S256',
-            access_type: 'online',
-            prompt: 'select_account'
-        });
-        res.redirect(`${GOOGLE_AUTH}?${params.toString()}`);
-    });
+    // Create a pending account and email a verification code.
+    app.post('/api/auth/register', async (req, res) => {
+        const email = String(req.body?.email || '').trim();
+        const username = String(req.body?.username || '').trim();
+        const password = String(req.body?.password || '');
 
-    // Callback: validate state, exchange code, fetch profile, create user + session.
-    app.get('/api/auth/google/callback', async (req, res) => {
-        if (!authEnabled()) {
-            res.redirect('/');
+        const invalid = validateRegistration({ email, username, password });
+        if (invalid) {
+            res.status(400).json({ error: invalid });
             return;
         }
+
+        const result = await authStore.createPendingUser({ email, username, password });
+        if (result.error === 'email_taken') {
+            res.status(409).json({ error: 'That email is already registered.' });
+            return;
+        }
+        if (result.error === 'username_taken') {
+            res.status(409).json({ error: 'That username is taken.' });
+            return;
+        }
+        if (result.error === 'limit') {
+            res.status(403).json({ error: 'This deployment has reached its maximum number of users.' });
+            return;
+        }
+
         try {
-            const packed = unsign(readCookies(req)[STATE_COOKIE]);
-            clearCookie(res, STATE_COOKIE);
-            if (!packed) {
-                res.status(400).send('Invalid auth state. Please try logging in again.');
-                return;
-            }
-            const [expectedState, verifier] = packed.split(':');
-            if (!req.query.state || req.query.state !== expectedState || !req.query.code) {
-                res.status(400).send('Invalid auth state. Please try logging in again.');
-                return;
-            }
-
-            const tokenRes = await fetch(GOOGLE_TOKEN, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: new URLSearchParams({
-                    client_id: cfg.clientId(),
-                    client_secret: cfg.clientSecret(),
-                    code: String(req.query.code),
-                    code_verifier: verifier,
-                    grant_type: 'authorization_code',
-                    redirect_uri: redirectUri()
-                })
-            });
-            if (!tokenRes.ok) {
-                throw new Error(`token exchange failed (${tokenRes.status})`);
-            }
-            const { access_token: accessToken } = await tokenRes.json();
-
-            const infoRes = await fetch(GOOGLE_USERINFO, { headers: { Authorization: `Bearer ${accessToken}` } });
-            if (!infoRes.ok) {
-                throw new Error(`userinfo failed (${infoRes.status})`);
-            }
-            const info = await infoRes.json();
-
-            const user = await authStore.findOrCreateUser({
-                sub: info.sub,
-                email: info.email,
-                name: info.name,
-                picture: info.picture
-            });
-            if (!user) {
-                res.status(403).send('This deployment has reached its maximum number of users.');
-                return;
-            }
-
-            const sid = await authStore.createSession(user.userId);
-            setCookie(res, SESSION_COOKIE, sign(sid), { maxAge: 30 * 24 * 60 * 60 });
-            res.redirect('/');
+            await sendVerificationCode(email, result.code, username);
         } catch (error) {
-            console.error('[auth callback failed]', error);
-            res.status(500).send('Login failed. Please try again.');
+            console.error('[mailer] send failed', error);
+            res.status(502).json({ error: 'Could not send the verification email. Try again shortly.' });
+            return;
         }
+        // In dev (no SMTP) return the code so local testing works without an inbox.
+        res.json({ ok: true, email, ...(smtpConfigured() ? {} : { devCode: result.code }) });
     });
 
-    // Logout: drop the session record + cookie.
+    // Verify the code → mark verified and start a session.
+    app.post('/api/auth/verify', async (req, res) => {
+        const email = String(req.body?.email || '').trim();
+        const code = String(req.body?.code || '').trim();
+        if (!email || !/^\d{6}$/.test(code)) {
+            res.status(400).json({ error: 'Enter the 6-digit code from your email.' });
+            return;
+        }
+        const result = await authStore.verifyEmailCode(email, code);
+        if (result.error) {
+            const map = {
+                not_found: [404, 'No pending sign-up for that email.'],
+                no_code: [400, 'No active code — request a new one.'],
+                expired: [400, 'That code has expired — request a new one.'],
+                too_many: [429, 'Too many attempts — request a new code.'],
+                bad_code: [400, 'Incorrect code. Check it and try again.']
+            };
+            const [status, message] = map[result.error] || [400, 'Could not verify the code.'];
+            res.status(status).json({ error: message });
+            return;
+        }
+        await startSession(res, result.user.userId);
+        res.json({ ok: true, user: result.user });
+    });
+
+    // Resend a verification code (rate-limited by a cooldown).
+    app.post('/api/auth/resend', async (req, res) => {
+        const email = String(req.body?.email || '').trim();
+        if (!EMAIL_RE.test(email)) {
+            res.status(400).json({ error: 'Enter a valid email address.' });
+            return;
+        }
+        const result = await authStore.resendCode(email);
+        if (result.error === 'cooldown') {
+            res.status(429).json({ error: 'Please wait a few seconds before requesting another code.' });
+            return;
+        }
+        // For not_found / already_verified, respond OK without leaking which it was.
+        if (result.code) {
+            try {
+                await sendVerificationCode(email, result.code, '');
+            } catch (error) {
+                console.error('[mailer] resend failed', error);
+                res.status(502).json({ error: 'Could not send the email. Try again shortly.' });
+                return;
+            }
+        }
+        res.json({ ok: true, email, ...(result.code && !smtpConfigured() ? { devCode: result.code } : {}) });
+    });
+
+    // Log in with email-or-username + password.
+    app.post('/api/auth/login', async (req, res) => {
+        const identifier = String(req.body?.identifier || '').trim();
+        const password = String(req.body?.password || '');
+        if (!identifier || !password) {
+            res.status(400).json({ error: 'Enter your email/username and password.' });
+            return;
+        }
+        const result = await authStore.verifyLogin(identifier, password);
+        if (result.error === 'unverified') {
+            // Help the user finish: send a fresh code and route them to the verify step.
+            const r = await authStore.resendCode(result.email);
+            res.status(403).json({
+                needsVerify: true,
+                email: result.email,
+                ...(r.code && !smtpConfigured() ? { devCode: r.code } : {})
+            });
+            if (r.code) {
+                sendVerificationCode(result.email, r.code, '').catch((e) => console.error('[mailer]', e));
+            }
+            return;
+        }
+        if (result.error) {
+            res.status(401).json({ error: 'Wrong email/username or password.' });
+            return;
+        }
+        await startSession(res, result.user.userId);
+        res.json({ ok: true, user: result.user });
+    });
+
     app.post('/api/auth/logout', async (req, res) => {
         const sid = unsign(readCookies(req)[SESSION_COOKIE]);
         if (sid) {
             await authStore.deleteSession(sid);
         }
-        clearCookie(res, SESSION_COOKIE);
+        clearSessionCookie(res);
         res.json({ ok: true });
     });
 
-    // Who am I? The frontend uses this to decide whether to show the login screen.
+    // Who am I? The frontend uses this to decide whether to show the auth screen.
     app.get('/api/me', async (req, res) => {
         const user = await resolveUser(req);
         res.json({ authEnabled: authEnabled(), user });

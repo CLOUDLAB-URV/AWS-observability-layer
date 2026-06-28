@@ -16,6 +16,7 @@
     "@terrastruct/d2": "^0.1.33",
     "cookie": "^1.1.1",
     "express": "^5.2.1",
+    "nodemailer": "^9.0.1",
     "ws": "^8.20.1"
   }
 }

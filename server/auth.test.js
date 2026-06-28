@@ -10,16 +10,15 @@ afterEach(() => {
     process.env = { ...ORIGINAL };
 });
 
-test('authEnabled is true only when both Google creds are set', () => {
-    delete process.env.GOOGLE_CLIENT_ID;
-    delete process.env.GOOGLE_CLIENT_SECRET;
+test('authEnabled is on by default and off only when AUTH_DISABLED is truthy', () => {
+    delete process.env.AUTH_DISABLED;
+    assert.equal(authEnabled(), true);
+
+    process.env.AUTH_DISABLED = 'true';
     assert.equal(authEnabled(), false);
 
-    process.env.GOOGLE_CLIENT_ID = 'id';
-    assert.equal(authEnabled(), false, 'id alone is not enough');
-
-    process.env.GOOGLE_CLIENT_SECRET = 'secret';
-    assert.equal(authEnabled(), true);
+    process.env.AUTH_DISABLED = 'false';
+    assert.equal(authEnabled(), true, 'false means auth stays on');
 });
 
 test('signed value round-trips and rejects tampering', () => {

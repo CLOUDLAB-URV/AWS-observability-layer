@@ -855,7 +855,7 @@ body {
     /* Neutralize the subtle hover micro-lifts */
     .deploy-btn:hover:not(:disabled),
     .teardown-btn:hover:not(:disabled),
-    .login-google:hover { transform: none; }
+    .auth-submit:hover:not(:disabled) { transform: none; }
 }
 
 /* ── 17. SCROLLBARS (thin, monochrome) ────────────────── */
@@ -1346,7 +1346,8 @@ body {
 .viz-remove .cmd-block { margin-top: 12px; }
 
 /* ----- Auth: login screen + header user menu ----- */
-.login-screen {
+/* ── Auth screen (sign in / create account / verify) ─── */
+.auth-screen {
     min-height: 100vh;
     display: flex;
     align-items: center;
@@ -1356,46 +1357,109 @@ body {
         var(--surface-app);
     padding: 24px;
 }
-.login-card {
+.auth-card {
     background: var(--surface-raised);
     border: 1px solid var(--border-default);
     border-radius: 16px;
-    padding: 44px 38px;
-    max-width: 380px;
+    padding: 36px 34px;
+    max-width: 400px;
     width: 100%;
-    text-align: center;
     box-shadow: var(--shadow-lg);
 }
-.login-title {
-    margin: 0 0 8px;
-    font-size: 1.6rem;
+.auth-brand {
+    font-size: 1.35rem;
     font-weight: 600;
     letter-spacing: -0.02em;
     color: var(--text-primary);
+    text-align: center;
+    margin-bottom: 22px;
 }
-.login-subtitle { margin: 0 0 28px; color: var(--text-secondary); font-size: 0.95rem; line-height: 1.5; }
-.login-google {
-    display: inline-flex;
-    align-items: center;
-    gap: 12px;
-    width: 100%;
-    justify-content: center;
-    padding: 11px 16px;
-    font-size: 0.95rem;
-    font-weight: 500;
-    color: var(--text-primary);
-    background: var(--surface-panel);
+
+/* Tabs */
+.auth-tabs {
+    display: flex;
+    gap: 4px;
+    padding: 4px;
+    background: var(--surface-app);
+    border: 1px solid var(--border-default);
+    border-radius: 10px;
+    margin-bottom: 22px;
+}
+.auth-tab {
+    flex: 1;
+    border: none;
+    background: none;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 0.9rem;
+    padding: 8px 10px;
+    border-radius: 7px;
+    cursor: pointer;
+    transition: color 120ms var(--ease), background 120ms var(--ease);
+}
+.auth-tab:hover { color: var(--text-primary); }
+.auth-tab.is-active { color: var(--text-primary); background: var(--surface-raised); box-shadow: var(--shadow-sm); }
+
+/* Form */
+.auth-form { display: flex; flex-direction: column; gap: 14px; }
+.auth-field { display: flex; flex-direction: column; gap: 6px; }
+.auth-field > span { font-size: 0.8rem; color: var(--text-secondary); }
+.auth-input {
     border: 1px solid var(--border-input);
+    border-radius: 8px;
+    padding: 10px 12px;
+    background: var(--surface-app);
+    color: var(--text-primary);
+    font-size: 0.95rem;
+}
+.auth-input:focus { outline: none; box-shadow: var(--focus-ring); border-color: var(--border-focus); }
+
+.auth-submit {
+    margin-top: 4px;
+    border: 1px solid var(--line-strong);
+    background: var(--white);
+    color: var(--ink-900);
+    font: inherit;
+    font-weight: 600;
+    font-size: 0.95rem;
+    padding: 11px 16px;
     border-radius: 9px;
     cursor: pointer;
-    transition: background 160ms var(--ease), border-color 160ms var(--ease), transform 160ms var(--ease);
+    transition: opacity 120ms var(--ease), transform 120ms var(--ease);
 }
-.login-google:hover {
-    background: var(--ink-700);
-    border-color: rgba(255, 255, 255, 0.28);
-    transform: translateY(-1px);
+.auth-submit:hover:not(:disabled) { transform: translateY(-1px); }
+.auth-submit:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.auth-switch { margin: 4px 0 0; text-align: center; font-size: 0.85rem; color: var(--text-secondary); }
+.auth-link {
+    border: none; background: none; padding: 0; font: inherit; font-size: 0.85rem;
+    color: var(--text-primary); font-weight: 500; text-decoration: underline; text-underline-offset: 2px; cursor: pointer;
 }
-.login-google-icon { width: 18px; height: 18px; flex: none; }
+.auth-link:disabled { color: var(--text-muted); cursor: not-allowed; text-decoration: none; }
+
+.auth-error  { margin: 0; color: var(--fn-red); font-size: 0.85rem; line-height: 1.5; }
+.auth-notice { margin: 0; color: var(--text-secondary); font-size: 0.85rem; line-height: 1.5; }
+.auth-dev {
+    margin: 0; font-size: 0.8rem; color: var(--text-muted);
+    background: var(--surface-app); border: 1px dashed var(--border-default); border-radius: 8px; padding: 8px 10px;
+}
+.auth-dev code { font-family: var(--font-mono); color: var(--text-primary); }
+.auth-verify-lead { margin: 0 0 4px; color: var(--text-secondary); font-size: 0.92rem; line-height: 1.55; }
+.auth-verify-lead strong { color: var(--text-primary); }
+
+/* Segmented 6-digit code input */
+.auth-code { display: flex; gap: 8px; justify-content: center; margin: 6px 0; }
+.auth-code-box {
+    width: 44px; height: 52px;
+    text-align: center;
+    font-family: var(--font-mono);
+    font-size: 1.4rem;
+    color: var(--text-primary);
+    background: var(--surface-app);
+    border: 1px solid var(--border-input);
+    border-radius: 9px;
+}
+.auth-code-box:focus { outline: none; box-shadow: var(--focus-ring); border-color: var(--border-focus); }
 
 .user-menu {
     display: inline-flex;
