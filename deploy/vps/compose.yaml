@@ -20,6 +20,10 @@ services:
                                    # MAX_USERS, SESSION_SECRET, SMTP_*, GCP_* …
     volumes:
       - app_data:/app/persistence  # users, sessions, tokens, deployed-state — survives recreation
+      # GCP service-account key for Vertex AI (Agent diagram render + auto-naming). Set
+      # GCP_KEY_PATH in .env to the key's host path and GOOGLE_APPLICATION_CREDENTIALS=/secrets/gcp-key.json.
+      # Unset → mounts /dev/null (no creds; Vertex calls will fail until a key is provided).
+      - ${GCP_KEY_PATH:-/dev/null}:/secrets/gcp-key.json:ro
     expose:
       - "3001"                     # internal only; reached via the compose network / Caddy
     labels:

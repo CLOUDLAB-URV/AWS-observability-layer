@@ -20,6 +20,10 @@ chat session keeps an isolated diagram — you don't manage project names. To re
 previous deployment (so the agent knows what already exists), use the `load_chat` /
 `list_chats` tools, or pin a fixed chat with the optional `VISUALIZER_CHAT_ID` env var.
 
+**Where it sends.** By default it talks to the hosted app. Point it at another deployment
+(or a local dev backend) with the optional `VISUALIZER_URL` env var — e.g.
+`VISUALIZER_URL=http://127.0.0.1:3001` for local development.
+
 ---
 
 ## 1. Prerequisites

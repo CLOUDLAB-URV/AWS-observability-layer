@@ -15,13 +15,14 @@
 //   - load_chat       : resume a previous diagram BY NAME (resolved by proximity)
 //                       and load its full current deployed state into context.
 //
-// This server is dedicated to ONE web app, so the backend and web URLs are baked
-// in here (the two constants below) — the only thing the user configures is their
-// API token, via the VISUALIZER_TOKEN environment variable. To migrate the service
-// to a new domain, change these two constants in one place and republish.
+// This server targets the hosted web app by default; the only thing most users configure
+// is their API token (VISUALIZER_TOKEN). Point it elsewhere (e.g. a local dev backend) with
+// VISUALIZER_URL.
 //
-//   VISUALIZER_TOKEN  (env, required)  API token generated in the web UI
-//   VISUALIZER_CHAT_ID (env, optional) pin a fixed chat id for this session
+//   VISUALIZER_TOKEN   (env, required)  API token generated in the web UI
+//   VISUALIZER_URL     (env, optional)  base URL of the deployment; defaults to the hosted app.
+//                                       For local dev: http://127.0.0.1:3001
+//   VISUALIZER_CHAT_ID (env, optional)  pin a fixed chat id for this session
 
 import process from 'node:process';
 import { randomUUID } from 'node:crypto';
@@ -30,10 +31,12 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import { matchByName } from './match.js';
 
-// --- Service endpoints (change here when migrating domains) ----------------
-const BACKEND_URL = 'http://127.0.0.1:3001';
-const WEB_URL = 'http://127.0.0.1:5173';
-// ---------------------------------------------------------------------------
+// --- Service endpoints --------------------------------------------------------
+// Default to the hosted deployment; override both with VISUALIZER_URL (e.g. for local dev).
+const BASE_URL = process.env.VISUALIZER_URL || 'https://diagrams.alejandropozo.com';
+const BACKEND_URL = BASE_URL;
+const WEB_URL = BASE_URL;
+// ------------------------------------------------------------------------------
 
 const TOKEN = process.env.VISUALIZER_TOKEN || '';
 
