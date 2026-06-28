@@ -28,30 +28,36 @@ needed for the ACME challenge and the HTTP→HTTPS redirect.
 
 ## Files
 
-| File                | Purpose                                                  |
-|---------------------|----------------------------------------------------------|
-| `compose.yaml`      | The 4 services (backend, frontend, caddy, watchtower).   |
-| `Caddyfile`         | Edge proxy + automatic HTTPS for `$DOMAIN` → frontend.   |
-| `.env`              | Non-secret config — images, domain, modes (committed).   |
-| `.env.local`        | **Secrets** — OAuth, session key (gitignored).           |
-| `.env.local.example`| Template for `.env.local`.                               |
+Two config buckets — **what the app runs with** (`.env`) and **how you deploy it** (`.env.deploy`):
 
-**The images are generic** — nothing is baked in, anyone can run them. Config is split:
+| File                  | Purpose                                                            |
+|-----------------------|-------------------------------------------------------------------|
+| `compose.yaml`        | The 4 services (backend, frontend, caddy, watchtower).            |
+| `Caddyfile`           | Edge proxy + automatic HTTPS for `$DOMAIN` → frontend.            |
+| `.env`                | **All app config + secrets** — images, domain, modes, OAuth, keys (gitignored). |
+| `.env.example`        | Template for `.env`.                                              |
+| `.env.deploy`         | Local-only `push-deploy.sh` target — SSH host + path (gitignored). |
+| `.env.deploy.example` | Template for `.env.deploy`.                                       |
 
-**`.env` (committed, non-secret):**
+The real files (`.env`, `.env.deploy`) are **gitignored**; commit only the `*.example` templates —
+`cp` each to the real name and fill it in.
+
+**The images are generic** — nothing is baked in, anyone can run them. Everything the running stack
+needs lives in one file:
+
+**`.env` (gitignored) — Docker Compose auto-loads it for `${VAR}` interpolation, and the backend
+gets every key via `env_file: .env`:**
 - `IMAGE_BACKEND` / `IMAGE_FRONTEND` → used by compose.
 - `DOMAIN` / `ACME_EMAIL` → the HTTPS domain Caddy serves and the Let's Encrypt account email.
 - `APP_URL` → public base URL (used to build the OAuth redirect and mark cookies `Secure`).
 - `MAX_USERS` → how many accounts may register before new logins are blocked.
 - `AGENT_ENABLED` / `DESIGN_ENABLED` → which modes are available. **A mode is enabled unless
   set to `false`.** These control **both the UI and the API** (the frontend reads them at
-  runtime from `GET /api/config`), so flipping one then `docker compose up -d` changes both
-  sides with no image rebuild.
-
-**`.env.local` (gitignored, secrets):** `SESSION_SECRET` (signs session cookies),
-`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` (OAuth), and `GCP_PROJECT_ID` / `CLOUD_ML_REGION`
-(only for Design). There is **no MCP token here** — each user generates their own from the UI
-(Agent → Deployed state) after logging in.
+  runtime from `GET /api/config`), so flipping one then re-applying changes both sides with no
+  image rebuild.
+- **Secrets:** `SESSION_SECRET` (signs session cookies), `GOOGLE_CLIENT_ID` /
+  `GOOGLE_CLIENT_SECRET` (OAuth), `GCP_PROJECT_ID` / `CLOUD_ML_REGION` (only for Design). There is
+  **no MCP token here** — each user generates their own from the UI (Agent → Deployed state).
 
 > **Design & Deploy** is `false` by default: enabling it needs `uv`/python + AWS credentials
 > that aren't in the image (the Design tab would appear but its AWS deploy would fail). Set
@@ -60,7 +66,7 @@ needed for the ACME challenge and the HTTP→HTTPS redirect.
 ## Login (Google OAuth)
 
 Auth turns **on automatically when `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` are set** in
-`.env.local`; with them empty (e.g. local dev) the app runs open as a single "dev" user.
+`.env`; with them empty (e.g. local dev) the app runs open as a single "dev" user.
 
 Set it up once in **Google Cloud Console** → *APIs & Services*:
 1. **OAuth consent screen** → External → add app name + your support email. (Add test users, or
@@ -68,7 +74,7 @@ Set it up once in **Google Cloud Console** → *APIs & Services*:
 2. **Credentials → Create credentials → OAuth client ID → Web application.**
 3. **Authorized redirect URIs** → add `https://diagrams.alejandropozo.com/api/auth/google/callback`
    (and `http://localhost:5173/api/auth/google/callback` if you want to test OAuth locally).
-4. Copy the **Client ID** and **Client secret** into `.env.local`, then `docker compose up -d`.
+4. Copy the **Client ID** and **Client secret** into `.env`, then re-apply (`./apply.sh`).
 
 Users are isolated: each account sees only its own sessions/diagrams and generates its own MCP
 tokens. Login (users, sessions), tokens and deployed-state all live in the `app_data` volume, so
@@ -83,10 +89,9 @@ Requires Docker Engine + the Compose plugin.
 git clone <repo-url> && cd <repo>/deploy/vps
 #   or:  scp -r deploy/vps vps:~/aws-architect && ssh vps; cd ~/aws-architect
 
-# 2. Secrets + config
-cp .env.local.example .env.local     # then fill in GOOGLE_*, SESSION_SECRET
-#    edit .env if needed (DOMAIN, MAX_USERS, modes). Make sure DNS for $DOMAIN points here and
-#    ports 80/443 are open (see above).
+# 2. Config + secrets (copy the template, then fill it in)
+cp .env.example .env                 # DOMAIN, ACME_EMAIL, APP_URL, MAX_USERS, modes, images, secrets
+#    Make sure DNS for $DOMAIN points here and ports 80/443 are open (see above).
 
 # 3. Run (stays up across reboots; restart: unless-stopped)
 docker compose up -d
@@ -100,6 +105,31 @@ curl https://diagrams.alejandropozo.com/health   # {"ok":true}  (once the cert i
 Open `https://diagrams.alejandropozo.com/` for the app; the **Agent** tab connects over a
 secure `wss://` WebSocket automatically.
 
+## Deploy from your machine (one command, with rollback)
+
+Instead of doing the steps above by hand, push this whole folder to the VPS and apply it in one
+transactional step from your laptop:
+
+```bash
+cd deploy/vps
+cp .env.deploy.example .env.deploy   # set SSH_TARGET (e.g. "vps") and REMOTE_DIR (absolute path)
+./push-deploy.sh                     # upload + apply + health-check on the VPS
+./push-deploy.sh --dry-run           # preview what would upload; touches nothing on the VPS
+```
+
+What it does: `rsync`s the folder to `${REMOTE_DIR}.staging` on the VPS (including your local
+`.env`, which **overwrites** the server's), then runs a transaction there:
+
+- **Success** → the new stack is live and `backend`+`frontend` report healthy. It stays deployed.
+- **Failure** (apply error, or not healthy in 90s) → **automatic rollback**:
+  - if a deployment was **already running**, the previous one is **restored untouched** — your
+    data and certificates (named volumes) are never deleted;
+  - if it was a **fresh install**, the failed stack, its volumes, and the folder are removed, so
+    the VPS is left exactly as it was (clean).
+
+`.env.deploy` is local-only (gitignored) and is never uploaded. Persistence survives because data
+lives in named volumes (`app_data`, `caddy_data`), not in the folder.
+
 ## Auto-update
 
 Watchtower checks Docker Hub every 30s. When CI pushes a new `:latest` (backend or frontend),
@@ -109,11 +139,30 @@ it pulls and recreates just that container — no manual step. Watch it:
 docker compose logs -f watchtower
 ```
 
+## Apply config changes (`.env`)
+
+After editing `.env` (domain, modes, `MAX_USERS`, OAuth/secrets, image names…) **on the server**,
+apply it with the helper script:
+
+```bash
+./apply.sh            # re-applies the stack; recreates only the services whose config changed
+./apply.sh --force    # last resort: force-recreate everything (if a change isn't auto-detected)
+```
+
+It validates the config first (so a typo never disturbs the live stack), then runs
+`docker compose up -d`. Because Compose hashes each service's resolved env (the `.env`
+interpolation and the backend's `env_file: .env`), it recreates **only** what actually changed —
+idempotent (no changes → nothing happens). A backend env change recreates just the backend (a few
+seconds; the frontend/SPA keeps serving); a `Caddyfile` change is hot-reloaded with **zero
+downtime**. `.env` (with its secrets) stays only on the server (gitignored).
+
+> Scope: `apply.sh` applies local config only. **Image** updates are handled by Watchtower.
+
 ## Operations
 
 ```bash
-docker compose pull && docker compose up -d   # manual update (Watchtower does this for you)
 docker compose logs -f backend                # app logs
+docker compose ps                             # service status
 docker compose down                           # stop everything (volumes kept)
 ```
 

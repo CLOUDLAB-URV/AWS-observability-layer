@@ -7,3 +7,8 @@ server/persistence/
 # keep secrets and machine-specific overrides out of git.
 .env.local
 .env.*.local
+
+# VPS deployment config: keep the real files local, commit the .example templates.
+# (.env = stack config: DOMAIN/images/modes; .env.deploy = push-deploy SSH target)
+deploy/vps/.env
+deploy/vps/.env.deploy

@@ -15,13 +15,9 @@ services:
   backend:
     image: ${IMAGE_BACKEND}
     restart: unless-stopped
-    environment:                   # non-secret config from .env (committed)
-      AGENT_ENABLED: ${AGENT_ENABLED:-}
-      DESIGN_ENABLED: ${DESIGN_ENABLED:-}
-      APP_URL: ${APP_URL:-}        # public base URL (OAuth redirect + Secure cookies)
-      MAX_USERS: ${MAX_USERS:-}    # cap on how many users can register
     env_file:
-      - .env.local                 # secrets (gitignored): GOOGLE_*, SESSION_SECRET, GCP_*
+      - .env                       # all app config + secrets (gitignored): modes, APP_URL,
+                                   # MAX_USERS, GOOGLE_*, SESSION_SECRET, GCP_* …
     volumes:
       - app_data:/app/persistence  # users, sessions, tokens, deployed-state — survives recreation
     expose:
