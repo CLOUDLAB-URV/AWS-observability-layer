@@ -262,6 +262,26 @@ async function requireToken(req, res, next) {
 // Bearer-token routes (requireToken) instead.
 const requireSession = auth.requireSession;
 
+// Dual auth for routes shared by BOTH the web UI and the MCP (e.g. GET /api/chats, which the
+// browser hits same-origin with a session cookie and the MCP hits with a Bearer token). A token
+// takes precedence; otherwise fall back to the login session. Either way it sets req.userId so
+// the route is scoped to that user.
+async function requireSessionOrToken(req, res, next) {
+    const header = req.get('authorization') || '';
+    const token = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
+    if (token) {
+        const identity = await tokenStore.verify(token);
+        if (!identity) {
+            res.status(401).json({ error: 'Invalid API token.' });
+            return;
+        }
+        req.userId = identity.userId;
+        next();
+        return;
+    }
+    return requireSession(req, res, next);
+}
+
 // Ingest: the MCP tool POSTs a batch of incremental changes (upsert/delete per
 // resource) for a chat. We merge them into the chat's authoritative state,
 // regenerate the deployed-state D2, render it, and push it live to any web clients
@@ -312,9 +332,10 @@ app.post('/api/chats/:chatId/deployments', agentGate, requireToken, async (req, 
     }
 });
 
-// List the user's chats (newest first). The MCP uses this (with a token) for
-// list_chats; the web UI hits it same-origin (no token → owner user).
-app.get('/api/chats', agentGate, requireSession, async (req, res) => {
+// List the user's chats (newest first). Shared route: the MCP calls it with a Bearer token
+// (list_chats, and load_chat's lookup), the web UI calls it same-origin with a session cookie —
+// so it accepts either (requireSessionOrToken) and scopes to that user.
+app.get('/api/chats', agentGate, requireSessionOrToken, async (req, res) => {
     res.json({ chats: await visualizerStore.listChats(req.userId) });
 });
 
@@ -387,9 +408,23 @@ app.get('/api/tokens', agentGate, requireSession, async (req, res) => {
 });
 
 app.post('/api/tokens', agentGate, requireSession, async (req, res) => {
-    const { token } = await tokenStore.create(req.userId, String(req.body?.label || ''));
-    // Returned in full exactly once so the user can copy it into the MCP config.
-    res.json({ token });
+    const result = await tokenStore.create(req.userId, String(req.body?.label || ''));
+    if (result.error === 'limit') {
+        res.status(409).json({ error: `Token limit reached (max ${result.max}). Revoke one first.`, max: result.max });
+        return;
+    }
+    // The full token is returned exactly once so the user can copy it into the MCP config.
+    res.json({ token: result.token, id: result.id });
+});
+
+// Revoke one of the user's tokens by its non-secret id.
+app.delete('/api/tokens/:id', agentGate, requireSession, async (req, res) => {
+    const ok = await tokenStore.revoke(req.userId, req.params.id);
+    if (!ok) {
+        res.status(404).json({ error: 'Token not found.' });
+        return;
+    }
+    res.json({ ok: true });
 });
 
 // Visualizer WebSocket: a client subscribes to one project and receives live

@@ -3,6 +3,9 @@ import Diagram from './Diagram.jsx';
 import McpGuide from './McpGuide.jsx';
 import { createSocket } from './ws.js';
 
+const TOKEN_LIMIT = 3;
+const TOKEN_PLACEHOLDER = 'viz_your_token_here';
+
 // "Deployed state" view: subscribes to one chat on the visualizer socket and
 // renders a live diagram of what is actually deployed in AWS (pushed from the
 // user's agent via the MCP tool). Each chat has its own isolated diagram. Also
@@ -16,6 +19,9 @@ export default function DeployedState() {
     const [showSettings, setShowSettings] = useState(false);
     const [showGuide, setShowGuide] = useState(false);
     const [newToken, setNewToken] = useState('');
+    const [tokens, setTokens] = useState([]);
+    const [tokenError, setTokenError] = useState('');
+    const [confirmRevoke, setConfirmRevoke] = useState('');
     const [copied, setCopied] = useState('');
     const [renameValue, setRenameValue] = useState('');
     const [showDetails, setShowDetails] = useState(false);
@@ -26,6 +32,7 @@ export default function DeployedState() {
         const socket = createSocket(handleMessage, setConnected, '/ws-visualizer');
         socketRef.current = socket;
         loadChats();
+        loadTokens();
         return () => socket.close();
     }, []);
 
@@ -76,18 +83,45 @@ export default function DeployedState() {
         }
     }
 
+    async function loadTokens() {
+        try {
+            const res = await fetch('/api/tokens');
+            const data = await res.json();
+            setTokens(Array.isArray(data.tokens) ? data.tokens : []);
+        } catch {
+            setTokens([]);
+        }
+    }
+
     async function generateToken() {
+        setTokenError('');
         try {
             const res = await fetch('/api/tokens', {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
                 body: JSON.stringify({ label: 'web' })
             });
+            if (res.status === 409) {
+                setTokenError(`Limit reached (${TOKEN_LIMIT}) — revoke one to add a new token.`);
+                return;
+            }
             const data = await res.json();
             setNewToken(data.token || '');
+            loadTokens();
         } catch {
-            setNewToken('');
+            setTokenError('Could not generate a token. Try again.');
         }
+    }
+
+    async function revokeToken(id) {
+        try {
+            await fetch(`/api/tokens/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        } catch {
+            // ignore — the list refresh below reflects the real state
+        }
+        setConfirmRevoke('');
+        setTokenError('');
+        loadTokens();
     }
 
     function openSettings() {
@@ -147,7 +181,7 @@ export default function DeployedState() {
     // Use the freshly generated token if we have one; otherwise a placeholder the user
     // replaces. The full secret of an existing token is never returned to the UI, so a
     // ready-to-paste command is only possible right after generating it.
-    const tokenForCmd = newToken || 'viz_your_token_here';
+    const tokenForCmd = newToken || TOKEN_PLACEHOLDER;
     // Ready-to-paste Claude Code CLI command: registers the published MCP at user scope
     // (loaded in every session on this machine) with the token baked in.
     const addCommand = `claude mcp add --scope user ${SERVER_NAME} \\
@@ -286,24 +320,61 @@ export default function DeployedState() {
                         <li className="viz-step">
                             <div className="viz-step-num">1</div>
                             <div className="viz-step-body">
-                                <div className="viz-step-title">Generate an API token</div>
+                                <div className="viz-step-title">
+                                    Your API tokens
+                                    <span className="token-count">{tokens.length}/{TOKEN_LIMIT}</span>
+                                </div>
                                 <p className="viz-step-hint">
-                                    It authenticates your agent's pushes. Copy it now — for security it's shown
-                                    only once.
+                                    A token authenticates your agent's pushes. Each token is shown in full only
+                                    once, right after you generate it — copy it then. You can hold up to{' '}
+                                    {TOKEN_LIMIT} tokens.
                                 </p>
-                                <button className="viz-primary-btn" onClick={generateToken}>
-                                    {newToken ? 'Generate another' : 'Generate token'}
+
+                                {tokens.length > 0 && (
+                                    <ul className="token-list">
+                                        {tokens.map((t) => (
+                                            <li key={t.id} className="token-row">
+                                                <code className="token-row-preview">{t.tokenPreview}</code>
+                                                <span className="token-row-date">{formatDate(t.createdAt)}</span>
+                                                {confirmRevoke === t.id ? (
+                                                    <span className="token-row-confirm">
+                                                        <span>Revoke?</span>
+                                                        <button type="button" className="link-btn token-danger" onClick={() => revokeToken(t.id)}>Revoke</button>
+                                                        <button type="button" className="link-btn" onClick={() => setConfirmRevoke('')}>Cancel</button>
+                                                    </span>
+                                                ) : (
+                                                    <button type="button" className="link-btn" onClick={() => setConfirmRevoke(t.id)}>Revoke</button>
+                                                )}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                )}
+
+                                <button
+                                    className="viz-primary-btn"
+                                    onClick={generateToken}
+                                    disabled={tokens.length >= TOKEN_LIMIT}
+                                >
+                                    {tokens.length === 0 ? 'Generate token' : 'Generate another'}
                                 </button>
+                                {tokens.length >= TOKEN_LIMIT && (
+                                    <p className="token-hint">Limit reached ({TOKEN_LIMIT}). Revoke one to add a new token.</p>
+                                )}
+                                {tokenError && <p className="token-hint token-danger">{tokenError}</p>}
+
                                 {newToken && (
-                                    <div className="token-chip">
-                                        <code>{newToken}</code>
-                                        <button
-                                            type="button"
-                                            className={`copy-btn ${copied === 'tok' ? 'is-copied' : ''}`}
-                                            onClick={() => copy(newToken, 'tok')}
-                                        >
-                                            {copied === 'tok' ? 'Copied' : 'Copy'}
-                                        </button>
+                                    <div className="token-new">
+                                        <div className="token-new-title">New token — copy it now. It won't be shown again.</div>
+                                        <div className="token-chip">
+                                            <code>{newToken}</code>
+                                            <button
+                                                type="button"
+                                                className={`copy-btn ${copied === 'tok' ? 'is-copied' : ''}`}
+                                                onClick={() => copy(newToken, 'tok')}
+                                            >
+                                                {copied === 'tok' ? 'Copied' : 'Copy'}
+                                            </button>
+                                        </div>
                                     </div>
                                 )}
                             </div>
@@ -313,11 +384,20 @@ export default function DeployedState() {
                             <div className="viz-step-num">2</div>
                             <div className="viz-step-body">
                                 <div className="viz-step-title">Add the MCP to Claude Code</div>
-                                <p className="viz-step-hint">
-                                    Paste the whole command in your terminal. User scope = loaded in every session
-                                    on this machine (works on any device with Claude Code installed). The token
-                                    above is already baked in.
-                                </p>
+                                {newToken ? (
+                                    <p className="viz-step-hint">
+                                        Paste the whole command in your terminal. User scope = loaded in every
+                                        session on this machine. <strong>Your new token is already included</strong>{' '}
+                                        in the command below.
+                                    </p>
+                                ) : (
+                                    <p className="viz-step-hint">
+                                        Paste the command in your terminal (user scope = loaded in every session on
+                                        this machine). Replace <code>{TOKEN_PLACEHOLDER}</code> with your token —
+                                        it's only shown once when generated, so if you don't have it,{' '}
+                                        <strong>generate another above</strong> (up to {TOKEN_LIMIT}).
+                                    </p>
+                                )}
                                 <div className="cmd-block">
                                     <button
                                         type="button"

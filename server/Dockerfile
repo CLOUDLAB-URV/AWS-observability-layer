@@ -1,5 +1,6 @@
 # Backend image: Node + Express, serves the API and both WebSocket endpoints.
-# Agent (MCP) prod mode needs no GCP/AWS creds — only VISUALIZER_TOKEN at runtime.
+# Generic image — no secrets baked in. Runtime config/secrets come from the deploy
+# (env / env_file); the Agent (MCP) mode needs no AWS/GCP creds.
 FROM node:20-slim
 
 WORKDIR /app

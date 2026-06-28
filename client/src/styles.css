@@ -1200,8 +1200,70 @@ body {
     font-weight: 550;
     transition: background-color 150ms ease, transform 80ms ease;
 }
-.viz-primary-btn:hover { background: var(--btn-deploy-hover); }
-.viz-primary-btn:active { transform: translateY(1px); }
+.viz-primary-btn:hover:not(:disabled) { background: var(--btn-deploy-hover); }
+.viz-primary-btn:active:not(:disabled) { transform: translateY(1px); }
+.viz-primary-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Token manager (step 1) */
+.token-count {
+    margin-left: 8px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    background: var(--surface-stage);
+    border: 1px solid var(--border-default);
+    border-radius: 999px;
+    padding: 1px 8px;
+    vertical-align: middle;
+}
+.token-list {
+    list-style: none;
+    margin: 12px 0;
+    padding: 0;
+    max-width: 620px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.token-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+    border: 1px solid var(--border-default);
+    border-radius: 8px;
+    background: var(--surface-raised);
+}
+.token-row-preview {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-primary);
+}
+.token-row-date {
+    flex: 1;
+    min-width: 0;
+    font-size: 12px;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.token-row-confirm { display: inline-flex; align-items: center; gap: 10px; font-size: 12px; color: var(--text-secondary); }
+.token-danger { color: var(--fn-red); }
+.token-danger:hover { color: #e0a3a3; }
+.token-hint { margin: 8px 0 0; font-size: 12px; color: var(--text-muted); }
+
+.token-new {
+    margin-top: 14px;
+    max-width: 620px;
+    padding: 12px;
+    border: 1px solid var(--line-strong);
+    border-radius: 9px;
+    background: var(--surface-panel);
+    box-shadow: var(--shadow-sm);
+}
+.token-new-title { font-size: 12px; font-weight: 600; color: var(--fn-amber); margin-bottom: 8px; }
+.token-new .token-chip { margin-top: 0; }
 
 .token-chip {
     margin-top: 12px;
