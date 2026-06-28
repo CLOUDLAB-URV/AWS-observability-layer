@@ -20,8 +20,10 @@ jobs:
           filters: |
             backend:
               - 'server/**'
+              - '.github/workflows/ci-docker.yml'
             frontend:
               - 'client/**'
+              - '.github/workflows/ci-docker.yml'
       - id: sha
         run: echo "sha7=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
@@ -59,6 +61,7 @@ jobs:
           done
           kill "$pid" 2>/dev/null || true
           test "$ok" = "1"
+      - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         if: github.ref == 'refs/heads/main'
@@ -66,10 +69,12 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       # On branches: build only (validates the Dockerfile / npm ci). On main: also push.
+      # Multi-arch so it runs on both amd64 and arm64 hosts.
       - name: Build & push backend image
         uses: docker/build-push-action@v6
         with:
           context: server
+          platforms: linux/amd64,linux/arm64
           push: ${{ github.ref == 'refs/heads/main' }}
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/aws-architect-backend:latest
@@ -92,6 +97,7 @@ jobs:
       - name: Build (gate)
         working-directory: client
         run: npm run build
+      - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         if: github.ref == 'refs/heads/main'
@@ -99,10 +105,12 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       # On branches: build only (validates the Dockerfile / vite build). On main: also push.
+      # Multi-arch so it runs on both amd64 and arm64 hosts.
       - name: Build & push frontend image
         uses: docker/build-push-action@v6
         with:
           context: client
+          platforms: linux/amd64,linux/arm64
           push: ${{ github.ref == 'refs/heads/main' }}
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/aws-architect-frontend:latest
