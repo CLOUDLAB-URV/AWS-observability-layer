@@ -43,7 +43,8 @@ services:
     labels:
       com.centurylinklabs.watchtower.enable: "true"
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost/"]
+      # 127.0.0.1, not localhost: nginx listens on IPv4 only, but localhost resolves to ::1 first.
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/"]
       interval: 30s
       timeout: 5s
       retries: 3
