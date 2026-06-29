@@ -1,0 +1,46 @@
+{
+  "name": "@apozo/opencode-diagrammer-setup",
+  "version": "0.1.0",
+  "description": "One-shot setup: registers the diagram-state-visualizer MCP in opencode (~/.config/opencode/opencode.json) with your token. Installs opencode if missing. Idempotent — re-running only refreshes the token.",
+  "type": "module",
+  "bin": {
+    "opencode-diagrammer-setup": "index.js"
+  },
+  "main": "index.js",
+  "files": [
+    "index.js",
+    "config.js",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "opencode",
+    "mcp",
+    "model-context-protocol",
+    "aws",
+    "diagram",
+    "visualizer",
+    "setup"
+  ],
+  "license": "MIT",
+  "author": "Alejandro Pozo Risquez",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CLOUDLAB-URV/AWS-observability-layer.git",
+    "directory": "opencode-diagrammer-setup"
+  },
+  "homepage": "https://github.com/CLOUDLAB-URV/AWS-observability-layer/tree/main/opencode-diagrammer-setup#readme",
+  "bugs": {
+    "url": "https://github.com/CLOUDLAB-URV/AWS-observability-layer/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "check": "node --check index.js && node --check config.js",
+    "test": "node --test",
+    "prepublishOnly": "node --check index.js"
+  }
+}

@@ -26,6 +26,7 @@ export default function DeployedState() {
     const [renameValue, setRenameValue] = useState('');
     const [showDetails, setShowDetails] = useState(false);
     const [editingName, setEditingName] = useState(false);
+    const [agent, setAgent] = useState('opencode'); // 'opencode' | 'claude'
     const socketRef = useRef(null);
 
     useEffect(() => {
@@ -184,10 +185,16 @@ export default function DeployedState() {
     const tokenForCmd = newToken || TOKEN_PLACEHOLDER;
     // Ready-to-paste Claude Code CLI command: registers the published MCP at user scope
     // (loaded in every session on this machine) with the token baked in.
-    const addCommand = `claude mcp add --scope user ${SERVER_NAME} \\
+    const claudeAddCommand = `claude mcp add --scope user ${SERVER_NAME} \\
     --env VISUALIZER_TOKEN=${tokenForCmd} \\
     -- npx -y diagram-state-visualizer-mcp@latest`;
-    const removeCommand = `claude mcp remove --scope user ${SERVER_NAME}`;
+    const claudeRemoveCommand = `claude mcp remove --scope user ${SERVER_NAME}`;
+    // opencode: one command that installs opencode if needed and writes the MCP entry into
+    // ~/.config/opencode/opencode.json (idempotent — re-running only refreshes the token). The
+    // token goes via env var (same name the MCP reads), so it's not stored as a CLI flag.
+    const opencodeAddCommand = `VISUALIZER_TOKEN=${tokenForCmd} npx -y @apozo/opencode-diagrammer-setup`;
+    // Per-agent values driving the single step-2 block below.
+    const addCommand = agent === 'claude' ? claudeAddCommand : opencodeAddCommand;
 
     function copy(text, key) {
         navigator.clipboard?.writeText(text).catch(() => {});
@@ -309,7 +316,7 @@ export default function DeployedState() {
                     <div className="viz-settings-head">
                         <h3>Connect your agent</h3>
                         <p className="viz-settings-sub">
-                            Register the <code>diagram-state-visualizer</code> MCP in Claude Code, then ask your
+                            Register the <code>diagram-state-visualizer</code> MCP in your agent, then ask your
                             agent to deploy — after each change it reports what it created or removed and a live
                             diagram appears here. Each chat gets its own diagram. No AWS MCP needed; your agent
                             deploys with its own tools and just reports the result.
@@ -383,20 +390,49 @@ export default function DeployedState() {
                         <li className="viz-step">
                             <div className="viz-step-num">2</div>
                             <div className="viz-step-body">
-                                <div className="viz-step-title">Add the MCP to Claude Code</div>
-                                {newToken ? (
-                                    <p className="viz-step-hint">
-                                        Paste the whole command in your terminal. User scope = loaded in every
-                                        session on this machine. <strong>Your new token is already included</strong>{' '}
-                                        in the command below.
-                                    </p>
+                                <div className="viz-step-title viz-step-title-row">
+                                    <span>Add the MCP to your agent</span>
+                                    <select
+                                        className="agent-select"
+                                        value={agent}
+                                        onChange={(e) => setAgent(e.target.value)}
+                                        aria-label="Choose your agent"
+                                    >
+                                        <option value="opencode">opencode</option>
+                                        <option value="claude">Claude Code</option>
+                                    </select>
+                                </div>
+                                {agent === 'opencode' ? (
+                                    newToken ? (
+                                        <p className="viz-step-hint">
+                                            Paste this in your terminal — it installs opencode if needed and writes the
+                                            MCP into <code>~/.config/opencode/opencode.json</code> for you.{' '}
+                                            <strong>Your new token is already included.</strong> Re-running it later only
+                                            refreshes the token.
+                                        </p>
+                                    ) : (
+                                        <p className="viz-step-hint">
+                                            Paste this in your terminal — it installs opencode if needed and writes the
+                                            MCP config for you. Replace <code>{TOKEN_PLACEHOLDER}</code> with your token
+                                            (shown once when generated; if you don't have it,{' '}
+                                            <strong>generate another above</strong>, up to {TOKEN_LIMIT}).
+                                        </p>
+                                    )
                                 ) : (
-                                    <p className="viz-step-hint">
-                                        Paste the command in your terminal (user scope = loaded in every session on
-                                        this machine). Replace <code>{TOKEN_PLACEHOLDER}</code> with your token —
-                                        it's only shown once when generated, so if you don't have it,{' '}
-                                        <strong>generate another above</strong> (up to {TOKEN_LIMIT}).
-                                    </p>
+                                    newToken ? (
+                                        <p className="viz-step-hint">
+                                            Paste the whole command in your terminal. User scope = loaded in every
+                                            session on this machine. <strong>Your new token is already included</strong>{' '}
+                                            in the command below.
+                                        </p>
+                                    ) : (
+                                        <p className="viz-step-hint">
+                                            Paste the command in your terminal (user scope = loaded in every session on
+                                            this machine). Replace <code>{TOKEN_PLACEHOLDER}</code> with your token —
+                                            it's only shown once when generated, so if you don't have it,{' '}
+                                            <strong>generate another above</strong> (up to {TOKEN_LIMIT}).
+                                        </p>
+                                    )
                                 )}
                                 <div className="cmd-block">
                                     <button
@@ -428,16 +464,23 @@ export default function DeployedState() {
 
                     <details className="viz-remove">
                         <summary>Remove the MCP later</summary>
-                        <div className="cmd-block">
-                            <button
-                                type="button"
-                                className={`copy-btn ${copied === 'rm' ? 'is-copied' : ''}`}
-                                onClick={() => copy(removeCommand, 'rm')}
-                            >
-                                {copied === 'rm' ? 'Copied' : 'Copy'}
-                            </button>
-                            <pre className="mcp-snippet">{removeCommand}</pre>
-                        </div>
+                        {agent === 'opencode' ? (
+                            <p className="viz-step-hint">
+                                Delete the <code>diagram-state-visualizer</code> entry under <code>mcp</code> in{' '}
+                                <code>~/.config/opencode/opencode.json</code>.
+                            </p>
+                        ) : (
+                            <div className="cmd-block">
+                                <button
+                                    type="button"
+                                    className={`copy-btn ${copied === 'rm' ? 'is-copied' : ''}`}
+                                    onClick={() => copy(claudeRemoveCommand, 'rm')}
+                                >
+                                    {copied === 'rm' ? 'Copied' : 'Copy'}
+                                </button>
+                                <pre className="mcp-snippet">{claudeRemoveCommand}</pre>
+                            </div>
+                        )}
                     </details>
                 </div>
             )}
