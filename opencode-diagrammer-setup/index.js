@@ -143,7 +143,7 @@ export async function runSetupOpencode(argv) {
     return 0;
 }
 
-// Run when invoked directly as the bin (not when imported by tests).
-if (import.meta.url === `file://${process.argv[1]}`) {
-    runSetupOpencode(process.argv.slice(2)).then((code) => process.exit(code));
-}
+// This module is only ever the CLI entry point (tests import config.js, never this file), so run
+// unconditionally. A guard comparing import.meta.url to process.argv[1] breaks under npx, where the
+// bin is reached through a symlink and the two paths differ — making the command a silent no-op.
+runSetupOpencode(process.argv.slice(2)).then((code) => process.exit(code));

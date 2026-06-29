@@ -1,6 +1,6 @@
 {
   "name": "@apozo/opencode-diagrammer-setup",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "One-shot setup: registers the diagram-state-visualizer MCP in opencode (~/.config/opencode/opencode.json) with your token. Installs opencode if missing. Idempotent — re-running only refreshes the token.",
   "type": "module",
   "bin": {
