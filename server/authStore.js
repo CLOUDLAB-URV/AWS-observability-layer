@@ -20,7 +20,11 @@ import { randomBytes, randomInt, scryptSync, createHash, timingSafeEqual } from 
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PERSIST = path.join(__dirname, 'persistence');
+// Defaults to the app's persistence/ tree. AUTH_PERSIST_DIR overrides it so tests can point at an
+// isolated temp directory instead of touching real data (never set in production).
+const PERSIST = process.env.AUTH_PERSIST_DIR
+    ? path.resolve(process.env.AUTH_PERSIST_DIR)
+    : path.join(__dirname, 'persistence');
 const USERS_FILE = path.join(PERSIST, 'users.json');
 const SESSIONS_DIR = path.join(PERSIST, 'sessions');
 
@@ -28,6 +32,7 @@ const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;   // 30 days
 const CODE_TTL_MS = 10 * 60 * 1000;                // verification code lifetime: 10 min
 const CODE_MAX_ATTEMPTS = 5;                       // wrong tries before a code is burned
 const RESEND_COOLDOWN_MS = 30 * 1000;              // min gap between code sends
+const RESET_TTL_MS = 30 * 60 * 1000;               // password-reset link lifetime: 30 min
 
 function maxUsers() {
     const n = Number.parseInt(process.env.MAX_USERS ?? '', 10);
@@ -219,6 +224,89 @@ export async function verifyLogin(identifier, password) {
     return { user: publicUser(id, map[id]) };
 }
 
+// --- account management -------------------------------------------------------------------
+// Change a logged-in user's password. Verifies the current one first. Returns { ok } or
+// { error:'not_found'|'bad_current' }.
+export function changePassword(userId, currentPassword, newPassword) {
+    return enqueue(async () => {
+        const map = await readUsers();
+        const rec = map[userId];
+        if (!rec) {
+            return { error: 'not_found' };
+        }
+        if (!verifyPassword(currentPassword, rec.passwordHash)) {
+            return { error: 'bad_current' };
+        }
+        rec.passwordHash = hashPassword(newPassword);
+        await writeUsers(map);
+        return { ok: true };
+    });
+}
+
+// Permanently remove a user record. Returns { ok, user } (public shape, for logging) or
+// { error:'not_found' }. Callers are responsible for wiping the user's other data (tokens,
+// diagrams, sessions).
+export function deleteUser(userId) {
+    return enqueue(async () => {
+        const map = await readUsers();
+        const rec = map[userId];
+        if (!rec) {
+            return { error: 'not_found' };
+        }
+        const user = publicUser(userId, rec);
+        delete map[userId];
+        await writeUsers(map);
+        return { ok: true, user };
+    });
+}
+
+// --- password reset (link-based, single-use token) ----------------------------------------
+function freshResetRecord(token) {
+    return { hash: hashCode(token), expiresAt: Date.now() + RESET_TTL_MS };
+}
+
+// Issue a one-time reset token for a VERIFIED account. Returns { token, username, email } or
+// { error:'not_found'|'unverified' }. The route should respond identically either way
+// (anti-enumeration) — the error is only for deciding whether to send the email.
+export function createResetToken(email) {
+    return enqueue(async () => {
+        const map = await readUsers();
+        const id = findIdBy(map, 'emailLower', email);
+        if (!id) {
+            return { error: 'not_found' };
+        }
+        if (!map[id].verified) {
+            return { error: 'unverified' };
+        }
+        const token = randomBytes(32).toString('hex');
+        map[id].reset = freshResetRecord(token);
+        await writeUsers(map);
+        return { token, username: map[id].username, email: map[id].email };
+    });
+}
+
+// Consume a reset token and set a new password. Returns { ok, user } or
+// { error:'invalid'|'expired' }. Single-use: the token is cleared on success.
+export function consumeResetToken(token, newPassword) {
+    return enqueue(async () => {
+        const map = await readUsers();
+        const hash = hashCode(String(token ?? ''));
+        const id = Object.keys(map).find((uid) => map[uid].reset && map[uid].reset.hash === hash);
+        if (!id) {
+            return { error: 'invalid' };
+        }
+        if (Date.now() > map[id].reset.expiresAt) {
+            delete map[id].reset;
+            await writeUsers(map);
+            return { error: 'expired' };
+        }
+        map[id].passwordHash = hashPassword(newPassword);
+        delete map[id].reset;
+        await writeUsers(map);
+        return { ok: true, user: publicUser(id, map[id]) };
+    });
+}
+
 // --- sessions -----------------------------------------------------------------------------
 export async function createSession(userId) {
     const sid = randomBytes(24).toString('hex');
@@ -257,4 +345,27 @@ export async function deleteSession(sid) {
     } catch {
         // already gone
     }
+}
+
+// Delete every session belonging to a user (used when the account is removed so all devices are
+// logged out). Best-effort: missing files / unreadable records are skipped.
+export async function deleteAllSessionsForUser(userId) {
+    let files;
+    try {
+        files = await fs.readdir(SESSIONS_DIR);
+    } catch {
+        return;
+    }
+    await Promise.all(files
+        .filter((f) => f.endsWith('.json'))
+        .map(async (f) => {
+            try {
+                const record = JSON.parse(await fs.readFile(path.join(SESSIONS_DIR, f), 'utf8'));
+                if (record && record.userId === userId) {
+                    await fs.unlink(path.join(SESSIONS_DIR, f)).catch(() => {});
+                }
+            } catch {
+                // unreadable / already gone
+            }
+        }));
 }

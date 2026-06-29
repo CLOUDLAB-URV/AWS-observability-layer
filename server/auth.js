@@ -12,7 +12,8 @@ import crypto from 'node:crypto';
 import * as cookie from 'cookie';
 import * as authStore from './authStore.js';
 import * as tokenStore from './tokenStore.js';
-import { sendVerificationCode, smtpConfigured } from './mailer.js';
+import * as visualizerStore from './visualizerStore.js';
+import { sendVerificationCode, sendPasswordReset, smtpConfigured } from './mailer.js';
 
 const SESSION_COOKIE = 'sid';
 const SESSION_MAX_AGE = 30 * 24 * 60 * 60; // seconds (matches authStore session TTL)
@@ -236,6 +237,99 @@ export function registerRoutes(app) {
             await authStore.deleteSession(sid);
         }
         clearSessionCookie(res);
+        res.json({ ok: true });
+    });
+
+    // Change the logged-in user's password (requires the current one).
+    app.post('/api/auth/password', requireSession, async (req, res) => {
+        const currentPassword = String(req.body?.currentPassword || '');
+        const newPassword = String(req.body?.newPassword || '');
+        if (newPassword.length < 8) {
+            res.status(400).json({ error: 'New password must be at least 8 characters.' });
+            return;
+        }
+        const result = await authStore.changePassword(req.userId, currentPassword, newPassword);
+        if (result.error === 'bad_current') {
+            res.status(400).json({ error: 'Your current password is incorrect.' });
+            return;
+        }
+        if (result.error) {
+            res.status(400).json({ error: 'Could not change the password.' });
+            return;
+        }
+        res.json({ ok: true });
+    });
+
+    // Permanently delete the logged-in user's account and all their data. Confirmation is a
+    // re-typed username + current password.
+    app.delete('/api/auth/account', requireSession, async (req, res) => {
+        const username = String(req.body?.username || '').trim();
+        const password = String(req.body?.password || '');
+        // Re-check both the username (must match the session user) and the password.
+        if (username.toLowerCase() !== String(req.user.username || '').toLowerCase()) {
+            res.status(400).json({ error: 'The username does not match your account.' });
+            return;
+        }
+        const check = await authStore.verifyLogin(username, password);
+        if (check.error || check.user?.userId !== req.userId) {
+            res.status(400).json({ error: 'Your password is incorrect.' });
+            return;
+        }
+        // Wipe everything the user owns, then the account itself.
+        await visualizerStore.deleteAllForUser(req.userId);
+        await tokenStore.revokeAllForUser(req.userId);
+        await authStore.deleteAllSessionsForUser(req.userId);
+        await authStore.deleteUser(req.userId);
+        clearSessionCookie(res);
+        res.json({ ok: true });
+    });
+
+    // Request a password-reset link. Always responds OK (never reveals whether the email exists).
+    app.post('/api/auth/forgot', async (req, res) => {
+        const email = String(req.body?.email || '').trim();
+        if (!EMAIL_RE.test(email)) {
+            res.status(400).json({ error: 'Enter a valid email address.' });
+            return;
+        }
+        const result = await authStore.createResetToken(email);
+        let devResetUrl;
+        if (result.token) {
+            const resetUrl = `${cfg.appUrl() || ''}/reset?token=${result.token}`;
+            try {
+                await sendPasswordReset(email, resetUrl, result.username);
+            } catch (error) {
+                console.error('[mailer] reset send failed', error);
+                res.status(502).json({ error: 'Could not send the email. Try again shortly.' });
+                return;
+            }
+            if (!smtpConfigured()) {
+                devResetUrl = resetUrl;
+            }
+        }
+        res.json({ ok: true, ...(devResetUrl ? { devResetUrl } : {}) });
+    });
+
+    // Complete a password reset with the token from the email link.
+    app.post('/api/auth/reset', async (req, res) => {
+        const token = String(req.body?.token || '').trim();
+        const password = String(req.body?.password || '');
+        if (!token) {
+            res.status(400).json({ error: 'Missing reset token.' });
+            return;
+        }
+        if (password.length < 8) {
+            res.status(400).json({ error: 'Password must be at least 8 characters.' });
+            return;
+        }
+        const result = await authStore.consumeResetToken(token, password);
+        if (result.error === 'expired') {
+            res.status(400).json({ error: 'This reset link has expired. Request a new one.' });
+            return;
+        }
+        if (result.error) {
+            res.status(400).json({ error: 'This reset link is invalid. Request a new one.' });
+            return;
+        }
         res.json({ ok: true });
     });
 

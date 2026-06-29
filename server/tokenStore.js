@@ -136,3 +136,19 @@ export function revoke(userId, id) {
         return true;
     });
 }
+
+// Revoke every token owned by a user (used when the account is deleted). Returns the count
+// removed.
+export function revokeAllForUser(userId) {
+    return enqueue(async () => {
+        const map = await readAll();
+        const tokens = Object.entries(map).filter(([, v]) => v.userId === userId).map(([t]) => t);
+        for (const t of tokens) {
+            delete map[t];
+        }
+        if (tokens.length) {
+            await writeAll(map);
+        }
+        return tokens.length;
+    });
+}

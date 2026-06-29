@@ -5,8 +5,8 @@ import DeployedState from './DeployedState.jsx';
 import ConfirmModal from './ConfirmModal.jsx';
 import { createSocket } from './ws.js';
 import DevPanel from './DevPanel.jsx';
+import UserMenu from './UserMenu.jsx';
 import { useChatPanel } from './hooks/useChatPanel.js';
-import { logout } from './auth.js';
 
 const MODE_LABELS = { preview: 'Preview', deployed: 'Deployed', partial: 'Partial' };
 
@@ -272,17 +272,7 @@ export default function App({ features, user }) {
                 >
                     {connected ? 'connected' : 'reconnecting…'}
                 </span>
-                {user && (
-                    <div className="user-menu" title={user.email || user.username}>
-                        <span className="user-avatar user-avatar-fallback" aria-hidden="true">
-                            {(user.username || user.name || user.email || '?').trim().charAt(0).toUpperCase()}
-                        </span>
-                        <span className="user-name">{user.username || user.name || user.email}</span>
-                        <button type="button" className="logout-btn" onClick={logout} title="Sign out">
-                            Logout
-                        </button>
-                    </div>
-                )}
+                {user && <UserMenu user={user} />}
                 {view === 'design' && (mode === 'preview' || mode === 'partial') && (
                     <button
                         className="deploy-btn"

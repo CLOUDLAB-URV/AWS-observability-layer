@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { register, verify, resend, login } from './auth.js';
+import { register, verify, resend, login, forgotPassword } from './auth.js';
 
-// Full-screen auth gate: Sign in / Create account, plus an email verification step.
-// On success it reloads so main.jsx re-fetches the session and renders the app.
+// Full-screen auth gate: Sign in / Create account, plus an email verification step and a
+// forgot-password request. On success it reloads so main.jsx re-fetches the session and
+// renders the app.
 
 export default function Auth() {
-    const [mode, setMode] = useState('signin'); // 'signin' | 'signup' | 'verify'
+    const [mode, setMode] = useState('signin'); // 'signin' | 'signup' | 'verify' | 'forgot'
     const [identifier, setIdentifier] = useState('');
     const [email, setEmail] = useState('');
     const [username, setUsername] = useState('');
@@ -14,6 +15,9 @@ export default function Auth() {
     const [code, setCode] = useState('');
     const [pendingEmail, setPendingEmail] = useState('');
     const [devCode, setDevCode] = useState('');
+    const [forgotEmail, setForgotEmail] = useState('');
+    const [forgotSent, setForgotSent] = useState(false);
+    const [devResetUrl, setDevResetUrl] = useState('');
     const [error, setError] = useState('');
     const [notice, setNotice] = useState('');
     const [busy, setBusy] = useState(false);
@@ -29,6 +33,18 @@ export default function Auth() {
         setMode(next);
         setError('');
         setNotice('');
+        if (next === 'forgot') { setForgotSent(false); setDevResetUrl(''); }
+    }
+
+    async function onForgot(e) {
+        e.preventDefault();
+        setError(''); setNotice('');
+        setBusy(true);
+        const { ok, data } = await forgotPassword(forgotEmail);
+        setBusy(false);
+        if (!ok) { setError(data.error || 'Could not send the email.'); return; }
+        setDevResetUrl(data.devResetUrl || '');
+        setForgotSent(true);
     }
 
     async function onSignup(e) {
@@ -93,7 +109,7 @@ export default function Auth() {
             <div className="auth-card">
                 <div className="auth-brand">AWS Architect</div>
 
-                {mode !== 'verify' && (
+                {mode !== 'verify' && mode !== 'forgot' && (
                     <div className="auth-tabs" role="tablist">
                         <button type="button" role="tab" aria-selected={mode === 'signin'}
                             className={`auth-tab ${mode === 'signin' ? 'is-active' : ''}`}
@@ -120,6 +136,9 @@ export default function Auth() {
                         <button className="auth-submit" type="submit" disabled={busy}>
                             {busy ? 'Signing in…' : 'Sign in'}
                         </button>
+                        <p className="auth-switch">
+                            <button type="button" className="auth-link" onClick={() => switchMode('forgot')}>Forgot password?</button>
+                        </p>
                         <p className="auth-switch">
                             No account?{' '}
                             <button type="button" className="auth-link" onClick={() => switchMode('signup')}>Create one</button>
@@ -185,7 +204,42 @@ export default function Auth() {
                     </form>
                 )}
 
-                {mode !== 'verify' && notice && !error && <p className="auth-notice">{notice}</p>}
+                {mode === 'forgot' && (
+                    forgotSent ? (
+                        <div className="auth-form">
+                            <p className="auth-verify-lead">
+                                If an account exists for <strong>{forgotEmail}</strong>, we've sent a link to
+                                reset your password. Check your inbox.
+                            </p>
+                            {devResetUrl && (
+                                <p className="auth-dev">Dev mode (no email configured): <a className="auth-link" href={devResetUrl}>open reset link</a></p>
+                            )}
+                            <p className="auth-switch">
+                                <button type="button" className="auth-link" onClick={() => switchMode('signin')}>Back to sign in</button>
+                            </p>
+                        </div>
+                    ) : (
+                        <form className="auth-form" onSubmit={onForgot}>
+                            <p className="auth-verify-lead">
+                                Enter your account email and we'll send you a link to reset your password.
+                            </p>
+                            <label className="auth-field">
+                                <span>Email</span>
+                                <input className="auth-input" type="email" autoComplete="email" autoFocus
+                                    value={forgotEmail} onChange={(e) => setForgotEmail(e.target.value)} required />
+                            </label>
+                            {error && <p className="auth-error">{error}</p>}
+                            <button className="auth-submit" type="submit" disabled={busy}>
+                                {busy ? 'Sending…' : 'Send reset link'}
+                            </button>
+                            <p className="auth-switch">
+                                <button type="button" className="auth-link" onClick={() => switchMode('signin')}>Back to sign in</button>
+                            </p>
+                        </form>
+                    )
+                )}
+
+                {mode !== 'verify' && mode !== 'forgot' && notice && !error && <p className="auth-notice">{notice}</p>}
             </div>
         </div>
     );

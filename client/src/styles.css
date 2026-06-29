@@ -1462,11 +1462,24 @@ body {
 .auth-code-box:focus { outline: none; box-shadow: var(--focus-ring); border-color: var(--border-focus); }
 
 .user-menu {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    margin-left: 4px;
+}
+.user-menu-trigger {
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    margin-left: 4px;
+    padding: 4px 8px 4px 4px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 120ms var(--ease), border-color 120ms var(--ease);
 }
+.user-menu-trigger:hover,
+.user-menu-trigger.is-open { background: var(--surface-raised); border-color: var(--border-default); }
 .user-avatar {
     width: 28px;
     height: 28px;
@@ -1492,16 +1505,81 @@ body {
     text-overflow: ellipsis;
     white-space: nowrap;
 }
-.logout-btn {
-    padding: 5px 10px;
-    font-size: 0.8rem;
-    color: var(--text-secondary);
-    background: transparent;
+.user-menu-caret { color: var(--text-tertiary, var(--text-secondary)); flex: none; }
+
+.user-menu-pop {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    min-width: 220px;
+    background: var(--surface-panel);
     border: 1px solid var(--border-default);
-    border-radius: 6px;
-    cursor: pointer;
+    border-radius: 12px;
+    box-shadow: var(--shadow-lg);
+    padding: 6px;
+    z-index: 1000;
+    animation: user-menu-in 130ms var(--ease) both;
 }
-.logout-btn:hover { color: var(--text-primary); border-color: var(--border-focus); }
+@keyframes user-menu-in {
+    from { opacity: 0; transform: translateY(-4px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+.user-menu-head {
+    padding: 8px 10px 10px;
+    border-bottom: 1px solid var(--border-default);
+    margin-bottom: 6px;
+}
+.user-menu-head-name {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.user-menu-head-email {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    margin-top: 2px;
+}
+.user-menu-item {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 9px 10px;
+    font: inherit;
+    font-size: 0.85rem;
+    color: var(--text-primary);
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 100ms var(--ease), color 100ms var(--ease);
+}
+.user-menu-item:hover { background: var(--surface-raised); }
+.user-menu-item-danger { color: #f87171; }
+.user-menu-item-danger:hover { background: rgba(248, 113, 113, 0.12); color: #f87171; }
+.user-menu-sep {
+    height: 1px;
+    background: var(--border-default);
+    margin: 6px 4px;
+}
+
+/* Modal forms (change password / delete account) reuse the .modal-* shell. */
+.modal-form { display: flex; flex-direction: column; gap: 14px; }
+.modal-field { display: flex; flex-direction: column; gap: 6px; }
+.modal-field > span { font-size: 0.8rem; color: var(--text-secondary); }
+.modal-field > span strong { color: var(--text-primary); font-weight: 600; }
+.modal-form .modal-actions { margin-top: 4px; }
+.modal-confirm-primary { background: var(--white); color: var(--ink-900); }
+.modal-confirm-primary:hover:not(:disabled) { opacity: 0.9; }
+.modal-confirm-primary:disabled { opacity: 0.55; cursor: not-allowed; }
+.modal-confirm-danger { background: #ef4444; color: #fff; }
+.modal-confirm-danger:hover:not(:disabled) { background: #dc2626; }
+.modal-confirm-danger:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* ---------------------------------------------------------------------------
    opencode bottom drawer (VS Code panel style)

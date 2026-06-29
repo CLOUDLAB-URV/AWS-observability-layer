@@ -33,6 +33,24 @@ export const resend = (email) => postJson('/api/auth/resend', { email });
 
 export const login = ({ identifier, password }) => postJson('/api/auth/login', { identifier, password });
 
+export const changePassword = ({ currentPassword, newPassword }) =>
+    postJson('/api/auth/password', { currentPassword, newPassword });
+
+export const forgotPassword = (email) => postJson('/api/auth/forgot', { email });
+
+export const resetPassword = ({ token, password }) => postJson('/api/auth/reset', { token, password });
+
+export async function deleteAccount({ username, password }) {
+    const res = await fetch('/api/auth/account', {
+        method: 'DELETE',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ username, password })
+    });
+    let data = {};
+    try { data = await res.json(); } catch { /* empty body */ }
+    return { ok: res.ok, status: res.status, data };
+}
+
 export async function logout() {
     try {
         await fetch('/api/auth/logout', { method: 'POST' });
