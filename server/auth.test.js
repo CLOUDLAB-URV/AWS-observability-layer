@@ -3,6 +3,7 @@
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { authEnabled, _internal } from './auth.js';
+import { DEV } from './persistence.js';
 
 const { sign, unsign } = _internal;
 const ORIGINAL = { ...process.env };
@@ -10,15 +11,17 @@ afterEach(() => {
     process.env = { ...ORIGINAL };
 });
 
-test('authEnabled is on by default and off only when AUTH_DISABLED is truthy', () => {
+test('authEnabled defaults to prod-on / dev-off, and AUTH_DISABLED overrides either way', () => {
+    // DEV is fixed at import (NODE_ENV at load): off in local dev, on in production.
     delete process.env.AUTH_DISABLED;
-    assert.equal(authEnabled(), true);
+    assert.equal(authEnabled(), !DEV);
 
+    // Explicit override beats the default in both directions.
     process.env.AUTH_DISABLED = 'true';
     assert.equal(authEnabled(), false);
 
     process.env.AUTH_DISABLED = 'false';
-    assert.equal(authEnabled(), true, 'false means auth stays on');
+    assert.equal(authEnabled(), true, 'false means auth stays on, even in dev');
 });
 
 test('signed value round-trips and rejects tampering', () => {

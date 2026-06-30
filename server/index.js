@@ -23,6 +23,7 @@ import * as visualizerStore from './visualizerStore.js';
 import * as tokenStore from './tokenStore.js';
 import { features } from './features.js';
 import * as auth from './auth.js';
+import { DEV, persistRoot, DEV_USER_ID, DEV_TOKEN } from './persistence.js';
 import { runStateViz, suggestSessionName } from './agents/stateviz/index.js';
 
 const PORT = Number(process.env.PORT || 3001);
@@ -34,8 +35,8 @@ const PORT = Number(process.env.PORT || 3001);
 
 const app = express();
 app.use(express.json({ limit: '5mb' }));
-// Google OAuth login + session endpoints (/api/auth/*, /api/me). No-op auth when GOOGLE_*
-// creds are absent (local dev): requests resolve to the owner as a "dev" user.
+// Internal login + session endpoints (/api/auth/*, /api/me). Auth is off in local dev: requests
+// resolve to an ephemeral "dev" user (see auth.js / persistence.js), so no login screen appears.
 auth.registerRoutes(app);
 const server = http.createServer(app);
 // Two WebSocket endpoints on one HTTP server: '/ws' (legacy design flow) and
@@ -404,10 +405,20 @@ app.post('/api/projects', designGate, async (req, res) => {
 // Token management for the web UI, scoped to the logged-in user (the MCP uses these tokens to
 // push deployments into that user's space).
 app.get('/api/tokens', agentGate, requireSession, async (req, res) => {
+    // Local dev: no generated tokens — expose the fixed env token + local URL so the web can show a
+    // ready-to-paste MCP config that targets this local server.
+    if (DEV) {
+        res.json({ dev: true, devToken: DEV_TOKEN, visualizerUrl: `http://localhost:${PORT}`, tokens: [] });
+        return;
+    }
     res.json({ tokens: await tokenStore.list(req.userId) });
 });
 
 app.post('/api/tokens', agentGate, requireSession, async (req, res) => {
+    if (DEV) {
+        res.status(403).json({ error: 'Token generation is disabled in local dev — the MCP uses the DEV_VISUALIZER_TOKEN env var.' });
+        return;
+    }
     const result = await tokenStore.create(req.userId, String(req.body?.label || ''));
     if (result.error === 'limit') {
         res.status(409).json({ error: `Token limit reached (max ${result.max}). Revoke one first.`, max: result.max });
@@ -419,6 +430,10 @@ app.post('/api/tokens', agentGate, requireSession, async (req, res) => {
 
 // Revoke one of the user's tokens by its non-secret id.
 app.delete('/api/tokens/:id', agentGate, requireSession, async (req, res) => {
+    if (DEV) {
+        res.status(403).json({ error: 'Token management is disabled in local dev.' });
+        return;
+    }
     const ok = await tokenStore.revoke(req.userId, req.params.id);
     if (!ok) {
         res.status(404).json({ error: 'Token not found.' });
@@ -465,4 +480,8 @@ app.get('/api/config', (_req, res) => {
 await store.initProject();
 server.listen(PORT, () => {
     console.log(`aws-architect-web server listening on http://127.0.0.1:${PORT} (ws path /ws)`);
+    if (DEV && !auth.authEnabled()) {
+        console.log(`[dev] login disabled — fixed local user ${DEV_USER_ID}; data persists in ${persistRoot()} (durable)`);
+        console.log(`[dev] MCP token: set VISUALIZER_TOKEN=${DEV_TOKEN} VISUALIZER_URL=http://localhost:${PORT}`);
+    }
 });

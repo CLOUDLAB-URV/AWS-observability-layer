@@ -4,13 +4,16 @@
 // node:crypto + the `cookie` dep for signed session cookies, reusing the file-based session store
 // in authStore.js. (Google OAuth was removed.)
 //
-// Auth is ON by default. Set AUTH_DISABLED=true to run open locally: requests resolve to a single
-// "dev" user (the machine owner) so the app works with no login.
+// Auth is ON in production and OFF in local dev (NODE_ENV unset → see persistence.js DEV). In dev
+// the login system is bypassed entirely: every request resolves to a single ephemeral "dev" user
+// whose data lives only for the session (persistence.js routes the stores to a throwaway temp dir).
+// AUTH_DISABLED overrides the default either way (e.g. AUTH_DISABLED=false to test login in dev).
 
 import process from 'node:process';
 import crypto from 'node:crypto';
 import * as cookie from 'cookie';
 import * as authStore from './authStore.js';
+import { DEV, DEV_USER_ID } from './persistence.js';
 import * as tokenStore from './tokenStore.js';
 import * as visualizerStore from './visualizerStore.js';
 import { sendVerificationCode, sendPasswordReset, smtpConfigured } from './mailer.js';
@@ -24,7 +27,13 @@ const cfg = {
 };
 
 export function authEnabled() {
-    return !/^(1|true|yes|on)$/i.test(String(process.env.AUTH_DISABLED || '').trim());
+    // Explicit override wins, in either direction (lets you force login on in dev, or off in prod).
+    const flag = String(process.env.AUTH_DISABLED ?? '').trim();
+    if (flag !== '') {
+        return !/^(1|true|yes|on)$/i.test(flag);
+    }
+    // Default: ON in production, OFF in local dev (ephemeral no-login profile).
+    return !DEV;
 }
 
 function isSecure() {
@@ -70,8 +79,8 @@ function clearSessionCookie(res) {
 // --- session resolution (HTTP + WS share this) --------------------------------------------
 export async function resolveUser(req) {
     if (!authEnabled()) {
-        const userId = await tokenStore.getOwnerUserId();
-        return { userId, email: 'dev@localhost', username: 'dev', name: 'Local dev', dev: true };
+        // Fixed dev identity (no disk read): the env-var MCP token resolves to this same userId.
+        return { userId: DEV_USER_ID, email: 'dev@localhost', username: 'dev', name: 'Local dev', dev: true };
     }
     const signed = readCookies(req)[SESSION_COOKIE];
     const sid = signed ? unsign(signed) : null;

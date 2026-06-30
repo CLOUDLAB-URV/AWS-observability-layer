@@ -12,10 +12,9 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { persistRoot } from './persistence.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const ROOT = path.join(__dirname, 'persistence', 'design');
+const ROOT = path.join(persistRoot(), 'design');
 
 const DEFAULT_PROJECT_ID = 'default';
 

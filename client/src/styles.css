@@ -1318,6 +1318,15 @@ body {
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 .cmd-block { position: relative; max-width: 620px; }
+/* Label above each command block when dev shows both configs at once. */
+.cmd-label {
+    margin: 12px 0 4px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+.cmd-label:first-of-type { margin-top: 0; }
+.cmd-label-sub { font-weight: 400; color: var(--text-muted); }
 .copy-btn {
     position: absolute;
     top: 8px;

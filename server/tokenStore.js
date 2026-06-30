@@ -4,11 +4,11 @@
 // tool authenticates its uploads with a Bearer token the user generates in the web
 // UI; this maps token → { id, userId, label, createdAt }.
 //
-// Identity model: every credential resolves to a REAL userId. A logged-in user
-// generates tokens that map to their own userId; with auth off (local dev) the
-// single "dev" user is the persisted owner (persistence/owner.json). There is no
-// shared env token — the only way to authenticate is a token generated in the UI,
-// so every token is tied to the user who created it.
+// Identity model: every credential resolves to a REAL userId. In production a logged-in user
+// generates tokens (stored here) that map to their own userId. In local dev there is NO generated
+// store: auth is off, generation is disabled, and the only valid token is the fixed env-var one
+// (DEV_VISUALIZER_TOKEN) which maps to the single fixed dev user (see persistence.js) — so the MCP
+// works out of the box with nothing persisted.
 //
 // The full token secret is only ever returned once (at create time); afterwards the
 // UI only sees a masked preview and a non-secret `id` it can use to revoke. Each user
@@ -17,11 +17,10 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
-import { fileURLToPath } from 'node:url';
+import { persistRoot, DEV, DEV_USER_ID, DEV_TOKEN } from './persistence.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const TOKENS_FILE = path.join(__dirname, 'persistence', 'tokens.json');
-const OWNER_FILE = path.join(__dirname, 'persistence', 'owner.json');
+const TOKENS_FILE = path.join(persistRoot(), 'tokens.json');
+const OWNER_FILE = path.join(persistRoot(), 'owner.json');
 
 // Max API tokens a single user may hold at once.
 export const MAX_TOKENS_PER_USER = 3;
@@ -76,6 +75,11 @@ export async function verify(token) {
     if (!t) {
         return null;
     }
+    // Local dev: the only valid token is the fixed env-var one, mapped to the fixed dev user.
+    // There is no generated-token store in dev (generation is disabled), so don't read the file.
+    if (DEV) {
+        return t === DEV_TOKEN ? { userId: DEV_USER_ID, label: 'local dev (env)' } : null;
+    }
     const map = await readAll();
     const entry = map[t];
     return entry ? { userId: entry.userId, label: entry.label } : null;
@@ -91,6 +95,10 @@ export async function countForUser(userId) {
 // { token, id } on success, or { error: 'limit', max } when the cap is reached.
 // The full `token` is the only time the secret is exposed.
 export function create(userId, label = '') {
+    if (DEV) {
+        // No generated tokens in local dev — the MCP uses the fixed DEV_VISUALIZER_TOKEN.
+        return Promise.resolve({ error: 'dev_disabled' });
+    }
     return enqueue(async () => {
         const owner = userId || (await getOwnerUserId());
         const map = await readAll();
@@ -125,6 +133,9 @@ export async function list(userId) {
 // Revoke a token by its non-secret id, scoped to the owner so a user can only ever
 // delete their own tokens. Returns true if one was removed.
 export function revoke(userId, id) {
+    if (DEV) {
+        return Promise.resolve(false);
+    }
     return enqueue(async () => {
         const map = await readAll();
         const entry = Object.entries(map).find(([, v]) => v.userId === userId && v.id === id);
