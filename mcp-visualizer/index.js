@@ -48,7 +48,7 @@ let activeChatId = process.env.VISUALIZER_CHAT_ID || randomUUID();
 // Upload a batch of incremental changes for a chat to the visualizer backend
 // ({ ok, text, data }). `nameHint` is an optional name hint for a brand-new session
 // (the backend otherwise auto-names it); `chatId` is the storage key.
-async function pushChanges(nameHint, changes, chatId) {
+async function pushChanges(nameHint, changes, chatId, deployed) {
     if (!TOKEN) {
         return { ok: false, text: 'VISUALIZER_TOKEN is not set. Generate a token in the web UI and add it to this MCP server config.' };
     }
@@ -58,7 +58,7 @@ async function pushChanges(nameHint, changes, chatId) {
             method: 'POST',
             headers: { 'content-type': 'application/json', authorization: `Bearer ${TOKEN}` },
             // `project` is the backend's name-hint field (kept for wire-compat).
-            body: JSON.stringify({ project: nameHint, changes })
+            body: JSON.stringify({ project: nameHint, changes, ...(typeof deployed === 'boolean' ? { deployed } : {}) })
         });
     } catch (error) {
         return { ok: false, text: `Could not reach the visualizer backend at ${BACKEND_URL}: ${error?.message || error}` };
@@ -111,35 +111,46 @@ const changeSchema = z
 server.registerTool(
     'push_deployment',
     {
-        title: 'Report deployed AWS changes to the visualizer',
+        title: 'Add resources to the architecture diagram (design or live)',
         description:
-            'Report what you changed in AWS so the live architecture diagram updates. Call this ' +
-            'ONCE at the END of every deployment or modification you make in this chat, sending ' +
-            'ONLY the DELTA — the resources that are new or changed, not the whole stack. Use ' +
-            '`op:"upsert"` for resources you created or modified (include all their detail), and ' +
-            '`op:"delete"` (just `type` + `id`) for resources you removed. ALWAYS include the ' +
-            'relationships between services in `connections` (which resource each one talks to, ' +
-            'with protocol and port) and containment in `vpc`/`subnet`, because the diagram draws ' +
-            'those edges. The backend keeps the full, authoritative state by merging your changes ' +
-            'onto what it already has — you only ever report the delta. Example: after creating ' +
-            '3 EC2s, send 3 upserts; if the user later asks to remove one, send a single delete. ' +
-            'The session is named automatically from the architecture (the user can rename it in ' +
-            'the web UI), so you do not need to pass a name. By default the changes go to THIS ' +
-            'session\'s diagram (a fresh diagram id per session); if you previously called ' +
-            'load_chat, they merge onto that loaded diagram instead.',
+            'Add/modify resources on the architecture diagram, sending ONLY the DELTA — the ' +
+            'resources that are new or changed, not the whole stack. Use `op:"upsert"` for ' +
+            'resources to create or modify (include all their detail), and `op:"delete"` (just ' +
+            '`type` + `id`) for removed ones. ALWAYS include the relationships in `connections` ' +
+            '(which resource each one talks to, with protocol and port) and containment in ' +
+            '`vpc`/`subnet`, because the diagram draws those edges. The backend keeps the full ' +
+            'authoritative state by merging your changes.\n\n' +
+            'A diagram is EITHER "Design" (a sketch — NOTHING is created in AWS) OR "Live" ' +
+            '(the resources really exist in AWS). It is never a mix of both. Control this with ' +
+            '`deployed`:\n' +
+            '  • Omit it (default) → a brand-new diagram is a DESIGN. Use this to draft an ' +
+            'architecture the user can review in the web before anything is deployed. When the ' +
+            'user is happy, call `deploy_diagram` to actually deploy it.\n' +
+            '  • `deployed:true` → you ACTUALLY created these in AWS already (direct deploy, no ' +
+            'design step). The diagram is Live from the start.\n' +
+            'On an existing diagram, `deployed` must match its current mode (the backend rejects a ' +
+            'mismatch) — you cannot add design-only resources to a Live diagram or vice-versa. ' +
+            'After `deploy_diagram`, a diagram is Live, so keep the SAME resource ids and upsert ' +
+            'them with the real ARNs/ids and `state`.\n\n' +
+            'The session is auto-named from the architecture (the user can rename it). By default ' +
+            'changes go to THIS session\'s diagram; if you called load_chat, they merge onto that one.',
         inputSchema: {
             project: z
                 .string()
                 .optional()
                 .describe('Optional name hint for a brand-new session. Leave unset — the backend auto-names it from the architecture.'),
             changes: z.array(changeSchema).describe('The resources that changed in this step (upsert/delete each).'),
+            deployed: z
+                .boolean()
+                .optional()
+                .describe('Diagram mode. Omit for a DESIGN sketch (nothing created in AWS — the default for a new diagram). Set true only if you ACTUALLY created these resources in AWS. Must match the diagram\'s existing mode.'),
             chat: z
                 .string()
                 .optional()
                 .describe('Optional: target an explicit chat id (e.g. one from load_chat). Defaults to this session\'s chat — leave unset for normal use.')
         }
     },
-    async ({ project, changes, chat }) => {
+    async ({ project, changes, chat, deployed }) => {
         if (!TOKEN) {
             return { isError: true, content: [{ type: 'text', text: 'VISUALIZER_TOKEN is not set. Generate a token in the web UI and add it to this MCP server config.' }] };
         }
@@ -148,25 +159,96 @@ server.registerTool(
         }
 
         const chatId = chat || activeChatId;
-        const result = await pushChanges(project, changes, chatId);
+        const result = await pushChanges(project, changes, chatId, deployed);
         if (!result.ok) {
             return { isError: true, content: [{ type: 'text', text: result.text }] };
         }
 
         // The backend returns the session name (auto-assigned for a new session).
         const name = result.data?.name || project || '(unnamed)';
+        const mode = result.data?.deployed ? 'LIVE (deployed to AWS)' : 'DESIGN (not deployed — a sketch)';
         const upserts = changes.filter((c) => c.op !== 'delete').length;
         const deletes = changes.length - upserts;
         const lines = changes.map((c) =>
             c.op === 'delete' ? `− delete ${c.type} ${c.id}` : `+ upsert ${c.type} ${c.id}`
         );
+        const nextHint = result.data?.deployed
+            ? ''
+            : '\n\nThis diagram is a DESIGN — nothing is created in AWS yet. When the user approves it, call deploy_diagram to deploy it.';
         return {
             content: [
                 {
                     type: 'text',
-                    text: `Reported ${changes.length} change(s) for "${name}" (chat ${chatId}): ${upserts} upsert, ${deletes} delete.\n\n` +
+                    text: `Reported ${changes.length} change(s) for "${name}" (chat ${chatId}) — mode: ${mode}: ${upserts} upsert, ${deletes} delete.\n\n` +
                         `${lines.join('\n')}\n\n` +
-                        `Live diagram updated at ${WEB_URL} (Deployed state → chat ${chatId.slice(0, 8)} · ${name}).`
+                        `Diagram updated at ${WEB_URL} (Deployed state → chat ${chatId.slice(0, 8)} · ${name}).${nextHint}`
+                }
+            ]
+        };
+    }
+);
+
+server.registerTool(
+    'deploy_diagram',
+    {
+        title: 'Deploy a design diagram to AWS',
+        description:
+            'Deploy the current DESIGN diagram to AWS. Call this when the user has reviewed the ' +
+            'design in the web and wants it built for real. This does NOT create resources by ' +
+            'itself — the visualizer has no AWS access. It marks the diagram as Live and returns ' +
+            'the full resource spec; then YOU must create each resource in AWS using your own AWS ' +
+            'tools (CLI/SDK), in dependency order (VPC → subnets/security groups → compute → data ' +
+            'stores → wiring). As you create each one, call push_deployment (op:"upsert") with the ' +
+            'SAME resource id it has in the design, filling in the real ARN/InstanceId in `arn`/' +
+            '`details` and the live `state` — keep the id stable so the node is enriched, not ' +
+            'duplicated. Do not add anything that is not in the spec. Only works on a DESIGN diagram ' +
+            '(a Live one is already deployed).',
+        inputSchema: {
+            chat: z
+                .string()
+                .optional()
+                .describe('Optional chat id to deploy. Defaults to this session\'s active diagram.'),
+            resources: z
+                .array(z.record(z.any()))
+                .optional()
+                .describe('Optional: the diagram detail JSON you have in context. Ignored if it differs — the backend\'s stored state is the source of truth and is returned to you.')
+        }
+    },
+    async ({ chat }) => {
+        if (!TOKEN) {
+            return { isError: true, content: [{ type: 'text', text: 'VISUALIZER_TOKEN is not set. Generate a token in the web UI and add it to this MCP server config.' }] };
+        }
+        const chatId = chat || activeChatId;
+        let response;
+        try {
+            response = await fetch(`${BACKEND_URL}/api/chats/${encodeURIComponent(chatId)}/deploy`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json', authorization: `Bearer ${TOKEN}` }
+            });
+        } catch (error) {
+            return { isError: true, content: [{ type: 'text', text: `Could not reach the visualizer backend at ${BACKEND_URL}: ${error?.message || error}` }] };
+        }
+        const text = await response.text();
+        if (!response.ok) {
+            return { isError: true, content: [{ type: 'text', text: `Deploy failed (HTTP ${response.status}): ${text}` }] };
+        }
+        let data = {};
+        try {
+            data = JSON.parse(text);
+        } catch {
+            // fall through with empty data
+        }
+        const resources = Array.isArray(data.resources) ? data.resources : [];
+        const name = data.name || '(unnamed)';
+        return {
+            content: [
+                {
+                    type: 'text',
+                    text: `Diagram "${name}" (chat ${chatId}) is now marked LIVE. NOTHING has been created in AWS yet — ` +
+                        `that is YOUR job now. Create the ${resources.length} resource(s) below in AWS with your own tools, ` +
+                        `in dependency order, then call push_deployment (op:"upsert") for each with the SAME id, adding the ` +
+                        `real ARN/id in \`arn\`/\`details\` and the live \`state\`. Do not add resources that are not in this spec.\n\n` +
+                        `Spec to deploy:\n${JSON.stringify(resources, null, 2)}`
                 }
             ]
         };
@@ -253,20 +335,23 @@ server.registerTool(
         const data = await response.json();
         const resources = Array.isArray(data.resources) ? data.resources : [];
         const resolvedName = data.name || match.name || '(unnamed)';
+        const isLive = data.deployed === true;
         // Adopt the diagram so follow-up changes apply onto it.
         activeChatId = match.chatId;
+        const modeLine = isLive
+            ? `This diagram is LIVE: the ${resources.length} resource(s) below are ACTUALLY deployed in AWS right now ` +
+              `(real IDs/ARNs, state and relationships). Report changes with push_deployment and they merge onto this live state.`
+            : `This diagram is a DESIGN: the ${resources.length} resource(s) below are a sketch — NOTHING exists in AWS yet. ` +
+              `Keep refining it with push_deployment; when the user approves, call deploy_diagram to deploy it.`;
         return {
             content: [
                 {
                     type: 'text',
                     text: `Loaded the diagram "${resolvedName}" (chat ${match.chatId}). ` +
-                        `THIS is now the ONLY active architecture in AWS and the only valid context. ` +
-                        `The ${resources.length} resource(s) below are what is ACTUALLY deployed right now ` +
-                        `(real IDs/ARNs, state and relationships). From now on, EVERYTHING the user asks ` +
-                        `refers EXCLUSIVELY to this architecture; any architecture worked on earlier in this ` +
-                        `session belongs to a different diagram and must be ignored. Report changes with ` +
-                        `push_deployment and they will merge onto this state (it already targets this diagram).\n\n` +
-                        `Current deployed resources:\n${JSON.stringify(resources, null, 2)}`
+                        `THIS is now the ONLY active architecture and the only valid context. ${modeLine} ` +
+                        `From now on, EVERYTHING the user asks refers EXCLUSIVELY to this architecture; any ` +
+                        `architecture worked on earlier in this session belongs to a different diagram and must be ignored.\n\n` +
+                        `Current resources:\n${JSON.stringify(resources, null, 2)}`
                 }
             ]
         };
@@ -297,7 +382,7 @@ server.registerTool(
             return { content: [{ type: 'text', text: 'No previous diagrams yet.' }] };
         }
         const lines = listed.chats.map(
-            (c) => `• ${c.name || '(unnamed)'}${c.updatedAt ? ` (updated ${c.updatedAt})` : ''} — id ${c.chatId}`
+            (c) => `• ${c.name || '(unnamed)'} [${c.deployed ? 'LIVE' : 'DESIGN'}]${c.updatedAt ? ` (updated ${c.updatedAt})` : ''} — id ${c.chatId}`
         );
         return {
             content: [

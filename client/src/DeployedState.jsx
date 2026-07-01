@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import Diagram from './Diagram.jsx';
+import ResourceDetail from './ResourceDetail.jsx';
 import McpGuide from './McpGuide.jsx';
 import { createSocket } from './ws.js';
 
@@ -32,6 +33,12 @@ export default function DeployedState() {
     const [showDetails, setShowDetails] = useState(false);
     const [editingName, setEditingName] = useState(false);
     const [agent, setAgent] = useState('opencode'); // 'opencode' | 'claude'
+    // Live resource inventory for the selected chat (powers per-service tooltips + the detail
+    // panel), and the resource the user clicked in the diagram.
+    const [resources, setResources] = useState([]);
+    const [selectedResource, setSelectedResource] = useState(null);
+    // Mode of the selected diagram: true = "Live" (deployed to AWS), false = "Design" (a sketch).
+    const [deployed, setDeployed] = useState(false);
     const socketRef = useRef(null);
 
     useEffect(() => {
@@ -47,10 +54,37 @@ export default function DeployedState() {
     useEffect(() => {
         setSvg('');
         setRenderError(null);
+        setSelectedResource(null);
         if (connected && chatId) {
             socketRef.current?.send({ type: 'subscribe', chatId });
         }
     }, [connected, chatId]);
+
+    // Keep the resource inventory in sync with the selected chat: reload on chat change and
+    // whenever a new diagram arrives (a push changed the deployed state). Reconcile the open
+    // detail panel against the fresh data (update it, or close it if the resource is gone).
+    useEffect(() => {
+        if (!chatId) {
+            setResources([]);
+            setDeployed(false);
+            return;
+        }
+        let cancelled = false;
+        (async () => {
+            try {
+                const res = await fetch(`/api/chats/${encodeURIComponent(chatId)}`);
+                const data = await res.json();
+                if (cancelled) return;
+                const list = Array.isArray(data.resources) ? data.resources : [];
+                setResources(list);
+                setDeployed(data.deployed === true);
+                setSelectedResource((cur) => (cur ? list.find((r) => r.id === cur.id) || null : null));
+            } catch {
+                if (!cancelled) setResources([]);
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [chatId, svg]);
 
     // Keep the rename field in sync with the selected chat's current name, and leave
     // edit mode whenever the selected chat changes.
@@ -240,7 +274,7 @@ export default function DeployedState() {
                         <option value="">{chats.length ? 'Select a chat…' : 'No chats yet'}</option>
                         {chats.map((c) => (
                             <option key={c.chatId} value={c.chatId}>
-                                {chatLabel(c)}
+                                {`${c.deployed ? '● ' : '○ '}${chatLabel(c)}`}
                             </option>
                         ))}
                     </select>
@@ -259,6 +293,17 @@ export default function DeployedState() {
                         </svg>
                     </button>
                 </div>
+                {chatId && (
+                    <span
+                        className={`badge ${deployed ? 'badge-deployed' : 'badge-preview'}`}
+                        title={deployed
+                            ? 'Live — these resources are deployed in AWS'
+                            : 'Design — a sketch; nothing is deployed to AWS yet'}
+                        aria-label={`Diagram mode: ${deployed ? 'Live, deployed to AWS' : 'Design, not deployed'}`}
+                    >
+                        {deployed ? 'Live' : 'Design'}
+                    </span>
+                )}
                 {chatId && (
                     <button
                         type="button"
@@ -311,6 +356,17 @@ export default function DeployedState() {
                                 <button type="button" className="link-btn" onClick={startRename}>Rename</button>
                             </span>
                         )}
+                    </div>
+                    <div className="chat-details-row">
+                        <label>Mode</label>
+                        <span className="chat-details-value chat-details-inline">
+                            <span className={`badge ${deployed ? 'badge-deployed' : 'badge-preview'}`}>
+                                {deployed ? 'Live' : 'Design'}
+                            </span>
+                            <span className="chat-details-mode-hint">
+                                {deployed ? 'Deployed to AWS' : 'Not deployed — a design sketch'}
+                            </span>
+                        </span>
                     </div>
                     <div className="chat-details-row">
                         <label>Created</label>
@@ -590,7 +646,21 @@ export default function DeployedState() {
 
             <section className="diagram-section" aria-label="Deployed architecture diagram">
                 {svg ? (
-                    <Diagram svg={svg} renderError={renderError} />
+                    <>
+                        <Diagram
+                            svg={svg}
+                            renderError={renderError}
+                            resources={resources}
+                            selectedId={selectedResource?.id}
+                            onSelectResource={setSelectedResource}
+                        />
+                        {selectedResource && (
+                            <ResourceDetail
+                                resource={selectedResource}
+                                onClose={() => setSelectedResource(null)}
+                            />
+                        )}
+                    </>
                 ) : (
                     <div className="diagram-empty">
                         {chatId ? (

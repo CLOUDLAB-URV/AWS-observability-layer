@@ -43,7 +43,9 @@ async function _doRender(diagramText) {
 }
 
 // Strip the XML declaration (invalid inside HTML) and inject explicit width/height
-// from the viewBox so the SVG has an intrinsic size for CSS layout.
+// from the viewBox so the SVG has an intrinsic size for CSS layout. Also drop D2's
+// full-canvas background rect (the theme's neutral `fill-N7` fill) so the diagram is
+// transparent and the app's dark gridded canvas shows through behind it.
 function prepareSvgForEmbed(svg) {
     let s = svg.replace(/^<\?xml[^?]*\?>\s*/i, '');
     s = s.replace(
@@ -52,6 +54,9 @@ function prepareSvgForEmbed(svg) {
             before.includes('width=') ? m
             : `<svg${before}viewBox="0 0 ${w} ${h}" width="${w}" height="${h}"`
     );
+    // Remove the first full-canvas background rect (class "… fill-N7"). D2 emits exactly one,
+    // right after the opening defs, as the diagram's solid background.
+    s = s.replace(/<rect\b[^>]*\bclass="[^"]*\bfill-N7\b[^"]*"[^>]*\/>/, '');
     return s;
 }
 

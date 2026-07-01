@@ -1,8 +1,31 @@
 import { useEffect, useRef, useCallback } from 'react';
 
-export default function Diagram({ svg, renderError }) {
+// Mirror of the sanitization the stateviz prompt applies to a resource id when it becomes a D2
+// node id, so we can match a rendered SVG node back to its resource. Keep both in lockstep.
+function sanitizeId(value) {
+    return String(value ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+}
+
+// D2 (v0.7.0) tags each shape's outer <g> with class = base64(full node path), e.g.
+// "YXdzLmxhbWJkYQ==" → "aws.lambda". Decode it; return the node path, or null for the connection
+// groups (whose decoded text contains "(" / "->") and anything that isn't a clean dotted path.
+function decodeNodePath(cls) {
+    if (!cls || /\s/.test(cls) || !/^[A-Za-z0-9+/=]+$/.test(cls)) {
+        return null;
+    }
+    let decoded;
+    try {
+        decoded = atob(cls);
+    } catch {
+        return null;
+    }
+    return /^[A-Za-z0-9_.]+$/.test(decoded) ? decoded : null;
+}
+
+export default function Diagram({ svg, renderError, resources = [], onSelectResource, selectedId }) {
     const stageRef = useRef(null);
     const canvasRef = useRef(null);
+    const tooltipRef = useRef(null);
     // `userAdjusted` tracks whether the user has manually panned/zoomed. While false,
     // the diagram stays auto-fit & centered (and refits on stage resize); once the
     // user interacts we leave their view alone.
@@ -153,6 +176,100 @@ export default function Diagram({ svg, renderError }) {
         return () => { cancelAnimationFrame(id1); cancelAnimationFrame(id2); };
     }, [svg, applyTransform, fitToScreen]);
 
+    // Wire per-service interactivity onto the freshly embedded SVG: hover tooltip, hover/selected
+    // highlight, and click → open the detail panel. Re-runs whenever the SVG, the resource
+    // inventory, or the selection changes. Matches each D2 node (by its base64 path class) to a
+    // resource via the sanitized id; connection groups and containers simply never match.
+    useEffect(() => {
+        const canvas = canvasRef.current;
+        const tip = tooltipRef.current;
+        if (!canvas || !svg) return;
+        const svgEl = canvas.querySelector('svg');
+        if (!svgEl) return;
+
+        const byId = new Map();
+        for (const r of resources) {
+            const key = sanitizeId(r.id);
+            if (key) byId.set(key, r);
+        }
+
+        const showTip = (resource, event) => {
+            if (!tip) return;
+            const region = resource.region ? ` · ${resource.region}` : '';
+            const state = resource.state ? ` · ${resource.state}` : '';
+            tip.innerHTML = '';
+            const title = document.createElement('div');
+            title.className = 'svc-tip-title';
+            title.textContent = resource.name || resource.id || resource.type || 'Resource';
+            const meta = document.createElement('div');
+            meta.className = 'svc-tip-meta';
+            meta.textContent = `${resource.type || 'resource'}${region}${state}`;
+            tip.append(title, meta);
+            tip.classList.add('is-visible');
+            moveTip(event);
+        };
+        const moveTip = (event) => {
+            if (!tip) return;
+            const stage = stageRef.current;
+            const rect = stage.getBoundingClientRect();
+            let x = event.clientX - rect.left + 14;
+            let y = event.clientY - rect.top + 14;
+            // Keep the card inside the stage.
+            x = Math.min(x, rect.width - tip.offsetWidth - 8);
+            y = Math.min(y, rect.height - tip.offsetHeight - 8);
+            tip.style.transform = `translate(${Math.max(8, x)}px, ${Math.max(8, y)}px)`;
+        };
+        const hideTip = () => tip && tip.classList.remove('is-visible');
+
+        const cleanups = [];
+        const groups = svgEl.querySelectorAll('g[class]');
+        groups.forEach((g) => {
+            const path = decodeNodePath(g.getAttribute('class'));
+            if (!path) return;
+            const resource = byId.get(path.split('.').pop());
+            if (!resource) return;
+
+            g.classList.add('svc-node');
+            if (selectedId && sanitizeId(resource.id) === sanitizeId(selectedId)) {
+                g.classList.add('svc-selected');
+            }
+
+            let down = null;
+            const onEnter = (e) => showTip(resource, e);
+            const onMove = (e) => moveTip(e);
+            const onLeave = () => hideTip();
+            const onDown = (e) => { down = { x: e.clientX, y: e.clientY }; };
+            const onUp = (e) => {
+                if (!down) return;
+                const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y);
+                down = null;
+                if (moved < 6 && onSelectResource) {
+                    e.stopPropagation();
+                    hideTip();
+                    onSelectResource(resource);
+                }
+            };
+            g.addEventListener('mouseenter', onEnter);
+            g.addEventListener('mousemove', onMove);
+            g.addEventListener('mouseleave', onLeave);
+            g.addEventListener('pointerdown', onDown);
+            g.addEventListener('pointerup', onUp);
+            cleanups.push(() => {
+                g.classList.remove('svc-node', 'svc-selected');
+                g.removeEventListener('mouseenter', onEnter);
+                g.removeEventListener('mousemove', onMove);
+                g.removeEventListener('mouseleave', onLeave);
+                g.removeEventListener('pointerdown', onDown);
+                g.removeEventListener('pointerup', onUp);
+            });
+        });
+
+        return () => {
+            hideTip();
+            cleanups.forEach((fn) => fn());
+        };
+    }, [svg, resources, selectedId, onSelectResource]);
+
     const zoomIn = () => {
         const stage = stageRef.current;
         if (!stage) return;
@@ -222,6 +339,8 @@ export default function Diagram({ svg, renderError }) {
             <span className="stage-kb-hint" aria-hidden="true">
                 ↑↓←→ pan · +/- zoom · 0 fit
             </span>
+
+            <div ref={tooltipRef} className="svc-tooltip" role="tooltip" aria-hidden="true" />
         </div>
     );
 }

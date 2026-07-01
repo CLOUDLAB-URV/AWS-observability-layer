@@ -304,13 +304,31 @@ app.post('/api/chats/:chatId/deployments', agentGate, requireToken, async (req, 
     // An agent-supplied label is only a hint for a brand-new session; the name is
     // otherwise auto-assigned by the backend and editable from the web.
     const nameHint = visualizerStore.sanitizeName(req.body?.project) || '';
+    // Optional diagram mode: true = the resources are ALREADY live in AWS (direct
+    // deploy), false = a design sketch (nothing created). Only meaningful for a
+    // brand-new diagram; on an existing one it must match (a diagram is Design XOR
+    // Live, never mixed).
+    const wantDeployed = typeof req.body?.deployed === 'boolean' ? req.body.deployed : undefined;
 
     try {
-        // Is this a new session? (no name yet) — decide BEFORE the merge seeds meta.
+        // Read the current mode/name BEFORE the merge seeds meta.
         const priorMeta = await visualizerStore.readMeta(req.userId, chatId);
+        const exists = Boolean(priorMeta.createdAt);
         const isNewSession = !(priorMeta.name || priorMeta.project);
 
-        const resources = await visualizerStore.applyChanges(req.userId, chatId, changes, nameHint);
+        // Enforce the "never mixed" invariant: pushing resources of the wrong mode
+        // into an existing diagram is rejected.
+        if (exists && wantDeployed !== undefined && wantDeployed !== priorMeta.deployed) {
+            res.status(409).json({
+                error: `This diagram is ${priorMeta.deployed ? 'Live (deployed to AWS)' : 'Design (not deployed)'}. ` +
+                    `A diagram can't mix deployed and non-deployed resources — ` +
+                    `${priorMeta.deployed ? 'report only live resources here' : 'deploy it first with deploy_diagram'}.`
+            });
+            return;
+        }
+        const deployed = exists ? priorMeta.deployed : wantDeployed === true;
+
+        const resources = await visualizerStore.applyChanges(req.userId, chatId, changes, nameHint, deployed);
 
         // Auto-name a new session from its architecture when no hint was provided.
         let name = nameHint || priorMeta.name || priorMeta.project || '';
@@ -325,7 +343,7 @@ app.post('/api/chats/:chatId/deployments', agentGate, requireToken, async (req, 
         const d2 = await runStateViz(req.userId, chatId);
         const { svg, error } = await renderDiagramSvg(d2);
         broadcastToChat(req.userId, chatId, { type: 'render-svg', svg, renderError: error });
-        res.json({ ok: true, chat: chatId, name, changes: changes.length, resources: resources.length, rendered: Boolean(svg) });
+        res.json({ ok: true, chat: chatId, name, deployed, changes: changes.length, resources: resources.length, rendered: Boolean(svg) });
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         console.error('[deployment ingest failed]', error);
@@ -341,9 +359,10 @@ app.get('/api/chats', agentGate, requireSessionOrToken, async (req, res) => {
 });
 
 // Full context for one chat: name + current deployed-state resources + current D2.
-// Used by the MCP's load_chat so the agent can resume knowing what already exists
-// (real IDs/ARNs) before sending its next delta of changes.
-app.get('/api/chats/:chatId', agentGate, requireToken, async (req, res) => {
+// Used by the MCP's load_chat (Bearer token) so the agent can resume knowing what already exists
+// (real IDs/ARNs); also by the web UI (session cookie) to power per-service tooltips and the
+// resource detail panel. Dual auth so both reach it, scoped to the caller's user.
+app.get('/api/chats/:chatId', agentGate, requireSessionOrToken, async (req, res) => {
     const chatId = visualizerStore.sanitizeChatId(req.params.chatId);
     if (!chatId) {
         res.status(400).json({ error: 'Invalid chat id.' });
@@ -354,7 +373,34 @@ app.get('/api/chats/:chatId', agentGate, requireToken, async (req, res) => {
         visualizerStore.readState(req.userId, chatId),
         visualizerStore.readDiagram(req.userId, chatId)
     ]);
-    res.json({ chat: chatId, name: meta.name || meta.project || '', resources: Object.values(state), d2 });
+    res.json({ chat: chatId, name: meta.name || meta.project || '', deployed: meta.deployed === true, resources: Object.values(state), d2 });
+});
+
+// Transition a diagram from "Design" to "Live": mark it deployed and hand the caller
+// the full resource spec to actually create in AWS. The MCP's deploy_diagram tool
+// calls this; the coding agent then provisions with its own AWS tools and re-reports
+// real ids via push_deployment. Bearer-token auth like the ingest route.
+app.post('/api/chats/:chatId/deploy', agentGate, requireToken, async (req, res) => {
+    const chatId = visualizerStore.sanitizeChatId(req.params.chatId);
+    if (!chatId) {
+        res.status(400).json({ error: 'Invalid chat id.' });
+        return;
+    }
+    const [meta, state] = await Promise.all([
+        visualizerStore.readMeta(req.userId, chatId),
+        visualizerStore.readState(req.userId, chatId)
+    ]);
+    const resources = Object.values(state);
+    if (!meta.createdAt || resources.length === 0) {
+        res.status(404).json({ error: 'No such diagram (or it is empty) — nothing to deploy.' });
+        return;
+    }
+    if (meta.deployed) {
+        res.status(409).json({ error: 'This diagram is already Live (deployed to AWS).' });
+        return;
+    }
+    await visualizerStore.setDeployed(req.userId, chatId, true);
+    res.json({ ok: true, chat: chatId, name: meta.name || meta.project || '', deployed: true, resources });
 });
 
 // Rename a session. Hit by the web UI same-origin (owner user) to override the

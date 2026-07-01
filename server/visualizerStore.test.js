@@ -1,0 +1,59 @@
+'use strict';
+
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+
+// visualizerStore resolves its storage root from persistRoot() at import time, so point
+// PERSIST_DIR at an isolated temp dir BEFORE importing it (never touch the real persistence/).
+const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'vizstore-test-'));
+process.env.PERSIST_DIR = tmp;
+const store = await import('./visualizerStore.js');
+
+const USER = 'usr_test';
+const upsert = (id) => ({ op: 'upsert', type: 's3', id, name: id });
+
+test('a new diagram defaults to Design (deployed:false)', async () => {
+    await store.applyChanges(USER, 'design1', [upsert('a')]);
+    const meta = await store.readMeta(USER, 'design1');
+    assert.equal(meta.deployed, false);
+});
+
+test('deployed:true seeds a Live diagram, and later pushes preserve the flag', async () => {
+    await store.applyChanges(USER, 'live1', [upsert('a')], undefined, true);
+    assert.equal((await store.readMeta(USER, 'live1')).deployed, true);
+
+    // A follow-up push without an explicit flag must NOT flip the mode.
+    await store.applyChanges(USER, 'live1', [upsert('b')]);
+    assert.equal((await store.readMeta(USER, 'live1')).deployed, true);
+});
+
+test('initialDeployed only seeds on creation, never flips an existing Design diagram', async () => {
+    await store.applyChanges(USER, 'design2', [upsert('a')]); // created as Design
+    await store.applyChanges(USER, 'design2', [upsert('b')], undefined, true); // late true ignored
+    assert.equal((await store.readMeta(USER, 'design2')).deployed, false);
+});
+
+test('setDeployed transitions Design → Live and renameSession preserves the mode', async () => {
+    await store.applyChanges(USER, 'design3', [upsert('a')]);
+    await store.setDeployed(USER, 'design3', true);
+    assert.equal((await store.readMeta(USER, 'design3')).deployed, true);
+
+    const meta = await store.renameSession(USER, 'design3', 'My stack');
+    assert.equal(meta.name, 'My stack');
+    assert.equal(meta.deployed, true, 'rename must not drop the deployed flag');
+});
+
+test('listChats reports each diagram mode', async () => {
+    const chats = await store.listChats(USER);
+    const byId = Object.fromEntries(chats.map((c) => [c.chatId, c.deployed]));
+    assert.equal(byId.design1, false);
+    assert.equal(byId.live1, true);
+    assert.equal(byId.design3, true);
+});
+
+test.after(async () => {
+    await fs.rm(tmp, { recursive: true, force: true });
+});
