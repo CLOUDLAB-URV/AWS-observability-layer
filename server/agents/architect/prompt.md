@@ -86,8 +86,8 @@ Common mappings: ALB/NLB → `aws-elb`; SES/email → `aws-ses`; Aurora → `aws
   - ❌ WRONG: `client -> cloudfront`, `cloudfront -> alb`, `alb -> vpc.ec2` — these are unqualified.
 - **WHY THIS MATTERS (the #1 bug):** D2 silently creates a brand-new EMPTY box for any path that doesn't match a defined node. So writing `cloudfront` (instead of `aws.cloudfront`) does NOT connect to your CloudFront service — it spawns a separate, icon-less box labeled "cloudfront" floating outside the AWS Cloud, while your real service sits unconnected inside. That is the "extra boxes with raw text" failure. The arrow must land on the actual service node, not a phantom.
 - **Before returning, verify every connection:** for each `A -> B`, confirm that BOTH `A` and `B` are spelled EXACTLY as a node's full path that appears in your definitions above. If a path isn't defined, fix the path — never let D2 invent a node.
-- **Connection labels** MUST show protocol and port (or the action for async flows). Draw EVERY arrow the SAME way — a light stroke with a legible light-grey label — so the diagram stays in harmony on the dark canvas (no per-protocol colors):
-  - `{ style.stroke: "#e6edf3"; style.stroke-width: 2; style.font-color: "#c9d1d9"; style.font-size: 15 }` with a short label, e.g. `"HTTPS :443"`, `"TCP :5432"`, `"SSH :22"`, `"Event"`, `"SQS poll"`, `"gRPC :50051"`.
+- **Connection labels** MUST show protocol and port (or the action for async flows). Draw EVERY arrow the SAME way — a light stroke with a legible light-grey label sitting on a dark pill (`style.fill: "#0d1117"`, which hides the line behind the text so labels never collide with the arrows or each other) — so the diagram stays clean and in harmony on the dark canvas (no per-protocol colors):
+  - `{ style.stroke: "#e6edf3"; style.stroke-width: 2; style.font-color: "#c9d1d9"; style.font-size: 17; style.fill: "#0d1117" }` with a short label, e.g. `"HTTPS :443"`, `"TCP :5432"`, `"SSH :22"`, `"Event"`, `"SQS poll"`, `"gRPC :50051"`.
   - Add source CIDR in the label when it restricts access: `"SSH :22\n10.0.0.0/8"`.
 - Keep labels concise so ELK can route cleanly; one short label per connection.
 - Do NOT draw Security Groups, AMIs, Route Tables, ENIs, NAT Gateways, or Internet Gateways as boxes.
@@ -158,10 +158,10 @@ aws: "AWS Cloud (us-east-1)" {
   }
 }
 
-client -> aws.cloudfront: "HTTPS :443\n0.0.0.0/0" { style.stroke: "#e6edf3"; style.stroke-width: 2; style.font-color: "#c9d1d9"; style.font-size: 15 }
-aws.cloudfront -> aws.alb: "HTTPS :443" { style.stroke: "#e6edf3"; style.stroke-width: 2; style.font-color: "#c9d1d9"; style.font-size: 15 }
-aws.alb -> aws.vpc.ec2: "HTTP :8080" { style.stroke: "#e6edf3"; style.stroke-width: 2; style.font-color: "#c9d1d9"; style.font-size: 15 }
-aws.vpc.ec2 -> aws.data.rds: "TCP :5432" { style.stroke: "#e6edf3"; style.stroke-width: 2; style.font-color: "#c9d1d9"; style.font-size: 15 }
+client -> aws.cloudfront: "HTTPS :443\n0.0.0.0/0" { style.stroke: "#e6edf3"; style.stroke-width: 2; style.font-color: "#c9d1d9"; style.font-size: 17; style.fill: "#0d1117" }
+aws.cloudfront -> aws.alb: "HTTPS :443" { style.stroke: "#e6edf3"; style.stroke-width: 2; style.font-color: "#c9d1d9"; style.font-size: 17; style.fill: "#0d1117" }
+aws.alb -> aws.vpc.ec2: "HTTP :8080" { style.stroke: "#e6edf3"; style.stroke-width: 2; style.font-color: "#c9d1d9"; style.font-size: 17; style.fill: "#0d1117" }
+aws.vpc.ec2 -> aws.data.rds: "TCP :5432" { style.stroke: "#e6edf3"; style.stroke-width: 2; style.font-color: "#c9d1d9"; style.font-size: 17; style.fill: "#0d1117" }
 ```
 
 ### OUTPUT FORMAT (STRICT)
