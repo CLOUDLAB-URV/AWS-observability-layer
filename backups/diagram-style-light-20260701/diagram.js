@@ -34,9 +34,7 @@ async function _doRender(diagramText) {
         // tighter, more compact placement than dagre — much cleaner for the
         // left-to-right AWS architecture diagrams this app produces.
         const compiled = await d2.compile(text, { layout: 'elk' });
-        // themeID 200 = "Dark Mumford": dark defaults so labels and edges are light on the
-        // app's dark canvas. Node/container fills are still set explicitly by the prompts.
-        const rawSvg = await d2.render(compiled.diagram, { ...compiled.renderOptions, themeID: 200 });
+        const rawSvg = await d2.render(compiled.diagram, { ...compiled.renderOptions, themeID: 4 });
         const svgStr = typeof rawSvg === 'string' ? rawSvg : String(rawSvg);
         return { svg: prepareSvgForEmbed(svgStr), error: null };
     } catch (error) {

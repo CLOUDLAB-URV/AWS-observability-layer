@@ -34,48 +34,34 @@ Rendered with the **ELK layout engine, left-to-right**.
 - Order declarations along the request lifecycle (entry → compute → data).
 - Node labels are a **single short service name** (see "SERVICE NODE LABELS" below). Never a second `\n` detail line.
 
-### D2 STYLE RULES — DARK CANVAS (keep this exact visual style)
+### D2 STYLE RULES (keep this exact visual style)
 
-The diagram renders on a **dark canvas**. Use dark, tinted container fills, bright AWS icons with **no card**, light labels and light arrows — everything must read cleanly and stay in harmony on dark.
-
-- **Grouping is allowed and encouraged WHEN it clarifies.** Beyond `aws` (the cloud boundary) and `aws.vpc`, you MAY create **semantic groups** — by tier/purpose/subnet, e.g. `edge`, `compute`, `data`, `messaging` — as colored containers, each with a DISTINCT accent color, to separate the architecture visually. Do not over-group: only add a group when it genuinely makes the picture clearer, keep nesting shallow (`aws` → group → nodes), and NEVER create a group that holds a single node.
-- **Accent palette for groups** (border = accent, fill = its dark tint, label uses the accent via `font-color`), give each a short label like `"COMPUTE"`, `"DATA"`, `"MESSAGING"`:
-  - blue `#3b82f6` / fill `#0f1d33` · green `#22c55e` / fill `#0e2417` · amber `#f59e0b` / fill `#2a1f06` · red `#ef4444` / fill `#2a1113` · purple `#a855f7` / fill `#1e1233` · cyan `#06b6d4` / fill `#07222b`
-  ```
-  aws.compute: "COMPUTE" {
-    style.fill: "#2a1113"; style.stroke: "#ef4444"; style.stroke-width: 2; style.border-radius: 10; style.font-color: "#fca5a5"
-  }
-  ```
+- **STRICT: No tier sub-containers.** Services sit flat inside `aws` or `aws.vpc`. NEVER create extra grouping boxes like `routing_tier`, `data_tier`, `compute`, `az_a`. At most two container levels: `aws` (AWS Cloud) and `aws.vpc` (VPC).
 - **External client** (internet / end-user), only if the deployment is publicly reachable:
   ```
-  client: "Internet" { shape: person; style.fill: "#1f6feb"; style.stroke: "#58a6ff"; style.stroke-width: 2 }
+  client: "Internet" { shape: person; style.fill: "#dbeafe"; style.stroke: "#3b82f6"; style.stroke-width: 2 }
   ```
-- **AWS Cloud boundary** (outer dark panel; include region in label when known):
+- **AWS Cloud boundary** (single dashed container; include region in label when known):
   ```
   aws: "AWS Cloud (us-east-1)" {
-    style.fill: "#0d1117"; style.stroke: "#30363d"; style.stroke-width: 2; style.border-radius: 12; style.font-color: "#e6edf3"
+    style.fill: "#fafbff"; style.stroke: "#6366f1"; style.stroke-width: 1; style.stroke-dash: 6; style.border-radius: 10
   }
   ```
-- **VPC boundary** (purple accent; only when VPC-bound resources exist; include CIDR in label when known):
+- **VPC boundary** (only when VPC-bound resources exist; include CIDR in label when known):
   ```
   aws.vpc: "VPC 10.0.0.0/16" {
-    style.fill: "#171226"; style.stroke: "#a855f7"; style.stroke-width: 2; style.stroke-dash: 3; style.border-radius: 10; style.font-color: "#c4b5fd"
+    style.fill: "#f0fdf4"; style.stroke: "#22c55e"; style.stroke-width: 1; style.stroke-dash: 4; style.border-radius: 8
   }
   ```
-- **Service nodes** — the AWS icon ONLY (no card, no box) with a **single-word service label** under it (see below). Use `shape: image` with the icon, add NO fill/stroke, and ALWAYS set a bright label so the name is clearly legible on the dark canvas: `style.font-color: "#f0f6fc"` and `style.font-size: 18`:
+- **Service nodes** — white background, rounded corners, AWS icon + a **single-word service label** (see below). No instance types, versions, bucket names, ids or ARNs on the node:
   ```
   aws.lambda: "Lambda" {
-    shape: image
     icon: "https://api.iconify.design/logos:aws-lambda.svg"
-    style.font-color: "#f0f6fc"
-    style.font-size: 18
+    shape: rectangle
+    style.fill: "#ffffff"; style.stroke: "#e2e8f0"; style.stroke-width: 1; style.border-radius: 8
   }
   ```
-  A service with NO verified icon slug (see the ICONS list) is a small dark box instead — never guess a slug:
-  ```
-  aws.thing: "Service" { style.fill: "#161b22"; style.stroke: "#30363d"; style.stroke-width: 1; style.border-radius: 6; style.font-color: "#e6edf3" }
-  ```
-- **VALID style properties ONLY**: `style.fill`, `style.stroke`, `style.stroke-width` (an INTEGER 0–15 — never `1.5`), `style.stroke-dash`, `style.border-radius`, `style.font-color`, `style.font-size`, `style.opacity`, and `shape: image`. NEVER use `style.bold`, `label.p`, or `tooltip`.
+- **VALID style properties ONLY**: `style.fill`, `style.stroke`, `style.stroke-width`, `style.stroke-dash`, `style.border-radius`, `style.font-size`, `style.opacity`. NEVER use `style.bold`, `label.p`, or `tooltip`.
 
 ### SERVICE NODE LABELS (keep them clean — this is the #1 style rule)
 
@@ -93,15 +79,8 @@ The web UI makes each service clickable and shows its **live details on hover/cl
 - `i-0a1b2c3d4e5f` → `i_0a1b2c3d4e5f`
 - `my-app-bucket` → `my_app_bucket`
 - `orders-db.cluster-abc123` → `orders_db_cluster_abc123`
-- `OrdersTable` → `orderstable` (only lowercase — do NOT split camelCase; there is no separator, so no `_`)
 
-The sanitized id is the key written **before** the `:` and the quoted label. The label stays short (as above) — long ids only affect the id, never the label. Containers keep their fixed ids (`aws`, `aws.vpc`, and any semantic group). Connections must then reference these sanitized ids via full paths (e.g. `aws.edge.myapp_frontend -> aws.orders_fn`). Two resources never share an id, so ids stay unique.
-
-The node id must be the sanitized resource id **character-for-character** — it powers the click-to-inspect match, and any deviation breaks it. In particular:
-- Do NOT add the service type as a prefix: resource `events-stream` → id `events_stream`, NOT `kinesis_events_stream`.
-- Do NOT split a word that has no separator: resource `myapp-frontend` → id `myapp_frontend` (one `_`, from the hyphen only), NOT `my_app_frontend`.
-- Do NOT split camelCase: `OrdersTable` → `orderstable`, NOT `orders_table`.
-Putting a node inside a semantic group is fine — the id is unchanged; only its full path gains the group prefix (`aws.<group>.<id>`).
+The sanitized id is the key written **before** the `:` and the quoted label. The label stays short (as above) — long ids only affect the id, never the label. Containers keep their fixed ids (`aws`, `aws.vpc`). Connections must then reference these sanitized ids via full paths (e.g. `aws.i_0a1b2c3d4e5f -> aws.my_app_bucket`). Two resources never share an id, so ids stay unique.
 
 ### ICONS — USE ONLY THESE VERIFIED SLUGS
 
@@ -127,8 +106,13 @@ Common mappings: ALB/NLB → `aws-elb`; Aurora → `aws-aurora`; Fargate task �
   - ❌ `client -> api_gateway`, `lambda -> rds` (unqualified — D2 silently spawns empty phantom boxes).
 - **WHY THIS MATTERS (the #1 bug):** D2 silently creates a brand-new EMPTY box for any path that doesn't match a defined node, so an unqualified name spawns a separate, icon-less box outside the AWS Cloud while your real service sits unconnected. The arrow must land on the actual service node.
 - Before returning, verify every `A -> B`: both endpoints must be the exact full path of a node you defined.
-- **Connection labels** show protocol and port (or the action for async). Draw EVERY arrow the SAME way — a light stroke with a legible light-grey label — so the diagram stays in harmony on the dark canvas (no per-protocol colors):
-  - `{ style.stroke: "#e6edf3"; style.stroke-width: 2; style.font-color: "#c9d1d9"; style.font-size: 15 }` with a short label, e.g. `"HTTPS :443"`, `"TCP :5432"`, `"SSH :22"`, `"Event"`, `"SQS poll"`, `"gRPC :50051"`.
+- **Connection labels** show protocol and port (or the action for async). Color encodes flow type:
+  - Public / HTTPS → `style.stroke: "#3b82f6"; style.stroke-width: 2` — `"HTTPS :443"`
+  - SSH admin → `style.stroke: "#f97316"; style.stroke-width: 2` — `"SSH :22"`
+  - Internal DB → `style.stroke: "#7c3aed"; style.stroke-width: 2` — `"TCP :5432"`
+  - Async / event → `style.stroke: "#059669"; style.stroke-width: 2` — `"Event"` / `"SQS poll"`
+  - Dead-letter / failure → `style.stroke: "#ef4444"; style.stroke-width: 2` — `"after 3 fails"`
+  - gRPC → `style.stroke: "#0891b2"; style.stroke-width: 2` — `"gRPC :50051"`
 - Keep labels concise so ELK can route cleanly; one short label per connection.
 - Do NOT draw Security Groups, AMIs, Route Tables, ENIs, NAT/Internet Gateways as boxes.
 - Keep diagrams **minimal**: draw only the resources in the inventory and the connections it states — fewer, well-connected nodes render far cleaner.
@@ -140,60 +124,54 @@ direction: right
 
 client: "Internet" {
   shape: person
-  style.fill: "#1f6feb"
-  style.stroke: "#58a6ff"
+  style.fill: "#dbeafe"
+  style.stroke: "#3b82f6"
   style.stroke-width: 2
 }
 
 aws: "AWS Cloud (us-east-1)" {
-  style.fill: "#0d1117"
-  style.stroke: "#30363d"
-  style.stroke-width: 2
-  style.border-radius: 12
-  style.font-color: "#e6edf3"
+  style.fill: "#fafbff"
+  style.stroke: "#6366f1"
+  style.stroke-width: 1
+  style.stroke-dash: 6
+  style.border-radius: 10
 
   app_alb: "ALB" {
-    shape: image
     icon: "https://api.iconify.design/logos:aws-elb.svg"
-    style.font-color: "#f0f6fc"
-    style.font-size: 18
+    shape: rectangle
+    style.fill: "#ffffff"
+    style.stroke: "#e2e8f0"
+    style.border-radius: 8
   }
 
   vpc: "VPC 10.0.0.0/16" {
-    style.fill: "#171226"
-    style.stroke: "#a855f7"
-    style.stroke-width: 2
-    style.stroke-dash: 3
-    style.border-radius: 10
-    style.font-color: "#c4b5fd"
+    style.fill: "#f0fdf4"
+    style.stroke: "#22c55e"
+    style.stroke-width: 1
+    style.stroke-dash: 4
+    style.border-radius: 8
 
     i_0a1b2c3d4e5f: "EC2" {
-      shape: image
       icon: "https://api.iconify.design/logos:aws-ec2.svg"
-      style.font-color: "#f0f6fc"
-      style.font-size: 18
+      shape: rectangle
+      style.fill: "#ffffff"
+      style.stroke: "#e2e8f0"
+      style.border-radius: 8
     }
   }
 
-  data: "DATA" {
-    style.fill: "#0e2417"
-    style.stroke: "#22c55e"
-    style.stroke-width: 2
-    style.border-radius: 10
-    style.font-color: "#86efac"
-
-    orders_db: "RDS" {
-      shape: image
-      icon: "https://api.iconify.design/logos:aws-rds.svg"
-      style.font-color: "#f0f6fc"
-      style.font-size: 18
-    }
+  orders_db: "RDS" {
+    icon: "https://api.iconify.design/logos:aws-rds.svg"
+    shape: rectangle
+    style.fill: "#ffffff"
+    style.stroke: "#e2e8f0"
+    style.border-radius: 8
   }
 }
 
-client -> aws.app_alb: "HTTPS :443" { style.stroke: "#e6edf3"; style.stroke-width: 2; style.font-color: "#c9d1d9"; style.font-size: 15 }
-aws.app_alb -> aws.vpc.i_0a1b2c3d4e5f: "HTTP :8080" { style.stroke: "#e6edf3"; style.stroke-width: 2; style.font-color: "#c9d1d9"; style.font-size: 15 }
-aws.vpc.i_0a1b2c3d4e5f -> aws.data.orders_db: "TCP :5432" { style.stroke: "#e6edf3"; style.stroke-width: 2; style.font-color: "#c9d1d9"; style.font-size: 15 }
+client -> aws.app_alb: "HTTPS :443" { style.stroke: "#3b82f6"; style.stroke-width: 2 }
+aws.app_alb -> aws.vpc.i_0a1b2c3d4e5f: "HTTP :8080" { style.stroke: "#3b82f6"; style.stroke-width: 2 }
+aws.vpc.i_0a1b2c3d4e5f -> aws.orders_db: "TCP :5432" { style.stroke: "#7c3aed"; style.stroke-width: 2 }
 ```
 
 ### OUTPUT FORMAT (STRICT)
@@ -201,4 +179,4 @@ aws.vpc.i_0a1b2c3d4e5f -> aws.data.orders_db: "TCP :5432" { style.stroke: "#e6ed
 - **Declare ALL connections at the TOP LEVEL**, after the closing `}` of the `aws` block — never inside a container. Use full paths (`aws.x -> aws.y`), exactly like the example above.
 - **Do NOT write comments.** No `//` lines and no `#` lines — output only valid D2 declarations. (`//` is not a D2 comment and breaks the renderer.) If nothing is deployed, output a single line: `# No deployed resources found`.
 
-Output a line containing exactly `===D2===`, followed by the COMPLETE D2 code and NOTHING else — raw D2 only, no markdown fences, no commentary before or after. Re-check before returning: (a) any semantic group is justified (clarifies the picture, holds ≥2 nodes) and has ≥2 accent-colored siblings distinct from `aws`/`aws.vpc`, (b) every connection endpoint is the full, exact path of a defined node (including any group prefix, e.g. `aws.data.orders_db`), (c) no comment lines anywhere, (d) every service label is a single clean service name (no ids, versions, sizes, names or `\n` detail lines), and (e) every `style.stroke-width` is an integer.
+Output a line containing exactly `===D2===`, followed by the COMPLETE D2 code and NOTHING else — raw D2 only, no markdown fences, no commentary before or after. Re-check before returning: (a) no extra grouping containers (only `aws` and `aws.vpc`), (b) every connection endpoint is the full, exact path of a defined node, (c) no comment lines anywhere, and (d) every service label is a single clean service name (no ids, versions, sizes, names or `\n` detail lines).
