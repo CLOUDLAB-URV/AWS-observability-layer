@@ -3,6 +3,7 @@ import Diagram from './Diagram.jsx';
 import ResourceDetail from './ResourceDetail.jsx';
 import McpGuide from './McpGuide.jsx';
 import { createSocket } from './ws.js';
+import { renderMarkdown } from './markdown.jsx';
 
 const TOKEN_LIMIT = 3;
 const TOKEN_PLACEHOLDER = 'viz_your_token_here';
@@ -39,6 +40,12 @@ export default function DeployedState() {
     const [selectedResource, setSelectedResource] = useState(null);
     // Mode of the selected diagram: true = "Live" (deployed to AWS), false = "Design" (a sketch).
     const [deployed, setDeployed] = useState(false);
+    // On-demand Markdown explanation of the whole diagram: the saved payload (or null),
+    // whether it is stale (diagram changed since it was generated), the side panel's
+    // open state, and whether a (re)generation request is in flight.
+    const [explanation, setExplanation] = useState(null); // { markdown, outdated } | null
+    const [showExplanation, setShowExplanation] = useState(false);
+    const [explaining, setExplaining] = useState(false);
     const socketRef = useRef(null);
 
     useEffect(() => {
@@ -67,6 +74,7 @@ export default function DeployedState() {
         if (!chatId) {
             setResources([]);
             setDeployed(false);
+            setExplanation(null);
             return;
         }
         let cancelled = false;
@@ -81,6 +89,18 @@ export default function DeployedState() {
                 setSelectedResource((cur) => (cur ? list.find((r) => r.id === cur.id) || null : null));
             } catch {
                 if (!cancelled) setResources([]);
+            }
+        })();
+        // Load the saved explanation (if any). Re-runs on [chatId, svg], so when a push
+        // changes the diagram the `outdated` flag refreshes without calling the LLM.
+        (async () => {
+            try {
+                const res = await fetch(`/api/chats/${encodeURIComponent(chatId)}/explanation`);
+                const data = await res.json();
+                if (cancelled) return;
+                setExplanation(data.markdown ? { markdown: data.markdown, outdated: data.outdated === true } : null);
+            } catch {
+                if (!cancelled) setExplanation(null);
             }
         })();
         return () => { cancelled = true; };
@@ -199,6 +219,30 @@ export default function DeployedState() {
         setEditingName(true);
     }
 
+    // Open the explanation panel; the button toggles it. Opening is a plain view action
+    // (no LLM); generating happens via the CTA inside the panel.
+    function toggleExplanation() {
+        setShowExplanation((v) => !v);
+    }
+
+    // (Re)generate the diagram explanation. The backend evolves the previous one, so an
+    // update after a diagram change is incremental (adds only what changed).
+    async function generateExplanation() {
+        if (!chatId || explaining) return;
+        setExplaining(true);
+        try {
+            const res = await fetch(`/api/chats/${encodeURIComponent(chatId)}/explanation`, { method: 'POST' });
+            const data = await res.json();
+            if (res.ok && data.markdown) {
+                setExplanation({ markdown: data.markdown, outdated: false });
+            }
+        } catch {
+            // ignore — the panel keeps showing the previous explanation (if any)
+        } finally {
+            setExplaining(false);
+        }
+    }
+
     function cancelRename() {
         setRenameValue(selectedChat?.name || '');
         setEditingName(false);
@@ -312,6 +356,18 @@ export default function DeployedState() {
                         aria-expanded={showDetails}
                     >
                         Details
+                    </button>
+                )}
+                {chatId && (
+                    <button
+                        type="button"
+                        className="explain-btn"
+                        onClick={toggleExplanation}
+                        aria-expanded={showExplanation}
+                        title="Explain this diagram component by component"
+                    >
+                        📖 Explain
+                        {explanation?.outdated && <span className="explain-dot" aria-hidden="true" />}
                     </button>
                 )}
                 <span className={`conn ${connected ? 'conn-on' : 'conn-off'}`} role="status">
@@ -659,6 +715,53 @@ export default function DeployedState() {
                                 resource={selectedResource}
                                 onClose={() => setSelectedResource(null)}
                             />
+                        )}
+                        {showExplanation && (
+                            <aside className="explanation-panel" aria-label="Diagram explanation">
+                                <div className="rd-header">
+                                    <h2>Diagram explanation</h2>
+                                    <button
+                                        type="button"
+                                        className="rd-close"
+                                        onClick={() => setShowExplanation(false)}
+                                        aria-label="Close explanation"
+                                    >
+                                        ✕
+                                    </button>
+                                </div>
+                                <div className="explanation-body">
+                                    {explanation?.markdown ? (
+                                        <>
+                                            {explanation.outdated && (
+                                                <div className="explain-stale">
+                                                    <span>The diagram changed since this was written.</span>
+                                                    <button
+                                                        type="button"
+                                                        className="explain-cta"
+                                                        onClick={generateExplanation}
+                                                        disabled={explaining}
+                                                    >
+                                                        {explaining ? 'Updating…' : 'Update explanation'}
+                                                    </button>
+                                                </div>
+                                            )}
+                                            <div className="md-body">{renderMarkdown(explanation.markdown)}</div>
+                                        </>
+                                    ) : (
+                                        <div className="explain-empty">
+                                            <p>No explanation yet for this diagram.</p>
+                                            <button
+                                                type="button"
+                                                className="explain-cta"
+                                                onClick={generateExplanation}
+                                                disabled={explaining}
+                                            >
+                                                {explaining ? 'Generating…' : 'Generate explanation'}
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            </aside>
                         )}
                     </>
                 ) : (

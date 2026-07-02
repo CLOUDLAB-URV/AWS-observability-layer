@@ -18,7 +18,7 @@ const D2_MARKER = '===D2===';
 // relationship fields (connections / vpc / subnet — the diagram needs them to draw
 // edges and containment), and only truncate the verbose `details` blob, whose full
 // form is preserved in state.json regardless.
-function compactResources(resources) {
+export function compactResources(resources) {
     return resources.map((resource) => {
         const { details, ...rest } = resource;
         const entry = { ...rest };

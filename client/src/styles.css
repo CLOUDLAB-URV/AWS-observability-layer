@@ -1143,6 +1143,102 @@ body {
 .details-btn:hover { border-color: var(--border-focus); }
 .details-btn[aria-expanded="true"] { border-color: var(--border-focus); color: var(--text-primary); }
 
+/* "Explain" toolbar button — same shape as .details-btn, with a small dot when the
+   saved explanation is stale (the diagram changed since it was generated). */
+.explain-btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    border: 1px solid var(--border-default);
+    background: var(--surface-app);
+    color: var(--text-primary);
+    padding: 5px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: border-color 120ms var(--ease), color 120ms var(--ease);
+}
+.explain-btn:hover { border-color: var(--border-focus); }
+.explain-btn[aria-expanded="true"] { border-color: var(--border-focus); }
+.explain-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--fn-red, #e5534b);
+}
+
+/* Explanation side panel — mirrors .resource-detail (slides in from the right). */
+.explanation-panel {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 420px;
+    max-width: 92%;
+    z-index: 26;
+    display: flex;
+    flex-direction: column;
+    background: var(--surface-panel);
+    border-left: 1px solid var(--border-default);
+    box-shadow: -12px 0 32px rgba(0, 0, 0, 0.35);
+    animation: rd-slide-in 160ms ease;
+}
+.explanation-panel .rd-header h2 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+.explanation-body { flex: 1; overflow-y: auto; padding: 14px 18px 24px; }
+.explain-empty { display: flex; flex-direction: column; gap: 12px; color: var(--text-muted); font-size: 14px; }
+.explain-stale {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 14px;
+    padding: 8px 12px;
+    border: 1px solid var(--border-default);
+    border-radius: 8px;
+    background: var(--surface-app);
+    font-size: 12px;
+    color: var(--text-muted);
+}
+.explain-cta {
+    flex-shrink: 0;
+    border: 1px solid var(--border-focus);
+    background: var(--surface-app);
+    color: var(--text-primary);
+    padding: 5px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+}
+.explain-cta:hover:not(:disabled) { background: var(--surface-panel); }
+.explain-cta:disabled { opacity: 0.6; cursor: default; }
+
+/* Markdown rendered inside the explanation panel. */
+.md-body { font-size: 14px; line-height: 1.65; color: var(--text-primary); white-space: pre-wrap; }
+.md-body .md-heading {
+    margin: 18px 0 6px;
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: normal;
+}
+.md-body h2.md-heading { font-size: 15px; }
+.md-body h3.md-heading, .md-body h4.md-heading { font-size: 13.5px; color: var(--text-muted); }
+.md-body .md-heading:first-child { margin-top: 0; }
+.md-body .md-list { margin: 4px 0 8px; padding-left: 18px; white-space: normal; }
+.md-body .md-list li { margin: 2px 0; }
+.md-body .md-code {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    background: rgba(255, 255, 255, 0.08);
+    padding: 1px 5px;
+    border-radius: 4px;
+}
+
 /* Chat details panel (created date, id, rename) below the toolbar. */
 .chat-details {
     display: flex;

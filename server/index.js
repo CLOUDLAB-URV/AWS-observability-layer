@@ -25,6 +25,7 @@ import { features } from './features.js';
 import * as auth from './auth.js';
 import { DEV, persistRoot, DEV_USER_ID, DEV_TOKEN } from './persistence.js';
 import { runStateViz, suggestSessionName } from './agents/stateviz/index.js';
+import { runExplainDiagram } from './agents/explain/index.js';
 
 const PORT = Number(process.env.PORT || 3001);
 
@@ -430,6 +431,61 @@ app.get('/api/chats/:chatId/diagram', agentGate, requireSession, async (req, res
     const d2 = await visualizerStore.readDiagram(req.userId, chatId);
     const { svg, error } = await renderDiagramSvg(d2);
     res.json({ chat: chatId, svg, renderError: error });
+});
+
+// Read the saved component-by-component explanation for a chat (no LLM call). Reports
+// `outdated: true` when the diagram changed since the explanation was generated so the
+// web can prompt the user to update it. Dual auth to mirror GET /api/chats/:chatId.
+app.get('/api/chats/:chatId/explanation', agentGate, requireSessionOrToken, async (req, res) => {
+    const chatId = visualizerStore.sanitizeChatId(req.params.chatId);
+    if (!chatId) {
+        res.status(400).json({ error: 'Invalid chat id.' });
+        return;
+    }
+    const [explanation, meta] = await Promise.all([
+        visualizerStore.readExplanation(req.userId, chatId),
+        visualizerStore.readMeta(req.userId, chatId)
+    ]);
+    if (!explanation) {
+        res.json({ chat: chatId, markdown: '', generatedAt: null, outdated: false });
+        return;
+    }
+    res.json({
+        chat: chatId,
+        markdown: explanation.markdown,
+        generatedAt: explanation.generatedAt || null,
+        outdated: explanation.basedOnUpdatedAt !== (meta.updatedAt || null)
+    });
+});
+
+// (Re)generate the explanation for a chat. Evolves the previous explanation (feeding
+// it back in) so a diagram change yields a minimal edit rather than a brand-new text.
+// Web-only (session cookie); the user triggers it explicitly from the UI.
+app.post('/api/chats/:chatId/explanation', agentGate, requireSession, async (req, res) => {
+    const chatId = visualizerStore.sanitizeChatId(req.params.chatId);
+    if (!chatId) {
+        res.status(400).json({ error: 'Invalid chat id.' });
+        return;
+    }
+    const [meta, state] = await Promise.all([
+        visualizerStore.readMeta(req.userId, chatId),
+        visualizerStore.readState(req.userId, chatId)
+    ]);
+    if (!meta.createdAt || Object.keys(state).length === 0) {
+        res.status(404).json({ error: 'No such diagram (or it is empty) — nothing to explain.' });
+        return;
+    }
+    try {
+        const payload = await runExplainDiagram(req.userId, chatId);
+        if (!payload) {
+            res.status(502).json({ error: 'Could not generate an explanation. Please try again.' });
+            return;
+        }
+        res.json({ chat: chatId, markdown: payload.markdown, generatedAt: payload.generatedAt, outdated: false });
+    } catch (err) {
+        console.error('[explain] generation failed', err);
+        res.status(502).json({ error: 'Could not generate an explanation. Please try again.' });
+    }
 });
 
 // Design projects: list (newest activity first) and create. The active project is
