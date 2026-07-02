@@ -421,6 +421,18 @@ app.patch('/api/chats/:chatId', agentGate, requireSession, async (req, res) => {
     res.json({ chat: chatId, name: meta.name });
 });
 
+// Permanently delete a diagram. Web-only (owner via session cookie); the MCP token cannot
+// delete diagrams. The whole chat folder (state/diagram/meta/explanation) is removed.
+app.delete('/api/chats/:chatId', agentGate, requireSession, async (req, res) => {
+    const chatId = visualizerStore.sanitizeChatId(req.params.chatId);
+    if (!chatId) {
+        res.status(400).json({ error: 'Invalid chat id.' });
+        return;
+    }
+    await visualizerStore.deleteChat(req.userId, chatId);
+    res.json({ ok: true, chat: chatId });
+});
+
 // Current deployed-state diagram (SVG) for a chat.
 app.get('/api/chats/:chatId/diagram', agentGate, requireSession, async (req, res) => {
     const chatId = visualizerStore.sanitizeChatId(req.params.chatId);

@@ -1263,6 +1263,24 @@ body {
 }
 .chat-details-value { color: var(--text-primary); }
 
+/* Destructive "Delete diagram" row — separated from the info rows above. */
+.chat-details-danger {
+    margin-top: 4px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-default);
+}
+.details-danger-btn {
+    border: 1px solid var(--fn-red);
+    background: transparent;
+    color: var(--fn-red);
+    padding: 4px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: background 120ms var(--ease), color 120ms var(--ease);
+}
+.details-danger-btn:hover { background: var(--fn-red); color: var(--surface-panel); }
+
 /* Plain-text rows (name + id) with an inline action to the right — no input box. */
 .chat-details-inline {
     display: flex;

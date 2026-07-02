@@ -33,6 +33,9 @@ export default function DeployedState() {
     const [renameValue, setRenameValue] = useState('');
     const [showDetails, setShowDetails] = useState(false);
     const [editingName, setEditingName] = useState(false);
+    // Inline two-step confirm for the destructive "Delete diagram" action in the Details panel.
+    const [confirmDelete, setConfirmDelete] = useState(false);
+    const [deleting, setDeleting] = useState(false);
     const [agent, setAgent] = useState('opencode'); // 'opencode' | 'claude'
     // Live resource inventory for the selected chat (powers per-service tooltips + the detail
     // panel), and the resource the user clicked in the diagram.
@@ -112,6 +115,7 @@ export default function DeployedState() {
         const current = chats.find((c) => c.chatId === chatId);
         setRenameValue(current?.name || '');
         setEditingName(false);
+        setConfirmDelete(false);
     }, [chatId, chats]);
 
     function handleMessage(message) {
@@ -217,6 +221,23 @@ export default function DeployedState() {
     function startRename() {
         setRenameValue(selectedChat?.name || '');
         setEditingName(true);
+    }
+
+    // Permanently delete the selected diagram, then deselect it (the subscribe/load effects
+    // clear svg/resources/explanation for an empty chatId) and refresh the selector.
+    async function deleteChat() {
+        if (!chatId || deleting) return;
+        setDeleting(true);
+        try {
+            await fetch(`/api/chats/${encodeURIComponent(chatId)}`, { method: 'DELETE' });
+        } catch {
+            // ignore — the list refresh below reflects the real state
+        }
+        setDeleting(false);
+        setConfirmDelete(false);
+        setShowDetails(false);
+        setChatId('');
+        loadChats();
     }
 
     // Open the explanation panel; the button toggles it. Opening is a plain view action
@@ -444,6 +465,33 @@ export default function DeployedState() {
                                 {copied === 'cid' ? 'Copied' : 'Copy'}
                             </button>
                         </span>
+                    </div>
+                    <div className="chat-details-row chat-details-danger">
+                        <label>Danger zone</label>
+                        {confirmDelete ? (
+                            <span className="chat-details-value chat-details-inline">
+                                <span>Delete this diagram permanently?</span>
+                                <button
+                                    type="button"
+                                    className="link-btn token-danger"
+                                    onClick={deleteChat}
+                                    disabled={deleting}
+                                >
+                                    {deleting ? 'Deleting…' : 'Delete'}
+                                </button>
+                                <button type="button" className="link-btn" onClick={() => setConfirmDelete(false)}>Cancel</button>
+                            </span>
+                        ) : (
+                            <span className="chat-details-value">
+                                <button
+                                    type="button"
+                                    className="details-danger-btn"
+                                    onClick={() => setConfirmDelete(true)}
+                                >
+                                    Delete diagram
+                                </button>
+                            </span>
+                        )}
                     </div>
                 </div>
             )}
