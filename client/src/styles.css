@@ -614,10 +614,6 @@ body {
     cursor: grab;
     flex: 1;
     background-color: var(--surface-stage);
-    background-image:
-        linear-gradient(90deg, var(--surface-stage-line) 1px, transparent 1px),
-        linear-gradient(var(--surface-stage-line) 1px, transparent 1px);
-    background-size: 24px 24px;
     transition: background-color 200ms ease;
 }
 .stage:active { cursor: grabbing; }
