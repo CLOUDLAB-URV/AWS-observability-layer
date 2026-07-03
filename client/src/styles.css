@@ -1100,6 +1100,137 @@ body {
     padding: 10px 16px;
     border-bottom: 1px solid var(--border-default);
     background: var(--surface-panel);
+    flex-wrap: wrap;
+}
+
+/* ── dockview (VSCode-like docking) — Agent (MCP) view ─────────────────────
+   The diagram + every side panel live in a dockview layout the user can drag,
+   dock (left/right/below), float and resize. These rules (a) fill the region,
+   (b) re-skin dockview's Abyss theme with the app palette, and (c) adapt the
+   former fixed/strip panels to flow inside a dockview pane. */
+.viz-dock {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+}
+/* Scoped to the themed root element so these beat the theme's own defaults
+   (specificity 0,2,0 > the theme block's 0,1,0). */
+.viz-dock .dockview-theme-abyss {
+    --dv-group-view-background-color: var(--surface-panel);
+    --dv-tabs-and-actions-container-background-color: var(--surface-app);
+    --dv-tabs-and-actions-container-height: 34px;
+    --dv-activegroup-visiblepanel-tab-background-color: var(--surface-panel);
+    --dv-activegroup-visiblepanel-tab-color: var(--text-primary);
+    --dv-activegroup-hiddenpanel-tab-background-color: var(--surface-app);
+    --dv-activegroup-hiddenpanel-tab-color: var(--text-muted);
+    --dv-inactivegroup-visiblepanel-tab-background-color: var(--surface-panel);
+    --dv-inactivegroup-visiblepanel-tab-color: var(--text-secondary);
+    --dv-inactivegroup-hiddenpanel-tab-background-color: var(--surface-app);
+    --dv-inactivegroup-hiddenpanel-tab-color: var(--text-muted);
+    --dv-separator-border: 1px solid var(--border-default);
+    --dv-paneview-active-outline-color: var(--border-focus);
+    --dv-icon-hover-background-color: rgba(255, 255, 255, 0.08);
+    --dv-active-sash-color: var(--border-focus);
+    --dv-scrollbar-background-color: rgba(255, 255, 255, 0.18);
+    /* Drop overlay: soft veil + a REAL border. (Abyss ships --dv-drag-over-border: none, so
+       overriding only the border-color left the overlay as a flat grey wash with no outline —
+       the "sometimes looks broken" artifact.) */
+    --dv-drag-over-background-color: rgba(255, 255, 255, 0.08);
+    --dv-drag-over-border-color: rgba(255, 255, 255, 0.65);
+    --dv-drag-over-border: 1px solid rgba(255, 255, 255, 0.65);
+    --dv-floating-box-shadow: var(--shadow-lg);
+    --dv-tab-divider-color: var(--border-default);
+    --dv-transition-duration: 0.12s;
+}
+
+/* Drop-preview highlight: crisper edges, slight inner glow, smoother movement between
+   candidate positions. Applies to group drops and the root bottom-edge strip alike. */
+.viz-dock .dv-drop-target-selection,
+.viz-dock .dv-drop-target-anchor {
+    border-radius: 6px;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12), inset 0 0 24px rgba(255, 255, 255, 0.05);
+}
+
+/* Smooth ONLY the programmatic snap-to-thirds. `normalizeLayout` adds this class for ~280ms
+   while it calls setSize(); manual drags/sashes never get it, so they stay instant (no jank).
+   dockview positions each split-view item (.dv-view) with inline left/top/width/height. */
+.viz-dock--animating .dv-view {
+    transition: width 0.22s var(--ease), height 0.22s var(--ease),
+                left 0.22s var(--ease), top 0.22s var(--ease);
+}
+/* Gentle tab hover feedback for a more polished feel. */
+.viz-dock .dv-tab { transition: background-color 0.12s var(--ease), color 0.12s var(--ease); }
+
+/* Generic panel content host: fill the dockview pane. */
+.dv-pane { height: 100%; overflow: auto; background: var(--surface-panel); }
+.dv-pane-empty {
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px; text-align: center;
+    color: var(--text-muted); font-size: 13px;
+}
+.dv-diagram {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    background: var(--surface-stage);
+}
+
+/* Panels with their own internal (flex) scroll keep a sticky header: the pane is a
+   non-scrolling flex column and the inner body owns the overflow. */
+.dv-pane:has(> .resource-detail) {
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+.dv-pane > .resource-detail,
+.dv-pane.explanation-panel {
+    position: static;
+    inset: auto;
+    width: auto;
+    max-width: none;
+    height: 100%;
+    border-left: none;
+    box-shadow: none;
+    animation: none;
+}
+.dv-pane > .resource-detail { flex: 1; min-height: 0; height: auto; }
+.dv-pane.explanation-panel { overflow: hidden; }
+
+/* Plain scrolling-block panels: drop the old strip chrome (bottom border, capped
+   height, slide-in) so they sit cleanly inside a pane. */
+.dv-pane.chat-details,
+.dv-pane.viz-settings {
+    border-bottom: none;
+    max-height: none;
+    animation: none;
+}
+.dv-pane.viz-settings { overflow: auto; }
+/* Guide: fill the pane so its dark background reaches the bottom — otherwise the lighter
+   pane background shows below the content as an ugly grey cut. Match the pane bg too. */
+.dv-pane:has(> .mcp-guide) { background: var(--surface-app); }
+.dv-pane > .mcp-guide { border-bottom: none; animation: none; min-height: 100%; }
+
+/* Close-less tab (the diagram): mirrors the default dockview tab text, no ✕. */
+.dv-plain-tab {
+    display: flex;
+    align-items: center;
+    height: 100%;
+    padding: 0 12px;
+    font-size: 13px;
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+}
+
+/* Dev-tools drawer when embedded in a dockview pane: fill it top-to-bottom with one
+   uniform background (the compound selector beats `.devpanel-panel`'s fixed --devpanel-h
+   height, which is declared later in the sheet), and drop the drawer chrome — dockview
+   owns size/position/close now. Filling avoids a lighter pane background cutting in below. */
+.devpanel-panel.devpanel-embedded {
+    height: 100%;
+    border-top: none;
+    background: var(--surface-app);
 }
 .project-form {
     display: flex;

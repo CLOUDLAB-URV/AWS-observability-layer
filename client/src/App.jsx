@@ -344,7 +344,9 @@ export default function App({ features, user }) {
                     </section>
                 </main>
             )}
-            <DevPanel />
+            {/* In the Agent (MCP) view the dev panel lives inside the dockview layout (movable);
+                elsewhere it stays as the bottom drawer. */}
+            {view !== 'deployed' && <DevPanel />}
         </div>
     );
 }

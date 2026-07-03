@@ -7,6 +7,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 //     https://claude.ai/code.
 // Hidden by default; pop it up from the bottom bar, resize it, switch tabs. The panel is a
 // flex child of `.app`, so expanding it pushes `<main>` up (the diagram refits itself).
+//
+// `embedded` mode (Agent (MCP) view): the panel lives inside a dockview pane, so dockview
+// owns its position/size/close. In that mode we always render the expanded content and drop
+// our own chrome (the collapse bar, the resize handle, and the close buttons). Tab/port/url
+// state is still persisted, so it keeps working the same.
 
 const CLAUDE_URL_PREFIX = 'https://claude.ai/code';
 
@@ -68,7 +73,7 @@ function initialUrls() {
     return urls;
 }
 
-export default function DevPanel() {
+export default function DevPanel({ embedded = false }) {
     const [collapsed, setCollapsed] = useState(() => readStored('devpanel.collapsed', 'true') !== 'false');
     const [height, setHeight] = useState(() => {
         const h = parseInt(readStored('devpanel.height', DEFAULT_HEIGHT), 10);
@@ -207,7 +212,7 @@ export default function DevPanel() {
         window.addEventListener('mouseup', onUp);
     }, []);
 
-    if (collapsed) {
+    if (collapsed && !embedded) {
         return (
             <button type="button" className="devpanel-bar" onClick={open} aria-expanded="false" title="Open dev panel">
                 <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
@@ -222,15 +227,24 @@ export default function DevPanel() {
     const activeStatus = status[activeTab] || 'unknown';
 
     return (
-        <section className="devpanel-panel" ref={panelRef} style={{ '--devpanel-h': `${height}px` }} aria-label="Dev panel">
-            <div className="devpanel-resize" onMouseDown={startResize} role="separator" aria-orientation="horizontal" title="Drag to resize" />
+        <section
+            className={embedded ? 'devpanel-panel devpanel-embedded' : 'devpanel-panel'}
+            ref={panelRef}
+            style={embedded ? undefined : { '--devpanel-h': `${height}px` }}
+            aria-label="Dev panel"
+        >
+            {!embedded && (
+                <div className="devpanel-resize" onMouseDown={startResize} role="separator" aria-orientation="horizontal" title="Drag to resize" />
+            )}
             <header className="devpanel-header">
-                <button type="button" className="icon-btn" onClick={close} title="Hide panel" aria-label="Hide panel">
-                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
-                        strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                        <polyline points="6 9 12 15 18 9" />
-                    </svg>
-                </button>
+                {!embedded && (
+                    <button type="button" className="icon-btn" onClick={close} title="Hide panel" aria-label="Hide panel">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+                            strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <polyline points="6 9 12 15 18 9" />
+                        </svg>
+                    </button>
+                )}
                 <div className="devpanel-tabs" role="tablist">
                     {TABS.map((t) => (
                         <button
@@ -293,13 +307,15 @@ export default function DevPanel() {
                         </svg>
                     </button>
                 )}
-                <button type="button" className="icon-btn" onClick={close} title="Close panel" aria-label="Close panel">
-                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
-                        strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                        <line x1="18" y1="6" x2="6" y2="18" />
-                        <line x1="6" y1="6" x2="18" y2="18" />
-                    </svg>
-                </button>
+                {!embedded && (
+                    <button type="button" className="icon-btn" onClick={close} title="Close panel" aria-label="Close panel">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+                            strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <line x1="18" y1="6" x2="6" y2="18" />
+                            <line x1="6" y1="6" x2="18" y2="18" />
+                        </svg>
+                    </button>
+                )}
             </header>
 
             <div className="devpanel-body">

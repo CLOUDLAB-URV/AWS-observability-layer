@@ -9,6 +9,9 @@ import { loadSession } from './auth.js';
 // Geist Mono for logs/diagram. The single dark theme references these in styles.css.
 import '@fontsource-variable/geist';
 import '@fontsource-variable/geist-mono';
+// dockview base styles (docking layout in the Agent (MCP) view). Imported before our own
+// stylesheet so our `.viz-dock` theme overrides in styles.css win on equal specificity.
+import 'dockview-core/dist/styles/dockview.css';
 import './styles.css';
 
 // The password-reset link (`/reset?token=…`) is a standalone page — it needs no session and no
