@@ -1151,15 +1151,21 @@ body {
     box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12), inset 0 0 24px rgba(255, 255, 255, 0.05);
 }
 
-/* Smooth ONLY the programmatic snap-to-thirds. `normalizeLayout` adds this class for ~280ms
-   while it calls setSize(); manual drags/sashes never get it, so they stay instant (no jank).
-   dockview positions each split-view item (.dv-view) with inline left/top/width/height. */
-.viz-dock--animating .dv-view {
-    transition: width 0.22s var(--ease), height 0.22s var(--ease),
-                left 0.22s var(--ease), top 0.22s var(--ease);
-}
 /* Gentle tab hover feedback for a more polished feel. */
 .viz-dock .dv-tab { transition: background-color 0.12s var(--ease), color 0.12s var(--ease); }
+
+/* The floating chip cloned from a tab while it's being dragged. Unstyled it renders as a
+   bare duplicate hovering at an odd offset (looks broken); dress it as a proper drag chip. */
+.dv-tab-ghost-drag {
+    background: var(--surface-raised) !important;
+    color: var(--text-primary);
+    border: 1px solid var(--border-input);
+    border-radius: 6px;
+    box-shadow: var(--shadow-md);
+    padding: 4px 10px;
+    font-size: 12px;
+    opacity: 0.95;
+}
 
 /* Generic panel content host: fill the dockview pane. */
 .dv-pane { height: 100%; overflow: auto; background: var(--surface-panel); }

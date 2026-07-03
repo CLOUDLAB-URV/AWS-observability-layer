@@ -46,24 +46,23 @@ function PlainTab(props) {
 }
 const TAB_COMPONENTS = { plain: PlainTab };
 
-// Root-edge drop targets (the only way to create the bottom zone): a 60px activation band
-// so the gesture is easy to hit, and a 25%-tall overlay so the preview shows the real
-// full-width strip the drop will create. (Left/right/top root edges are blocked in
-// onWillShowOverlay; only the bottom one ever shows.)
+// Root-edge drop targets: a 60px activation band (the library default of 10px is nearly
+// impossible to hit) and a 25% overlay so dropping at an outer edge previews the real
+// full-width/full-height strip it will create.
 const DND_EDGES = {
     activationSize: { type: 'pixels', value: 60 },
     size: { type: 'percentage', value: 25 }
 };
 
-// Side zones are a third of the width; the bottom zone is a fixed height. The diagram
-// takes whatever is left (2/3 with one side open, 1/3 with both). Only resize when off by
-// more than this tolerance, so the auto-snap converges instead of looping.
+// Initial sizes when a zone group is first created (a third of the dock for sides, a
+// compact strip for the bottom). After creation every sash is free: the user can resize
+// any group to whatever they like — dockview's built-in 100px group minimum is the only
+// hard limit, so nothing can be collapsed away or break the grid.
 const BOTTOM_ZONE_HEIGHT = 260;
-const SIZE_TOLERANCE = 8;
 
 // Bump the suffixes when panel ids / defaults change so stale saved state is ignored.
-const LAYOUT_KEY = 'viz-dock-layout-v5';
-const ZONES_KEY = 'viz-dock-zones-v5';
+const LAYOUT_KEY = 'viz-dock-layout-v6';
+const ZONES_KEY = 'viz-dock-zones-v6';
 
 // Per-panel remembered zone, persisted so reopening a panel returns it to where the user
 // last left it. Seeded from the defaults above.
@@ -142,10 +141,6 @@ export default function DeployedState() {
     const saveTimer = useRef(null);
     const selectedResourceRef = useRef(null);
     const zonesRef = useRef(loadZones());   // per-panel remembered zone (persisted)
-    const normRaf = useRef(0);              // pending normalize rAF
-    const normTimer = useRef(0);            // delayed normalize catch-up (post-close settle)
-    const animTimer = useRef(0);            // removes the .viz-dock--animating class
-    const bottomSizedRef = useRef(null);    // id of the bottom group we've already height-seeded
     const [openIds, setOpenIds] = useState([]);
 
     useEffect(() => {
@@ -365,95 +360,24 @@ export default function DeployedState() {
         }, 400);
     }, []);
 
-    // Snap the layout to the zone model: each left/right zone group to a third of the width
-    // (the diagram takes the rest), the bottom zone to a fixed height. Also refreshes the
-    // remembered zone of every open panel. Idempotent — it only calls setSize() when a group
-    // is off by more than SIZE_TOLERANCE, so re-running it (e.g. after dockview's own
-    // redistribution when a group closes) converges in a frame or two and then stops. Runs on
-    // every layout change; the smoothing class is added only when it actually resizes something.
-    const normalizeLayout = useCallback(() => {
+    // Sizes are fully user-controlled (no auto-snap) — this just refreshes each open panel's
+    // remembered zone (so reopening returns it where the user last had it) and persists.
+    const syncZones = useCallback(() => {
         const api = apiRef.current;
-        const container = dockRef.current;
-        if (!api || !container) return;
+        if (!api) return;
         const diagramGroup = api.getPanel('diagram')?.group;
-        if (!diagramGroup) return;
-        const thirdW = Math.round(container.clientWidth / 3);
-
-        let changed = false;
-        let bottomGroup = null;
-        for (const group of api.groups) {
-            if (group === diagramGroup) continue;
-            const zone = zoneOfGroup(group, diagramGroup);
-            // Sides are locked to a third of the width (auto-snap). The bottom is full-width and its
-            // HEIGHT is left free to resize — we only give it an initial height once (below).
-            if ((zone === 'left' || zone === 'right')) {
-                const rect = group.element.getBoundingClientRect();
-                if (Math.abs(rect.width - thirdW) > SIZE_TOLERANCE) {
-                    group.api.setSize({ width: thirdW });
-                    changed = true;
-                }
-            } else if (zone === 'bottom') {
-                bottomGroup = group;
+        if (diagramGroup) {
+            const zones = { ...zonesRef.current };
+            for (const panel of api.panels) {
+                if (panel.id === 'diagram') continue;
+                const z = zoneOfGroup(panel.group, diagramGroup);
+                if (z) zones[panel.id] = z;
             }
-        }
-
-        // Make the bottom zone span the FULL width. A bottom drop lands as a narrow group split off
-        // the diagram column; relocate its panels into a fresh full-width group at the root's bottom
-        // edge. Idempotent: once full-width it's skipped, so this converges after one pass.
-        if (bottomGroup) {
-            const bw = bottomGroup.element.getBoundingClientRect().width;
-            if (bw < container.clientWidth * 0.9) {
-                const full = api.addGroup({ direction: 'below' });
-                for (const p of [...bottomGroup.panels]) {
-                    p.api.moveTo({ group: full, position: 'center' });
-                }
-                bottomGroup = full;
-                bottomSizedRef.current = null;
-                changed = true;
-            }
-        }
-
-        // Seed the bottom zone's height exactly once per group, then never touch it again so the
-        // user can drag the top/bottom sash to make it taller (it no longer snaps back).
-        if (bottomGroup) {
-            if (bottomSizedRef.current !== bottomGroup.id) {
-                bottomSizedRef.current = bottomGroup.id;
-                bottomGroup.api.setSize({ height: BOTTOM_ZONE_HEIGHT });
-                changed = true;
-            }
-        } else {
-            bottomSizedRef.current = null;
-        }
-
-        // Remember where each open panel currently lives.
-        const zones = { ...zonesRef.current };
-        for (const panel of api.panels) {
-            if (panel.id === 'diagram') continue;
-            const z = zoneOfGroup(panel.group, diagramGroup);
-            if (z) zones[panel.id] = z;
-        }
-        zonesRef.current = zones;
-        saveZones(zones);
-
-        if (changed) {
-            container.classList.add('viz-dock--animating');
-            clearTimeout(animTimer.current);
-            animTimer.current = setTimeout(() => container.classList.remove('viz-dock--animating'), 280);
+            zonesRef.current = zones;
+            saveZones(zones);
         }
         persist(api);
     }, [persist]);
-
-    // Snap on the next frame (immediate feel for open/move) AND again after a short delay:
-    // when a group closes, dockview redistributes the freed space to an equal split *after*
-    // our rAF and without firing another layout event, so the delayed pass is what makes the
-    // remaining side settle back to a third. normalizeLayout is idempotent, so running twice
-    // is harmless.
-    const scheduleNormalize = useCallback(() => {
-        cancelAnimationFrame(normRaf.current);
-        normRaf.current = requestAnimationFrame(() => normalizeLayout());
-        clearTimeout(normTimer.current);
-        normTimer.current = setTimeout(() => normalizeLayout(), 160);
-    }, [normalizeLayout]);
 
     // Open a panel into its remembered zone: stack as a tab in that zone's group if one
     // exists, else create the zone group beside the diagram. No-op if already open.
@@ -470,41 +394,41 @@ export default function DeployedState() {
                 if (g !== diagramGroup && zoneOfGroup(g, diagramGroup) === zone) { zoneGroup = g; break; }
             }
         }
+        const thirdW = Math.round((dockRef.current?.clientWidth || 1200) / 3);
         if (zoneGroup) {
             api.addPanel({ id, component: id, title: meta.title, position: { referenceGroup: zoneGroup, direction: 'within' } });
         } else if (zone === 'bottom') {
-            // The bottom zone is a full-width strip at the root (below the whole top row), not a
-            // split of the diagram column. An AbsolutePosition (direction only, no reference) docks
-            // it to the root's bottom edge spanning the entire width.
+            // The bottom zone opens as a full-width strip at the root (below the whole top row).
+            // An AbsolutePosition (direction only, no reference) docks it to the root's bottom edge.
             api.addPanel({ id, component: id, title: meta.title, position: { direction: 'below' }, initialHeight: BOTTOM_ZONE_HEIGHT });
         } else if (diagram) {
-            api.addPanel({ id, component: id, title: meta.title, position: { referencePanel: 'diagram', direction: ZONE_DIRECTION[zone] } });
+            api.addPanel({ id, component: id, title: meta.title, position: { referencePanel: 'diagram', direction: ZONE_DIRECTION[zone] }, initialWidth: thirdW });
         } else {
             api.addPanel({ id, component: id, title: meta.title });
         }
-        scheduleNormalize();
-    }, [scheduleNormalize]);
+    }, []);
 
     // The default arrangement: opencode on the left, a right group stacking connect-agent /
-    // guide / explanation as tabs, and the (non-closable) diagram in the centre. Also resets
-    // the remembered zones to their defaults.
+    // guide / explanation as tabs, and the (non-closable) diagram in the centre — each side
+    // starting at a third of the width (freely resizable afterwards). Also resets the
+    // remembered zones to their defaults.
     const buildDefault = useCallback((api) => {
         api.clear();
         zonesRef.current = { ...DEFAULT_ZONES };
         saveZones(zonesRef.current);
+        const thirdW = Math.round((dockRef.current?.clientWidth || 1200) / 3);
         api.addPanel({ id: 'diagram', component: 'diagram', title: 'Diagram', tabComponent: 'plain' });
         api.addPanel({ id: 'devtools', component: 'devtools', title: PANEL_META.devtools.title,
-            position: { referencePanel: 'diagram', direction: 'left' } });
+            position: { referencePanel: 'diagram', direction: 'left' }, initialWidth: thirdW });
         api.addPanel({ id: 'connect-agent', component: 'connect-agent', title: PANEL_META['connect-agent'].title,
-            position: { referencePanel: 'diagram', direction: 'right' } });
+            position: { referencePanel: 'diagram', direction: 'right' }, initialWidth: thirdW });
         const rightGroup = api.getPanel('connect-agent').group;
         api.addPanel({ id: 'explanation', component: 'explanation', title: PANEL_META.explanation.title,
             position: { referenceGroup: rightGroup, direction: 'within' } });
         api.addPanel({ id: 'guide', component: 'guide', title: PANEL_META.guide.title,
             position: { referenceGroup: rightGroup, direction: 'within' } });
         api.getPanel('guide')?.api.setActive();
-        scheduleNormalize();
-    }, [scheduleNormalize]);
+    }, []);
 
     const togglePanel = useCallback((id) => {
         const api = apiRef.current;
@@ -545,70 +469,38 @@ export default function DeployedState() {
         const rd = api.getPanel('resource-detail');
         if (rd && !selectedResourceRef.current) rd.api.close();
 
-        // Enforce exactly one slot per zone: one group on the left, one on the right, and one
-        // FULL-WIDTH strip at the bottom, with the diagram in the centre. A panel can only be
-        // STACKED (as a tab) onto an existing zone group — never dropped beside it to make a second
-        // column. Sides are created off the diagram; the bottom is created at the component's bottom
-        // edge (root, spanning the whole width).
+        // Free tiling: every panel — including the diagram — can be dragged and dropped anywhere
+        // (any edge of any group, any outer edge), and every sash resizes freely. The only rules:
+        //   1. The diagram is never STACKED: nothing tabs onto its group, and the diagram itself
+        //      can't be dropped as a tab into another group — it always keeps its own group (and
+        //      its close-less tab means it can never be removed).
+        //   2. No floating groups (disableFloatingGroups on the component).
         api.onWillShowOverlay((e) => {
             const diagramGroup = api.getPanel('diagram')?.group;
-            const onDiagram = !!(e.group && diagramGroup && e.group.id === diagramGroup.id);
-            const occupied = () => new Set(
-                api.groups.filter((g) => g !== diagramGroup).map((g) => zoneOfGroup(g, diagramGroup))
+            const stacking = e.kind === 'tab' || e.kind === 'header_space' ||
+                (e.kind === 'content' && e.position === 'center');
+            if (!stacking) return; // directional / edge drops: always allowed
+            const ontoDiagram = !!(e.group && diagramGroup && e.group.id === diagramGroup.id);
+            const data = e.getData?.();
+            const draggingDiagram = !!data && (
+                data.panelId === 'diagram' ||
+                (data.panelId == null && data.groupId === diagramGroup?.id)
             );
-
-            // Whole-component edge drop: allow ONLY the bottom edge (a full-width root-bottom strip),
-            // and only while there's no bottom yet. Left/right/top outer edges are never allowed.
-            if (e.kind === 'edge') {
-                if (!(e.position === 'bottom' && !occupied().has('bottom'))) e.preventDefault();
-                return;
-            }
-
-            // Dropping onto a tab bar = stacking. Fine, except onto the diagram (keep it alone).
-            if (e.kind === 'tab' || e.kind === 'header_space') {
-                if (onDiagram) e.preventDefault();
-                return;
-            }
-
-            // e.kind === 'content': a directional drop inside a group.
-            if (!e.group) { e.preventDefault(); return; }
-            if (onDiagram) {
-                // Only left/right zones may be created off the diagram, each only while empty. The
-                // bottom zone is created exclusively via the root bottom edge (generous activation
-                // band set through dndEdges) so its overlay preview is the true full-width strip —
-                // a content-bottom drop here would preview at diagram width, which is misleading.
-                if (e.position === 'left' || e.position === 'right') {
-                    if (occupied().has(e.position)) e.preventDefault();
-                } else {
-                    e.preventDefault();
-                }
-            } else {
-                // An existing side/bottom group: only stack on top (centre); block the edges so no
-                // second column/row can appear beside it.
-                if (e.position !== 'center') e.preventDefault();
-            }
-        });
-        // The diagram itself can't be dragged out of the centre.
-        api.onWillDragPanel((e) => {
-            if (e.panel?.id === 'diagram') e.nativeEvent.preventDefault();
-        });
-        api.onWillDragGroup((e) => {
-            if (e.group?.panels?.some((p) => p.id === 'diagram')) e.nativeEvent.preventDefault();
+            if (ontoDiagram || draggingDiagram) e.preventDefault();
         });
 
         setOpenIds(api.panels.map((p) => p.id));
         api.onDidLayoutChange(() => {
-            persist(api);
             setOpenIds(api.panels.map((p) => p.id));
             // If the user closed the resource-detail tab manually, clear the selection so the
             // diagram highlight goes away and a later click can reopen it.
             if (!api.getPanel('resource-detail') && selectedResourceRef.current) {
                 setSelectedResource(null);
             }
-            scheduleNormalize();
+            syncZones();
         });
-        scheduleNormalize();
-    }, [buildDefault, persist, scheduleNormalize]);
+        syncZones();
+    }, [buildDefault, syncZones]);
 
     // Data-driven: open/close the resource-detail panel following the diagram selection.
     useEffect(() => {
