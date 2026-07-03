@@ -47,12 +47,22 @@ function PlainTab(props) {
 const TAB_COMPONENTS = { plain: PlainTab };
 
 // Root-edge drop targets: a 60px activation band (the library default of 10px is nearly
-// impossible to hit) and a 25% overlay so dropping at an outer edge previews the real
-// full-width/full-height strip it will create.
+// impossible to hit) and an EDGE_FRACTION-sized overlay so dropping at an outer edge
+// previews the real full-width/full-height strip it will create. The same fraction is
+// applied to the landed group right after the drop (see onWillDrop) — dockview itself
+// would give it an equal 50% split, which wouldn't match the preview.
+const EDGE_FRACTION = 0.3;
 const DND_EDGES = {
     activationSize: { type: 'pixels', value: 60 },
-    size: { type: 'percentage', value: 25 }
+    size: { type: 'percentage', value: EDGE_FRACTION * 100 }
 };
+// A landed side group is only re-sized to EDGE_FRACTION when it's off by more than this,
+// so an already-comfortable width (incl. one the user just set) isn't nudged.
+const SIZE_SNAP_TOLERANCE = 16;
+
+// Never degrade the drop highlight to the thin 1px border indicator on small groups — the
+// half-zone highlight is always shown, so the preview reads the same everywhere.
+const DROP_OVERLAY_MODEL = () => ({ smallWidthBoundary: 0, smallHeightBoundary: 0 });
 
 // Initial sizes when a zone group is first created (a third of the dock for sides, a
 // compact strip for the bottom). After creation every sash is free: the user can resize
@@ -489,6 +499,61 @@ export default function DeployedState() {
             if (ontoDiagram || draggingDiagram) e.preventDefault();
         });
 
+        // Make root-edge drops LAND at the size their overlay previewed (EDGE_FRACTION of the
+        // dock). dockview's own edge handling gives the new strip an equal 50% split, which
+        // contradicts the 25% preview. onWillDrop fires with kind 'edge' just before dockview
+        // moves the panel (onDidDrop does NOT fire for internal drags carrying data), so we
+        // capture what's being dropped and size its landed group one frame later. One-shot —
+        // afterwards the sash stays wherever the user puts it.
+        api.onWillDrop((e) => {
+            if (e.kind !== 'edge') return;
+            const data = e.getData?.();
+            const pos = e.position;
+            if (!data || e.defaultPrevented) return;
+            // Never clamp the diagram — it's the main canvas; the user places/sizes it freely.
+            if (data.panelId === 'diagram') return;
+            // A short delay, not rAF: dockview redistributes the splitview to equal sizes *after*
+            // the next frame, so an rAF setSize gets overwritten (same timing quirk as elsewhere).
+            setTimeout(() => {
+                const panel = data.panelId
+                    ? api.getPanel(data.panelId)
+                    : api.groups.find((g) => g.id === data.groupId)?.panels[0];
+                const group = panel?.group;
+                const c = dockRef.current;
+                if (!group || !c) return;
+                if (pos === 'left' || pos === 'right') {
+                    group.api.setSize({ width: Math.round(c.clientWidth * EDGE_FRACTION) });
+                } else if (pos === 'top' || pos === 'bottom') {
+                    group.api.setSize({ height: Math.round(c.clientHeight * EDGE_FRACTION) });
+                }
+            }, 130);
+        });
+
+        // Content-directional drops (dropping a tab onto the left/right edge of an existing group)
+        // don't go through onWillDrop — they surface as onDidMovePanel. dockview splits the target
+        // group ~50/50, so a panel dropped beside a wide group lands far too big. Give any freshly
+        // split-off side column a comfortable ~EDGE_FRACTION of the whole dock instead. Only acts on
+        // a lone-panel side group (a real new column, not a tab stacked into an existing group), and
+        // never on the diagram, so it doesn't fight manual resizes or stacking.
+        api.onDidMovePanel(({ panel }) => {
+            if (!panel || panel.id === 'diagram') return;
+            const group = panel.group;
+            const diagramGroup = api.getPanel('diagram')?.group;
+            const c = dockRef.current;
+            if (!group || !diagramGroup || group.id === diagramGroup.id || !c) return;
+            if (group.panels.length !== 1) return; // stacked into an existing group → leave its size
+            const zone = zoneOfGroup(group, diagramGroup);
+            if (zone !== 'left' && zone !== 'right') return; // bottom is handled by onWillDrop
+            // Delay past dockview's equal-split redistribution (see onWillDrop note).
+            setTimeout(() => {
+                if (group.panels.length !== 1) return;
+                const target = Math.round(c.clientWidth * EDGE_FRACTION);
+                if (Math.abs(group.element.getBoundingClientRect().width - target) > SIZE_SNAP_TOLERANCE) {
+                    group.api.setSize({ width: target });
+                }
+            }, 130);
+        });
+
         setOpenIds(api.panels.map((p) => p.id));
         api.onDidLayoutChange(() => {
             setOpenIds(api.panels.map((p) => p.id));
@@ -699,6 +764,7 @@ export default function DeployedState() {
                         // edge nearly impossible to hit; widen it so "drag towards the bottom"
                         // naturally shows the full-width bottom-strip preview (25% tall).
                         dndEdges={DND_EDGES}
+                        dropOverlayModel={DROP_OVERLAY_MODEL}
                         onReady={onReady}
                     />
                 </div>
