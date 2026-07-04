@@ -1,19 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-// Bottom drawer (VS Code panel style) with tabs. Two kinds of tabs:
-//   - type 'port' (opencode): probes localhost:<port> and iframes it when reachable.
-//   - type 'url'  (Claude Code): the user runs `claude remote-control`, which prints a
-//     web link; they paste that link and we iframe it. Strictly validated to start with
-//     https://claude.ai/code.
-// Hidden by default; pop it up from the bottom bar, resize it, switch tabs. The panel is a
+// Bottom drawer (VS Code panel style) for opencode: probes localhost:<port> and iframes it
+// when reachable. Hidden by default; pop it up from the bottom bar, resize it. The panel is a
 // flex child of `.app`, so expanding it pushes `<main>` up (the diagram refits itself).
 //
-// `embedded` mode (Agent (MCP) view): the panel lives inside a dockview pane, so dockview
-// owns its position/size/close. In that mode we always render the expanded content and drop
-// our own chrome (the collapse bar, the resize handle, and the close buttons). Tab/port/url
-// state is still persisted, so it keeps working the same.
-
-const CLAUDE_URL_PREFIX = 'https://claude.ai/code';
+// `embedded` mode (Sigils view): the panel lives inside a dockview pane, so dockview owns its
+// position/size/close. In that mode we always render the expanded content and drop our own
+// chrome (the collapse bar, the resize handle, and the close buttons). Port state is still
+// persisted, so it keeps working the same.
 
 const TABS = [
     {
@@ -24,12 +18,6 @@ const TABS = [
         hint: (p) => (
             <>Start it with <code>opencode serve --port {p}</code>, then refresh.</>
         )
-    },
-    {
-        id: 'claudecode',
-        label: 'Claude Code',
-        type: 'url',
-        urlPrefix: CLAUDE_URL_PREFIX
     }
 ];
 
@@ -64,15 +52,6 @@ function initialPorts() {
     return ports;
 }
 
-function initialUrls() {
-    const urls = {};
-    for (const tab of TABS) {
-        if (tab.type !== 'url') continue;
-        urls[tab.id] = readStored(`devpanel.url.${tab.id}`, '');
-    }
-    return urls;
-}
-
 export default function DevPanel({ embedded = false }) {
     const [collapsed, setCollapsed] = useState(() => readStored('devpanel.collapsed', 'true') !== 'false');
     const [height, setHeight] = useState(() => {
@@ -84,12 +63,9 @@ export default function DevPanel({ embedded = false }) {
         return TABS.some((x) => x.id === t) ? t : TABS[0].id;
     });
     const [ports, setPorts] = useState(initialPorts);
-    const [urls, setUrls] = useState(initialUrls);
     const [status, setStatus] = useState({}); // port tabs: { [id]: unknown|checking|up|down }
     const [reloadKey, setReloadKey] = useState({});
     const [portDraft, setPortDraft] = useState('');
-    const [urlDraft, setUrlDraft] = useState('');
-    const [urlError, setUrlError] = useState('');
     const [resizing, setResizing] = useState(false);
 
     const panelRef = useRef(null);
@@ -97,8 +73,6 @@ export default function DevPanel({ embedded = false }) {
 
     const tab = TABS.find((t) => t.id === activeTab) || TABS[0];
     const port = ports[activeTab];
-    const url = urls[activeTab] || '';
-    const validUrl = tab.type === 'url' && url.startsWith(CLAUDE_URL_PREFIX);
 
     // Best-effort reachability check for a port tab. `no-cors` yields an opaque response we
     // can't read, but the promise only resolves if something answered on that port.
@@ -129,19 +103,16 @@ export default function DevPanel({ embedded = false }) {
 
     useEffect(() => { store('devpanel.collapsed', collapsed); }, [collapsed]);
     useEffect(() => { store('devpanel.tab', activeTab); }, [activeTab]);
-    // Keep the draft fields in sync with the active tab.
+    // Keep the draft field in sync with the active tab.
     useEffect(() => {
         if (tab.type === 'port') setPortDraft(String(ports[activeTab]));
-        if (tab.type === 'url') setUrlDraft(urls[activeTab] || '');
-        setUrlError('');
-    }, [activeTab, ports, urls, tab.type]);
+    }, [activeTab, ports, tab.type]);
 
     const open = () => setCollapsed(false);
     const close = () => setCollapsed(true);
 
     function refresh() {
         if (tab.type === 'port') probe(activeTab);
-        else if (validUrl) setReloadKey((r) => ({ ...r, [activeTab]: (r[activeTab] || 0) + 1 }));
     }
 
     function applyPort() {
@@ -152,33 +123,6 @@ export default function DevPanel({ embedded = false }) {
         } else {
             setPortDraft(String(port)); // revert invalid input
         }
-    }
-
-    // Strict validation: the link must start with https://claude.ai/code.
-    function openUrl() {
-        const u = urlDraft.trim();
-        if (!u.startsWith(CLAUDE_URL_PREFIX)) {
-            setUrlError(`The link must start with ${CLAUDE_URL_PREFIX}`);
-            return;
-        }
-        setUrlError('');
-        setUrls((prev) => ({ ...prev, [activeTab]: u }));
-        store(`devpanel.url.${activeTab}`, u);
-        setReloadKey((r) => ({ ...r, [activeTab]: (r[activeTab] || 0) + 1 }));
-    }
-
-    // Clear the loaded link to show the input again (keeps the value for editing).
-    function changeLink() {
-        setUrlDraft(url);
-        setUrls((prev) => ({ ...prev, [activeTab]: '' }));
-        store(`devpanel.url.${activeTab}`, '');
-        setUrlError('');
-    }
-
-    // claude.ai sends X-Frame-Options: SAMEORIGIN, so it can't be embedded in an iframe —
-    // the only way to use it is to open the link in a new tab.
-    function openExternal() {
-        if (validUrl) window.open(url, '_blank', 'noopener,noreferrer');
     }
 
     // Vertical resize: mutate the CSS var live during the drag, commit on mouseup (dragging up
@@ -245,68 +189,40 @@ export default function DevPanel({ embedded = false }) {
                         </svg>
                     </button>
                 )}
-                <div className="devpanel-tabs" role="tablist">
-                    {TABS.map((t) => (
-                        <button
-                            key={t.id}
-                            type="button"
-                            role="tab"
-                            aria-selected={t.id === activeTab}
-                            className={`devpanel-tab ${t.id === activeTab ? 'is-active' : ''}`}
-                            onClick={() => setActiveTab(t.id)}
-                        >
-                            {t.label}
-                        </button>
-                    ))}
+                <div className="devpanel-tabs">
+                    <span className="devpanel-tab is-active">opencode</span>
                 </div>
 
-                {tab.type === 'port' && (
-                    <>
-                        <span className={`devpanel-dot devpanel-dot-${activeStatus}`} aria-hidden="true" />
-                        <span className="devpanel-status-text">
-                            {activeStatus === 'up' ? 'connected'
-                                : activeStatus === 'checking' ? 'checking…'
-                                : activeStatus === 'down' ? 'not running'
-                                : ''}
-                        </span>
-                        <span className="devpanel-spacer" />
-                        <label className="devpanel-port-field">
-                            <span>localhost:</span>
-                            <input
-                                className="devpanel-port"
-                                type="number"
-                                min="1"
-                                max="65535"
-                                value={portDraft}
-                                onChange={(e) => setPortDraft(e.target.value)}
-                                onBlur={applyPort}
-                                onKeyDown={(e) => { if (e.key === 'Enter') applyPort(); }}
-                                aria-label={`${tab.label} port`}
-                            />
-                        </label>
-                    </>
-                )}
+                <span className={`devpanel-dot devpanel-dot-${activeStatus}`} aria-hidden="true" />
+                <span className="devpanel-status-text">
+                    {activeStatus === 'up' ? 'connected'
+                        : activeStatus === 'checking' ? 'checking…'
+                        : activeStatus === 'down' ? 'not running'
+                        : ''}
+                </span>
+                <span className="devpanel-spacer" />
+                <label className="devpanel-port-field">
+                    <span>localhost:</span>
+                    <input
+                        className="devpanel-port"
+                        type="number"
+                        min="1"
+                        max="65535"
+                        value={portDraft}
+                        onChange={(e) => setPortDraft(e.target.value)}
+                        onBlur={applyPort}
+                        onKeyDown={(e) => { if (e.key === 'Enter') applyPort(); }}
+                        aria-label={`${tab.label} port`}
+                    />
+                </label>
 
-                {tab.type === 'url' && (
-                    <>
-                        <span className={`devpanel-dot ${validUrl ? 'devpanel-dot-up' : 'devpanel-dot-down'}`} aria-hidden="true" />
-                        <span className="devpanel-status-text">{validUrl ? 'linked' : 'no link'}</span>
-                        <span className="devpanel-spacer" />
-                        {validUrl && (
-                            <button type="button" className="link-btn" onClick={changeLink}>Change link</button>
-                        )}
-                    </>
-                )}
-
-                {tab.type === 'port' && (
-                    <button type="button" className="icon-btn" onClick={refresh} title="Refresh" aria-label="Refresh">
-                        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
-                            strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                            <polyline points="23 4 23 10 17 10" />
-                            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-                        </svg>
-                    </button>
-                )}
+                <button type="button" className="icon-btn" onClick={refresh} title="Refresh" aria-label="Refresh">
+                    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
+                        strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <polyline points="23 4 23 10 17 10" />
+                        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                    </svg>
+                </button>
                 {!embedded && (
                     <button type="button" className="icon-btn" onClick={close} title="Close panel" aria-label="Close panel">
                         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
@@ -319,8 +235,7 @@ export default function DevPanel({ embedded = false }) {
             </header>
 
             <div className="devpanel-body">
-                {tab.type === 'port' ? (
-                    activeStatus === 'up' ? (
+                {activeStatus === 'up' ? (
                         <iframe
                             className="devpanel-iframe"
                             key={`${activeTab}-${reloadKey[activeTab] || 0}`}
@@ -357,45 +272,7 @@ export default function DevPanel({ embedded = false }) {
                                 </>
                             )}
                         </div>
-                    )
-                ) : validUrl ? (
-                    <div className="devpanel-empty">
-                        <span className="devpanel-empty-icon" aria-hidden="true">⌘</span>
-                        <p className="devpanel-empty-title">Claude Code session linked</p>
-                        <p className="devpanel-link-url"><code>{url}</code></p>
-                        <button type="button" className="details-save-btn devpanel-open-btn" onClick={openExternal}>
-                            Open Claude Code ↗
-                        </button>
-                        <p className="devpanel-aside">
-                            claude.ai can't be embedded in a frame (it sends <code>X-Frame-Options</code>),
-                            so it opens in a new tab.
-                        </p>
-                    </div>
-                ) : (
-                    <div className="devpanel-empty">
-                        <span className="devpanel-empty-icon" aria-hidden="true">⌘</span>
-                        <p className="devpanel-empty-title">Open Claude Code Remote Control</p>
-                        <p>
-                            In your terminal, run <code>claude remote-control</code>. It prints a web
-                            link for the session — paste that link below to open it.
-                        </p>
-                        <div className="devpanel-empty-actions">
-                            <input
-                                className="devpanel-url"
-                                type="url"
-                                placeholder="https://claude.ai/code/…"
-                                value={urlDraft}
-                                onChange={(e) => setUrlDraft(e.target.value)}
-                                onKeyDown={(e) => { if (e.key === 'Enter') openUrl(); }}
-                                aria-label="Claude Code Remote Control link"
-                            />
-                            <button type="button" className="details-save-btn" onClick={openUrl}>Open</button>
-                        </div>
-                        {urlError
-                            ? <p className="devpanel-error">{urlError}</p>
-                            : <p className="devpanel-aside">The link must start with <code>{CLAUDE_URL_PREFIX}</code>.</p>}
-                    </div>
-                )}
+                    )}
             </div>
         </section>
     );

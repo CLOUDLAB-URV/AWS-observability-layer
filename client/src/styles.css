@@ -199,15 +199,28 @@ body {
 }
 
 .badge {
-    padding: 2px 10px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 10px;
+    height: 22px;
     border-radius: 999px;
     font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.4px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
     text-transform: uppercase;
     white-space: nowrap;
     flex-shrink: 0;
     transition: var(--transition-theme);
+}
+/* A small status dot leads the label, so the badge reads at a glance without shouting. */
+.badge::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    flex: none;
 }
 .badge-preview  { background: var(--badge-preview-bg);  color: var(--badge-preview-text); }
 .badge-deployed { background: var(--badge-deployed-bg); color: var(--badge-deployed-text); }
@@ -222,28 +235,6 @@ body {
     white-space: nowrap;
     min-width: 0;
 }
-
-/* Connection indicator */
-.conn {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    font-size: 11px;
-    font-weight: 500;
-    white-space: nowrap;
-    flex-shrink: 0;
-}
-.conn::before {
-    content: '';
-    display: inline-block;
-    width: 7px; height: 7px;
-    border-radius: 50%;
-    flex-shrink: 0;
-}
-.conn-on  { color: var(--conn-on); }
-.conn-off { color: var(--conn-off); }
-.conn-on::before  { background: var(--conn-on);  box-shadow: 0 0 0 3px rgba(127, 174, 143, 0.16); }
-.conn-off::before { background: var(--conn-off); box-shadow: 0 0 0 3px rgba(201, 139, 139, 0.14); }
 
 /* Action buttons */
 .deploy-btn, .teardown-btn {
@@ -1120,12 +1111,56 @@ body {
 .deployed-toolbar {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 10px 16px;
+    gap: 8px;
+    padding: 8px 14px;
     border-bottom: 1px solid var(--border-default);
     background: var(--surface-panel);
     flex-wrap: wrap;
 }
+/* Toolbar structure: related controls sit in a .tbar-group (tight gap); a .tbar-spacer pushes
+   the layout + panel groups to the right; a hairline .tbar-sep separates the two right groups. */
+.tbar-group { display: inline-flex; align-items: center; gap: 6px; }
+.tbar-spacer { flex: 1 1 auto; }
+.tbar-sep {
+    width: 1px;
+    height: 18px;
+    background: var(--border-default);
+    margin: 0 2px;
+    flex: none;
+}
+
+/* One unified toolbar button (Details / Explain / Guide / Connect agent / opencode). Same height
+   and radius as the icon buttons so the whole bar sits on one rhythm. */
+.tbar-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 30px;
+    padding: 0 11px;
+    border: 1px solid var(--border-default);
+    border-radius: 7px;
+    background: var(--surface-app);
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: color 120ms var(--ease), border-color 120ms var(--ease), background 120ms var(--ease);
+}
+.tbar-btn svg { width: 15px; height: 15px; flex: none; }
+.tbar-btn:hover { color: var(--text-primary); border-color: var(--border-input); }
+/* Active = the panel this button opens is currently on screen — a soft brand fill, VSCode-like. */
+.tbar-btn[aria-expanded="true"] {
+    background: var(--brand-surface);
+    border-color: transparent;
+    color: var(--brand-strong);
+}
+/* opencode: the wordmark logo carries the label, so no text — just give it a touch more breathing room. */
+.tbar-opencode { padding: 0 12px; }
+.tbar-opencode-logo { height: 15px; width: auto; display: block; opacity: 0.85; transition: opacity 120ms var(--ease); }
+.tbar-opencode:hover .tbar-opencode-logo,
+.tbar-opencode[aria-expanded="true"] .tbar-opencode-logo { opacity: 1; }
 
 /* ── dockview (VSCode-like docking) — Agent (MCP) view ─────────────────────
    The diagram + every side panel live in a dockview layout the user can drag,
@@ -1246,7 +1281,15 @@ body {
 /* Guide: fill the pane so its dark background reaches the bottom — otherwise the lighter
    pane background shows below the content as an ugly grey cut. Match the pane bg too. */
 .dv-pane:has(> .mcp-guide) { background: var(--surface-app); }
-.dv-pane > .mcp-guide { border-bottom: none; animation: none; min-height: 100%; }
+/* Neutralise the guide's standalone-drawer chrome (max-height:70vh; overflow-y:auto) so it does
+   NOT nest a second scrollbar inside .dv-pane's own overflow — the pane is the sole scroller. */
+.dv-pane > .mcp-guide {
+    border-bottom: none;
+    animation: none;
+    min-height: 100%;
+    max-height: none;
+    overflow: visible;
+}
 
 /* Close-less tab (the diagram): mirrors the default dockview tab text, no ✕. */
 .dv-plain-tab {
@@ -1290,50 +1333,45 @@ body {
     border: 1px solid var(--border-default);
     background: var(--surface-app);
     color: var(--text-secondary);
-    border-radius: 6px;
+    border-radius: 7px;
     cursor: pointer;
     transition: border-color 120ms var(--ease), color 120ms var(--ease), background 120ms var(--ease);
 }
-.icon-btn:hover { color: var(--text-primary); border-color: var(--border-focus); }
+.icon-btn:hover { color: var(--text-primary); border-color: var(--border-input); }
 .icon-btn svg { display: block; width: 16px; height: 16px; flex: none; }
 
-/* "Details" toggle in the deployed-state toolbar. */
-.details-btn {
-    border: 1px solid var(--border-default);
-    background: var(--surface-app);
-    color: var(--text-primary);
-    padding: 5px 12px;
-    border-radius: 6px;
-    cursor: pointer;
-    font-size: 13px;
-    transition: border-color 120ms var(--ease), color 120ms var(--ease);
+/* VSCode-style zone show/hide toggles (left column / bottom panel / right column). Grouped so
+   they read as one segmented control; the filled region of the icon marks which zone it acts on. */
+.zone-toggles { display: inline-flex; gap: 4px; }
+.zone-toggle svg { width: 15px; height: 15px; }
+/* Pressed = that zone is visible on screen — same soft brand accent as an open panel button. */
+.zone-toggle[aria-pressed="true"] {
+    background: var(--brand-surface);
+    border-color: transparent;
+    color: var(--brand-strong);
 }
-.details-btn:hover { border-color: var(--border-focus); }
-.details-btn[aria-expanded="true"] { border-color: var(--border-focus); color: var(--text-primary); }
+.zone-toggle:disabled {
+    opacity: 0.4;
+    cursor: default;
+    color: var(--text-secondary);
+    border-color: var(--border-default);
+    background: var(--surface-app);
+}
 
-/* "Explain" toolbar button — same shape as .details-btn, with a small dot when the
-   saved explanation is stale (the diagram changed since it was generated). */
-.explain-btn {
-    position: relative;
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    border: 1px solid var(--border-default);
-    background: var(--surface-app);
-    color: var(--text-primary);
-    padding: 5px 12px;
-    border-radius: 6px;
-    cursor: pointer;
-    font-size: 13px;
-    transition: border-color 120ms var(--ease), color 120ms var(--ease);
-}
-.explain-btn:hover { border-color: var(--border-focus); }
-.explain-btn[aria-expanded="true"] { border-color: var(--border-focus); }
+/* "Explain" toolbar button keeps the shared .tbar-btn look; it just needs a positioning context
+   for the stale-explanation dot. */
+.explain-btn { position: relative; }
+/* Stale-explanation indicator: a small dot pinned to the button's top-right corner, ringed by the
+   toolbar background so it reads as a notification badge rather than part of the label. */
 .explain-dot {
-    width: 7px;
-    height: 7px;
+    position: absolute;
+    top: -3px;
+    right: -3px;
+    width: 8px;
+    height: 8px;
     border-radius: 50%;
-    background: var(--fn-red, #e5534b);
+    background: var(--fn-amber);
+    box-shadow: 0 0 0 2px var(--surface-panel);
 }
 
 /* Explanation side panel — mirrors .resource-detail (slides in from the right). */
@@ -1525,9 +1563,7 @@ body {
     color: var(--text-primary);
     font-size: 13px;
 }
-.project-form button,
-.guide-btn,
-.settings-btn {
+.project-form button {
     border: 1px solid var(--border-default);
     background: var(--surface-app);
     color: var(--text-primary);
@@ -1537,24 +1573,18 @@ body {
     font-size: 13px;
     transition: border-color 120ms ease, color 120ms ease;
 }
-.project-form button:hover,
-.guide-btn:hover,
-.settings-btn:hover { border-color: var(--border-focus); }
-.guide-btn[aria-expanded="true"],
-.settings-btn[aria-expanded="true"] { border-color: var(--border-focus); }
+.project-form button:hover { border-color: var(--border-focus); }
 .project-form select {
     border: 1px solid var(--border-input);
-    border-radius: 6px;
-    padding: 5px 9px;
+    border-radius: 7px;
+    padding: 0 9px;
+    height: 30px;
     background: var(--surface-app);
     color: var(--text-primary);
     font-size: 13px;
     cursor: pointer;
     max-width: 340px;
 }
-/* Right-align the Guide + Connect agent group; Guide takes the slack so they sit together. */
-.guide-btn { margin-left: auto; }
-.settings-btn { font-weight: 550; }
 
 /* ── Connect-agent panel ──────────────────────────────────────────────── */
 .viz-settings {
@@ -1631,16 +1661,6 @@ body {
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-}
-.agent-select {
-    border: 1px solid var(--border-input);
-    border-radius: 6px;
-    padding: 4px 8px;
-    background: var(--surface-app);
-    color: var(--text-primary);
-    font-size: 12px;
-    font-weight: 500;
-    cursor: pointer;
 }
 .viz-step-hint { margin: 0 0 12px; line-height: 1.55; max-width: 620px; }
 .viz-step-body code,
@@ -2200,7 +2220,6 @@ body {
     font-size: 13px;
     line-height: 1.55;
 }
-.devpanel-empty-icon { font-size: 26px; color: var(--text-muted); opacity: 0.7; }
 /* opencode wordmark (white-on-transparent PNG, pre-trimmed from the brand asset). */
 .devpanel-brand-logo { height: 26px; width: auto; opacity: 0.85; }
 .devpanel-empty-title { color: var(--text-primary); font-weight: 600; }
@@ -2220,26 +2239,6 @@ body {
     gap: 10px;
     margin-top: 6px;
 }
-.devpanel-url {
-    width: min(520px, 70vw);
-    border: 1px solid var(--border-input);
-    border-radius: 6px;
-    padding: 7px 10px;
-    background: var(--surface-app);
-    color: var(--text-primary);
-    font-size: 13px;
-    font-family: var(--font-mono);
-}
-.devpanel-error { color: var(--fn-red); font-size: 12px; margin-top: 8px; }
-.devpanel-aside { color: var(--text-muted); font-size: 12px; margin-top: 8px; }
-.devpanel-link-url { max-width: min(620px, 80vw); overflow: hidden; }
-.devpanel-link-url code {
-    font-family: var(--font-mono);
-    font-size: 12px;
-    color: var(--text-secondary);
-    word-break: break-all;
-}
-.devpanel-open-btn { margin-top: 6px; padding: 8px 18px; font-weight: 500; }
 
 /* ---------------------------------------------------------------------------
    MCP guide (Agent / MCP view)

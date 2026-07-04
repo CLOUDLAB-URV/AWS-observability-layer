@@ -22,7 +22,9 @@ export default function App({ features, user }) {
     const INITIAL_VIEW = DESIGN_ENABLED ? 'design' : 'deployed';
 
     const [view, setView] = useState(INITIAL_VIEW);
-    const [connected, setConnected] = useState(false);
+    // Socket connection state is tracked (setConnected feeds the socket) but no longer surfaced
+    // in the header — the connection indicator was removed.
+    const [, setConnected] = useState(false);
     const [mode, setMode] = useState('preview');
     const [svg, setSvg] = useState('');
     const [renderError, setRenderError] = useState(null);
@@ -230,7 +232,7 @@ export default function App({ features, user }) {
                         className={`view-tab ${view === 'deployed' ? 'view-tab-active' : ''} ${!AGENT_ENABLED ? 'view-tab-wip' : ''}`}
                         onClick={() => { if (AGENT_ENABLED) setView('deployed'); }}
                         title={AGENT_ENABLED
-                            ? 'Live sigils of what your coding agent (Claude Code / opencode) deploys via the MCP server'
+                            ? 'Live sigils of what your coding agent (opencode) deploys via the MCP server'
                             : 'Sigils — en desarrollo (standby)'}
                     >
                         Sigils
@@ -268,14 +270,6 @@ export default function App({ features, user }) {
                 <output className="status-text" aria-live="polite" aria-atomic="true">
                     {status}
                 </output>
-                <span
-                    className={`conn ${connected ? 'conn-on' : 'conn-off'}`}
-                    role="status"
-                    aria-live="polite"
-                    aria-label={connected ? 'Connected to server' : 'Reconnecting to server'}
-                >
-                    {connected ? 'connected' : 'reconnecting…'}
-                </span>
                 {user && <UserMenu user={user} />}
                 {view === 'design' && (mode === 'preview' || mode === 'partial') && (
                     <button
