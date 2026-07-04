@@ -15,9 +15,9 @@ export default function ConnectAgentPanel() {
             <div className="viz-settings-head">
                 <h3>Connect your agent</h3>
                 <p className="viz-settings-sub">
-                    Register the <code>diagram-state-visualizer</code> MCP in your agent, then ask your
-                    agent to deploy — after each change it reports what it created or removed and a live
-                    diagram appears here. Each chat gets its own diagram. No AWS MCP needed; your agent
+                    Register the <code>sigilum</code> MCP in your agent, then ask your agent to
+                    deploy — after each change it reports what it created or removed and a live
+                    sigil appears here. Each chat gets its own sigil. No AWS MCP needed; your agent
                     deploys with its own tools and just reports the result.
                 </p>
             </div>
@@ -213,10 +213,10 @@ export default function ConnectAgentPanel() {
                         <div className="viz-step-title">Deploy &amp; visualize</div>
                         <p className="viz-step-hint">
                             Ask your agent to deploy — after each change it calls{' '}
-                            <code>push_deployment</code> with just what changed and the diagram updates
-                            here. To resume an earlier diagram, your agent runs <code>list_chats</code> and
-                            then <code>load_chat</code> with the closest diagram name (matched by
-                            proximity); or pin one via the <code>VISUALIZER_CHAT_ID</code> env var.
+                            <code>push_sigil</code> with just what changed and the sigil updates
+                            here. To resume an earlier sigil, your agent runs <code>list_sigils</code> and
+                            then <code>load_sigil</code> with the closest sigil name (matched by
+                            proximity); or pin one via the <code>SIGILUM_SIGIL_ID</code> env var.
                         </p>
                     </div>
                 </li>
@@ -237,13 +237,13 @@ export default function ConnectAgentPanel() {
                             <pre className="mcp-snippet">{claudeRemoveCommand}</pre>
                         </div>
                         <p className="viz-step-hint">
-                            For opencode, delete the <code>diagram-state-visualizer-local</code> entry under{' '}
+                            For opencode, delete the <code>sigilum-local</code> entry under{' '}
                             <code>mcp</code> in <code>~/.config/opencode/opencode.json</code>.
                         </p>
                     </>
                 ) : agent === 'opencode' ? (
                     <p className="viz-step-hint">
-                        Delete the <code>diagram-state-visualizer</code>{' '}
+                        Delete the <code>sigilum</code>{' '}
                         entry under <code>mcp</code> in <code>~/.config/opencode/opencode.json</code>.
                     </p>
                 ) : (

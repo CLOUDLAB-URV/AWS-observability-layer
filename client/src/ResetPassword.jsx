@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { resetPassword } from './auth.js';
+import Logo from './Logo.jsx';
 
 // Standalone page reached from the password-reset email link (`/reset?token=…`). Sets a new
 // password, then sends the user back to sign in. Reuses the full-screen auth styling.
@@ -29,7 +30,10 @@ export default function ResetPassword({ token }) {
     return (
         <div className="auth-screen">
             <div className="auth-card">
-                <div className="auth-brand">AWS Architect</div>
+                <div className="auth-brand">
+                    <Logo size={40} className="auth-brand-mark" />
+                    <span>Sigilum</span>
+                </div>
                 {done ? (
                     <div className="auth-form">
                         <p className="auth-verify-lead">Your password has been reset. You can now sign in with it.</p>

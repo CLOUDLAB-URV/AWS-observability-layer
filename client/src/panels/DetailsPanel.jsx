@@ -10,11 +10,11 @@ export default function DetailsPanel() {
     } = useDeployed();
 
     if (!selectedChat) {
-        return <div className="dv-pane dv-pane-empty">Select a chat to see its details.</div>;
+        return <div className="dv-pane dv-pane-empty">Select a sigil to see its details.</div>;
     }
 
     return (
-        <div className="dv-pane chat-details" role="region" aria-label="Chat details">
+        <div className="dv-pane chat-details" role="region" aria-label="Sigil details">
             <div className="chat-details-row">
                 <label htmlFor={editingName ? 'chat-name' : undefined}>Name</label>
                 {editingName ? (
@@ -61,7 +61,7 @@ export default function DetailsPanel() {
                 <span className="chat-details-value">{formatDate(selectedChat.updatedAt)}</span>
             </div>
             <div className="chat-details-row">
-                <label>Chat ID</label>
+                <label>Sigil ID</label>
                 <span className="chat-details-value chat-details-inline">
                     <span className="chat-details-id-text">{selectedChat.chatId}</span>
                     <button
@@ -77,7 +77,7 @@ export default function DetailsPanel() {
                 <label>Danger zone</label>
                 {confirmDelete ? (
                     <span className="chat-details-value chat-details-inline">
-                        <span>Delete this diagram permanently?</span>
+                        <span>Delete this sigil permanently?</span>
                         <button
                             type="button"
                             className="link-btn token-danger"
@@ -95,7 +95,7 @@ export default function DetailsPanel() {
                             className="details-danger-btn"
                             onClick={() => setConfirmDelete(true)}
                         >
-                            Delete diagram
+                            Delete sigil
                         </button>
                     </span>
                 )}

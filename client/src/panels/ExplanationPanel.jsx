@@ -10,7 +10,7 @@ export default function ExplanationPanel(props) {
     return (
         <div className="dv-pane explanation-panel">
             <div className="rd-header">
-                <h2>Diagram explanation</h2>
+                <h2>Sigil explanation</h2>
                 <button
                     type="button"
                     className="rd-close"
@@ -22,12 +22,12 @@ export default function ExplanationPanel(props) {
             </div>
             <div className="explanation-body">
                 {!chatId ? (
-                    <div className="explain-empty"><p>Select a chat to explain its diagram.</p></div>
+                    <div className="explain-empty"><p>Select a sigil to explain it.</p></div>
                 ) : explanation?.markdown ? (
                     <>
                         {explanation.outdated && (
                             <div className="explain-stale">
-                                <span>The diagram changed since this was written.</span>
+                                <span>The sigil changed since this was written.</span>
                                 <button
                                     type="button"
                                     className="explain-cta"
@@ -42,7 +42,7 @@ export default function ExplanationPanel(props) {
                     </>
                 ) : (
                     <div className="explain-empty">
-                        <p>No explanation yet for this diagram.</p>
+                        <p>No explanation yet for this sigil.</p>
                         <button
                             type="button"
                             className="explain-cta"

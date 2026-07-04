@@ -29,14 +29,14 @@ async function getTransport() {
 }
 
 function mailFrom() {
-    return process.env.MAIL_FROM || process.env.SMTP_USER || 'AWS Architect <no-reply@localhost>';
+    return process.env.MAIL_FROM || process.env.SMTP_USER || 'Sigilum <no-reply@localhost>';
 }
 
 function renderText(code, username) {
     return [
         `Hi ${username || 'there'},`,
         '',
-        'Your AWS Architect verification code is:',
+        'Your Sigilum verification code is:',
         '',
         `    ${code}`,
         '',
@@ -49,7 +49,7 @@ function shell(rows) {
     return `<!doctype html><html><body style="margin:0;background:#f4f4f5;padding:32px 16px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#18181b;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
     <table role="presentation" width="100%" style="max-width:440px;background:#ffffff;border:1px solid #e4e4e7;border-radius:14px;overflow:hidden;">
-      <tr><td style="padding:28px 32px 8px;font-size:18px;font-weight:700;letter-spacing:-0.01em;">AWS Architect</td></tr>
+      <tr><td style="padding:28px 32px 8px;font-size:18px;font-weight:700;letter-spacing:-0.01em;">Sigilum</td></tr>
       ${rows}
     </table>
   </td></tr></table>
@@ -73,7 +73,7 @@ function renderResetText(resetUrl, username) {
     return [
         `Hi ${username || 'there'},`,
         '',
-        'We received a request to reset your AWS Architect password. Open this link to choose a new one:',
+        'We received a request to reset your Sigilum password. Open this link to choose a new one:',
         '',
         `    ${resetUrl}`,
         '',
@@ -108,7 +108,7 @@ export async function sendVerificationCode(email, code, username) {
     await transport.sendMail({
         from: mailFrom(),
         to: email,
-        subject: 'Your AWS Architect verification code',
+        subject: 'Your Sigilum verification code',
         text: renderText(code, username),
         html: renderHtml(code, username)
     });
@@ -126,7 +126,7 @@ export async function sendPasswordReset(email, resetUrl, username) {
     await transport.sendMail({
         from: mailFrom(),
         to: email,
-        subject: 'Reset your AWS Architect password',
+        subject: 'Reset your Sigilum password',
         text: renderResetText(resetUrl, username),
         html: renderResetHtml(resetUrl, username)
     });

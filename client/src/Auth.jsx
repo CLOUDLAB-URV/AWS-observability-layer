@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { register, verify, resend, login, forgotPassword } from './auth.js';
+import Logo from './Logo.jsx';
 
 // Full-screen auth gate: Sign in / Create account, plus an email verification step and a
 // forgot-password request. On success it reloads so main.jsx re-fetches the session and
@@ -107,7 +108,10 @@ export default function Auth() {
     return (
         <div className="auth-screen">
             <div className="auth-card">
-                <div className="auth-brand">AWS Architect</div>
+                <div className="auth-brand">
+                    <Logo size={40} className="auth-brand-mark" />
+                    <span>Sigilum</span>
+                </div>
 
                 {mode !== 'verify' && mode !== 'forgot' && (
                     <div className="auth-tabs" role="tablist">

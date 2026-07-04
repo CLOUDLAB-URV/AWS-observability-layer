@@ -427,7 +427,7 @@ export default function DeployedState() {
         zonesRef.current = { ...DEFAULT_ZONES };
         saveZones(zonesRef.current);
         const thirdW = Math.round((dockRef.current?.clientWidth || 1200) / 3);
-        api.addPanel({ id: 'diagram', component: 'diagram', title: 'Diagram', tabComponent: 'plain' });
+        api.addPanel({ id: 'diagram', component: 'diagram', title: 'Sigil', tabComponent: 'plain' });
         api.addPanel({ id: 'devtools', component: 'devtools', title: PANEL_META.devtools.title,
             position: { referencePanel: 'diagram', direction: 'left' }, initialWidth: thirdW });
         api.addPanel({ id: 'connect-agent', component: 'connect-agent', title: PANEL_META['connect-agent'].title,
@@ -478,6 +478,9 @@ export default function DeployedState() {
         if (!restored || !api.getPanel('diagram')) buildDefault(api);
         const rd = api.getPanel('resource-detail');
         if (rd && !selectedResourceRef.current) rd.api.close();
+        // A layout saved before the rebrand carries the old "Diagram" tab title — retitle it.
+        const dp = api.getPanel('diagram');
+        if (dp && dp.title !== 'Sigil') dp.api.setTitle('Sigil');
 
         // Free tiling: every panel — including the diagram — can be dragged and dropped anywhere
         // (any edge of any group, any outer edge), and every sash resizes freely. The only rules:
@@ -577,9 +580,9 @@ export default function DeployedState() {
     }, [selectedResource, ensurePanel]);
 
     // The dropdown shows only the human name (fall back to a short id for unnamed
-    // chats). Dates / full id / rename live in the Details panel.
+    // sigils). Dates / full id / rename live in the Details panel.
     function chatLabel(c) {
-        return c.name || `Chat ${c.chatId.slice(0, 8)}`;
+        return c.name || `Sigil ${c.chatId.slice(0, 8)}`;
     }
 
     function formatDate(iso) {
@@ -590,40 +593,40 @@ export default function DeployedState() {
 
     const selectedChat = chats.find((c) => c.chatId === chatId) || null;
 
-    // Server name. In local dev use a distinct "-local" name + VISUALIZER_URL so this MCP targets
+    // Server name. In local dev use a distinct "-local" name + SIGILUM_URL so this MCP targets
     // the local server and coexists with the hosted one a user already has. In production it's a
     // unique-per-OS-user name ($USER expands when pasted into a shell), safe to run anywhere.
-    const SERVER_NAME = dev ? 'diagram-state-visualizer-local' : 'diagram-state-visualizer-$USER';
+    const SERVER_NAME = dev ? 'sigilum-local' : 'sigilum-$USER';
     // In dev the token is the fixed env one (always known). Otherwise use the freshly generated
     // token if we have one; the secret of an existing token is never returned to the UI, so a
     // ready-to-paste command is only possible right after generating it.
     const tokenForCmd = dev ? devToken : (newToken || TOKEN_PLACEHOLDER);
     // In dev, point the MCP at the local server; in prod it defaults to the hosted deployment.
-    const urlEnv = dev && visualizerUrl ? ` VISUALIZER_URL=${visualizerUrl}` : '';
-    const claudeUrlFlag = dev && visualizerUrl ? `\n    --env VISUALIZER_URL=${visualizerUrl} \\` : '';
+    const urlEnv = dev && visualizerUrl ? ` SIGILUM_URL=${visualizerUrl}` : '';
+    const claudeUrlFlag = dev && visualizerUrl ? `\n    --env SIGILUM_URL=${visualizerUrl} \\` : '';
     // Ready-to-paste Claude Code CLI command: registers the published MCP at user scope
     // (loaded in every session on this machine) with the token baked in.
     const claudeAddCommand = `claude mcp add --scope user ${SERVER_NAME} \\
-    --env VISUALIZER_TOKEN=${tokenForCmd} \\${claudeUrlFlag}
-    -- npx -y diagram-state-visualizer-mcp@latest`;
+    --env SIGILUM_TOKEN=${tokenForCmd} \\${claudeUrlFlag}
+    -- npx -y sigilum-mcp@latest`;
     const claudeRemoveCommand = `claude mcp remove --scope user ${SERVER_NAME}`;
     // opencode in production: one command that installs opencode if needed and writes the MCP entry
     // into ~/.config/opencode/opencode.json (idempotent — re-running only refreshes the token). The
     // token goes via env var (same name the MCP reads), so it's not stored as a CLI flag.
-    // In dev we can't use that helper: it owns the single `diagram-state-visualizer` key, so it
+    // In dev we can't use that helper: it owns the single `sigilum` key, so it
     // would clobber a user's hosted entry. Show a manual `-local` entry instead, which coexists.
-    const opencodeDevSnippet = `"diagram-state-visualizer-local": {
+    const opencodeDevSnippet = `"sigilum-local": {
   "type": "local",
-  "command": ["npx", "-y", "diagram-state-visualizer-mcp@latest"],
+  "command": ["npx", "-y", "sigilum-mcp@latest"],
   "enabled": true,
   "environment": {
-    "VISUALIZER_TOKEN": "${tokenForCmd}",
-    "VISUALIZER_URL": "${visualizerUrl}"
+    "SIGILUM_TOKEN": "${tokenForCmd}",
+    "SIGILUM_URL": "${visualizerUrl}"
   }
 }`;
     const opencodeAddCommand = dev
         ? opencodeDevSnippet
-        : `VISUALIZER_TOKEN=${tokenForCmd}${urlEnv} npx -y @apozo/opencode-diagrammer-setup`;
+        : `SIGILUM_TOKEN=${tokenForCmd}${urlEnv} npx -y @apozo/sigilum-setup`;
     // Per-agent values driving the single step-2 block below.
     const addCommand = agent === 'claude' ? claudeAddCommand : opencodeAddCommand;
 
@@ -658,13 +661,13 @@ export default function DeployedState() {
             <div className="deployed-state">
                 <div className="deployed-toolbar">
                     <div className="project-form">
-                        <label htmlFor="viz-chat">Chat</label>
+                        <label htmlFor="viz-chat">Sigil</label>
                         <select
                             id="viz-chat"
                             value={chatId}
                             onChange={(e) => setChatId(e.target.value)}
                         >
-                            <option value="">{chats.length ? 'Select a chat…' : 'No chats yet'}</option>
+                            <option value="">{chats.length ? 'Select a sigil…' : 'No sigils yet'}</option>
                             {chats.map((c) => (
                                 <option key={c.chatId} value={c.chatId}>
                                     {`${c.deployed ? '● ' : '○ '}${chatLabel(c)}`}
@@ -675,8 +678,8 @@ export default function DeployedState() {
                             type="button"
                             className="icon-btn"
                             onClick={loadChats}
-                            title="Refresh chats"
-                            aria-label="Refresh chats"
+                            title="Refresh sigils"
+                            aria-label="Refresh sigils"
                         >
                             <svg viewBox="0 0 24 24" width="16" height="16" fill="none"
                                 stroke="currentColor" strokeWidth="2" strokeLinecap="round"
@@ -692,7 +695,7 @@ export default function DeployedState() {
                             title={deployed
                                 ? 'Live — these resources are deployed in AWS'
                                 : 'Design — a sketch; nothing is deployed to AWS yet'}
-                            aria-label={`Diagram mode: ${deployed ? 'Live, deployed to AWS' : 'Design, not deployed'}`}
+                            aria-label={`Sigil mode: ${deployed ? 'Live, deployed to AWS' : 'Design, not deployed'}`}
                         >
                             {deployed ? 'Live' : 'Design'}
                         </span>
@@ -713,7 +716,7 @@ export default function DeployedState() {
                             className="explain-btn"
                             onClick={() => togglePanel('explanation')}
                             aria-expanded={isOpen('explanation')}
-                            title="Explain this diagram component by component"
+                            title="Explain this sigil component by component"
                         >
                             📖 Explain
                             {explanation?.outdated && <span className="explain-dot" aria-hidden="true" />}

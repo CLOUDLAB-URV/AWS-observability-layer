@@ -168,7 +168,7 @@ function DeleteAccountModal({ user, onClose }) {
             <div className="modal-box">
                 <h2 className="modal-title" id="da-title">Delete account</h2>
                 <p className="modal-message">
-                    This is permanent. Your account, all your diagrams and your agent tokens will be
+                    This is permanent. Your account, all your sigils and your agent tokens will be
                     erased and cannot be recovered.
                 </p>
                 <form className="modal-form" onSubmit={onSubmit}>

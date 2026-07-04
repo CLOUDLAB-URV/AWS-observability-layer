@@ -6,6 +6,7 @@ import ConfirmModal from './ConfirmModal.jsx';
 import { createSocket } from './ws.js';
 import DevPanel from './DevPanel.jsx';
 import UserMenu from './UserMenu.jsx';
+import Logo from './Logo.jsx';
 import { useChatPanel } from './hooks/useChatPanel.js';
 
 const MODE_LABELS = { preview: 'Preview', deployed: 'Deployed', partial: 'Partial' };
@@ -178,7 +179,7 @@ export default function App({ features, user }) {
         if (busy) return;
         setConfirmModal({
             title: 'Tear down resources',
-            message: 'This permanently deletes ALL AWS resources created from this diagram and returns to preview mode. This cannot be undone.',
+            message: 'This permanently deletes ALL AWS resources created from this sigil and returns to preview mode. This cannot be undone.',
             confirmLabel: 'Tear down',
             confirmClass: 'teardown-btn',
             onConfirm: () => {
@@ -202,7 +203,10 @@ export default function App({ features, user }) {
                 />
             )}
             <header className="topbar" role="banner">
-                <h1>AWS Architect</h1>
+                <div className="brand">
+                    <Logo size={22} className="brand-mark" />
+                    <h1>Sigilum</h1>
+                </div>
                 <nav className="view-tabs" role="tablist" aria-label="View">
                     <button
                         role="tab"
@@ -226,10 +230,10 @@ export default function App({ features, user }) {
                         className={`view-tab ${view === 'deployed' ? 'view-tab-active' : ''} ${!AGENT_ENABLED ? 'view-tab-wip' : ''}`}
                         onClick={() => { if (AGENT_ENABLED) setView('deployed'); }}
                         title={AGENT_ENABLED
-                            ? 'Live diagram of what your coding agent (Claude Code / opencode) deploys via the MCP server'
-                            : 'Agent (MCP) — en desarrollo (standby)'}
+                            ? 'Live sigils of what your coding agent (Claude Code / opencode) deploys via the MCP server'
+                            : 'Sigils — en desarrollo (standby)'}
                     >
-                        Agent (MCP)
+                        Sigils
                         {!AGENT_ENABLED && <span className="wip-tag">WIP</span>}
                     </button>
                 </nav>

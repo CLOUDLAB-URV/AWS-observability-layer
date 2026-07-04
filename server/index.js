@@ -318,12 +318,12 @@ app.post('/api/chats/:chatId/deployments', agentGate, requireToken, async (req, 
         const isNewSession = !(priorMeta.name || priorMeta.project);
 
         // Enforce the "never mixed" invariant: pushing resources of the wrong mode
-        // into an existing diagram is rejected.
+        // into an existing sigil is rejected.
         if (exists && wantDeployed !== undefined && wantDeployed !== priorMeta.deployed) {
             res.status(409).json({
-                error: `This diagram is ${priorMeta.deployed ? 'Live (deployed to AWS)' : 'Design (not deployed)'}. ` +
-                    `A diagram can't mix deployed and non-deployed resources — ` +
-                    `${priorMeta.deployed ? 'report only live resources here' : 'deploy it first with deploy_diagram'}.`
+                error: `This sigil is ${priorMeta.deployed ? 'Live (deployed to AWS)' : 'Design (not deployed)'}. ` +
+                    `A sigil can't mix deployed and non-deployed resources — ` +
+                    `${priorMeta.deployed ? 'report only live resources here' : 'deploy it first with deploy_sigil'}.`
             });
             return;
         }
@@ -353,14 +353,14 @@ app.post('/api/chats/:chatId/deployments', agentGate, requireToken, async (req, 
 });
 
 // List the user's chats (newest first). Shared route: the MCP calls it with a Bearer token
-// (list_chats, and load_chat's lookup), the web UI calls it same-origin with a session cookie —
+// (list_sigils, and load_sigil's lookup), the web UI calls it same-origin with a session cookie —
 // so it accepts either (requireSessionOrToken) and scopes to that user.
 app.get('/api/chats', agentGate, requireSessionOrToken, async (req, res) => {
     res.json({ chats: await visualizerStore.listChats(req.userId) });
 });
 
 // Full context for one chat: name + current deployed-state resources + current D2.
-// Used by the MCP's load_chat (Bearer token) so the agent can resume knowing what already exists
+// Used by the MCP's load_sigil (Bearer token) so the agent can resume knowing what already exists
 // (real IDs/ARNs); also by the web UI (session cookie) to power per-service tooltips and the
 // resource detail panel. Dual auth so both reach it, scoped to the caller's user.
 app.get('/api/chats/:chatId', agentGate, requireSessionOrToken, async (req, res) => {
@@ -377,10 +377,10 @@ app.get('/api/chats/:chatId', agentGate, requireSessionOrToken, async (req, res)
     res.json({ chat: chatId, name: meta.name || meta.project || '', deployed: meta.deployed === true, resources: Object.values(state), d2 });
 });
 
-// Transition a diagram from "Design" to "Live": mark it deployed and hand the caller
-// the full resource spec to actually create in AWS. The MCP's deploy_diagram tool
+// Transition a sigil from "Design" to "Live": mark it deployed and hand the caller
+// the full resource spec to actually create in AWS. The MCP's deploy_sigil tool
 // calls this; the coding agent then provisions with its own AWS tools and re-reports
-// real ids via push_deployment. Bearer-token auth like the ingest route.
+// real ids via push_sigil. Bearer-token auth like the ingest route.
 app.post('/api/chats/:chatId/deploy', agentGate, requireToken, async (req, res) => {
     const chatId = visualizerStore.sanitizeChatId(req.params.chatId);
     if (!chatId) {
@@ -593,9 +593,9 @@ app.get('/api/config', (_req, res) => {
 
 await store.initProject();
 server.listen(PORT, () => {
-    console.log(`aws-architect-web server listening on http://127.0.0.1:${PORT} (ws path /ws)`);
+    console.log(`sigilum server listening on http://127.0.0.1:${PORT} (ws path /ws)`);
     if (DEV && !auth.authEnabled()) {
         console.log(`[dev] login disabled — fixed local user ${DEV_USER_ID}; data persists in ${persistRoot()} (durable)`);
-        console.log(`[dev] MCP token: set VISUALIZER_TOKEN=${DEV_TOKEN} VISUALIZER_URL=http://localhost:${PORT}`);
+        console.log(`[dev] MCP token: set SIGILUM_TOKEN=${DEV_TOKEN} SIGILUM_URL=http://localhost:${PORT}`);
     }
 });

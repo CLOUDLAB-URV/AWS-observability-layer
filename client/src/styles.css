@@ -29,6 +29,12 @@
     --fn-green:       #7fae8f;   /* connected / ok */
     --fn-amber:       #cbb285;   /* partial */
 
+    /* Brand accent — the Sigilum navy from the logo, lightened for the dark theme.
+       Used sparingly: active view tab, brand-mark hover, links/accents. */
+    --brand:         #7d97c0;
+    --brand-strong:  #9db4d6;
+    --brand-surface: rgba(125, 151, 192, 0.14);
+
     /* ── Semantic tokens ─────────────────────────────────── */
     --surface-app:         var(--ink-900);
     --surface-panel:       var(--ink-800);
@@ -163,6 +169,24 @@ body {
     transition: var(--transition-theme);
     flex-shrink: 0;
     z-index: 50;
+}
+
+/* Brand lockup: the Sigilum mark + wordmark. The mark inherits currentColor (bone
+   white by default) and warms to the brand accent on hover. */
+.brand {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    color: var(--text-primary);
+}
+.brand .brand-mark {
+    flex-shrink: 0;
+    display: block;
+    transition: color 200ms var(--ease), transform 200ms var(--ease);
+}
+.brand:hover .brand-mark {
+    color: var(--brand-strong);
+    transform: rotate(-8deg);
 }
 
 .topbar h1 {
@@ -1059,9 +1083,9 @@ body {
 }
 .view-tab:hover { color: var(--text-primary); }
 .view-tab-active {
-    background: var(--surface-panel);
+    background: var(--brand-surface);
     color: var(--text-primary);
-    border-color: var(--border-focus);
+    border-color: var(--brand);
 }
 /* Standby/WIP: visible pero deshabilitada y no clicable. */
 .view-tab:disabled,
@@ -1816,6 +1840,10 @@ body {
     box-shadow: var(--shadow-lg);
 }
 .auth-brand {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
     font-size: 1.35rem;
     font-weight: 600;
     letter-spacing: -0.02em;
@@ -1823,6 +1851,7 @@ body {
     text-align: center;
     margin-bottom: 22px;
 }
+.auth-brand .auth-brand-mark { color: var(--brand-strong); }
 
 /* Tabs */
 .auth-tabs {
@@ -2172,6 +2201,8 @@ body {
     line-height: 1.55;
 }
 .devpanel-empty-icon { font-size: 26px; color: var(--text-muted); opacity: 0.7; }
+/* opencode wordmark (white-on-transparent PNG, pre-trimmed from the brand asset). */
+.devpanel-brand-logo { height: 26px; width: auto; opacity: 0.85; }
 .devpanel-empty-title { color: var(--text-primary); font-weight: 600; }
 .devpanel-empty p { margin: 0; max-width: 460px; }
 .devpanel-empty code {

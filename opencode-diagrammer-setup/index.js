@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 'use strict';
 
-// One-shot setup for using the diagram-state-visualizer MCP with opencode.
+// One-shot setup for using the sigilum MCP with opencode.
 //
-//   VISUALIZER_TOKEN=viz_… npx -y @apozo/opencode-diagrammer-setup
+//   SIGILUM_TOKEN=viz_… npx -y @apozo/sigilum-setup
 //
 // What it does (Linux):
-//   1. Checks the token (from VISUALIZER_TOKEN or --token).
+//   1. Checks the token (from SIGILUM_TOKEN — legacy VISUALIZER_TOKEN also works — or --token).
 //   2. Checks whether `opencode` is installed; if not, asks to install it (npm -g, with the
 //      official curl installer as fallback) and continues — or stops if you decline.
-//   3. Idempotently adds the `diagram-state-visualizer` MCP entry to ~/.config/opencode/opencode.json.
+//   3. Idempotently adds the `sigilum` MCP entry to ~/.config/opencode/opencode.json.
 //      Re-running only refreshes the token; everything else is left exactly as it is.
 //
 // The token is never printed.
@@ -90,8 +90,8 @@ export async function runSetupOpencode(argv) {
         opts = parseArgs(argv, process.env);
     } catch (e) {
         err(`✖ ${e.message}`);
-        err('  Generate a token in the web UI → Deployed state → Connect agent, then run:');
-        err('    VISUALIZER_TOKEN=viz_your_token npx -y @apozo/opencode-diagrammer-setup');
+        err('  Generate a token in the web UI → Sigils → Connect agent, then run:');
+        err('    SIGILUM_TOKEN=viz_your_token npx -y @apozo/sigilum-setup');
         return 1;
     }
 
@@ -139,7 +139,7 @@ export async function runSetupOpencode(argv) {
     log(isNew
         ? `✓ Added the "${SERVER_KEY}" MCP to opencode (${CONFIG_FILE}).`
         : `✓ Updated the "${SERVER_KEY}" token in opencode (${CONFIG_FILE}).`);
-    log('  Start (or restart) opencode and ask your agent to deploy — the live diagram appears in the web app.');
+    log('  Start (or restart) opencode and ask your agent to deploy — the live sigil appears in the web app.');
     return 0;
 }
 

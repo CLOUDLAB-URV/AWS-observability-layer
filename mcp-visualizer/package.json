@@ -1,10 +1,10 @@
 {
-  "name": "diagram-state-visualizer-mcp",
-  "version": "0.5.0",
-  "description": "Self-contained MCP server: the agent reports the delta of deployed AWS changes (upsert/delete) and it renders a live diagram of what is actually deployed in AWS, in the AWS Architect Web 'Deployed state' view. Resume earlier diagrams by name via list_chats + load_chat.",
+  "name": "sigilum-mcp",
+  "version": "1.0.0",
+  "description": "Self-contained MCP server for Sigilum: the agent reports the delta of deployed AWS changes (upsert/delete) and it renders a live sigil (architecture diagram) of what is actually deployed in AWS. Resume earlier sigils by name via list_sigils + load_sigil.",
   "type": "module",
   "bin": {
-    "diagram-state-visualizer-mcp": "index.js"
+    "sigilum-mcp": "index.js"
   },
   "main": "index.js",
   "files": [
@@ -21,6 +21,7 @@
     "aws",
     "aws-cli",
     "diagram",
+    "sigilum",
     "visualizer"
   ],
   "license": "MIT",

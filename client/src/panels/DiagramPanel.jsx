@@ -22,16 +22,16 @@ export default function DiagramPanel() {
             ) : (
                 <div className="diagram-empty">
                     {chatId ? (
-                        <>No deployed state yet for this chat. Deploy with your agent (it calls{' '}
-                        <code>push_deployment</code>) to see the live diagram here.</>
+                        <>Nothing drawn on this sigil yet. Deploy with your agent (it calls{' '}
+                        <code>push_sigil</code>) to see the live sigil here.</>
                     ) : (
                         <div className="diagram-empty-hint">
                             <span className="diagram-empty-icon" aria-hidden="true">◇</span>
-                            <span className="diagram-empty-title">Select a chat to view its diagram</span>
+                            <span className="diagram-empty-title">Select a sigil to view it</span>
                             <span>
                                 {chatsCount
-                                    ? 'Pick a deployment from the Chat menu above.'
-                                    : 'Connect your agent and ask it to deploy — a chat will appear here.'}
+                                    ? 'Pick one from the Sigil menu above.'
+                                    : 'Connect your agent and ask it to deploy — a sigil will appear here.'}
                             </span>
                         </div>
                     )}

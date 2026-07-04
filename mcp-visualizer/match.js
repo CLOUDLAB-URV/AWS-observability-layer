@@ -1,6 +1,6 @@
 'use strict';
 
-// Name-matching for resuming a previous diagram by name (used by load_chat). Extracted
+// Name-matching for resuming a previous sigil by name (used by load_sigil). Extracted
 // into its own module so it is unit-testable without importing index.js (which connects
 // the MCP server transport at import time).
 
@@ -13,7 +13,7 @@ export function normalizeName(raw) {
         .trim();
 }
 
-// Resolve a free-text diagram name to a chat from `list_chats` by proximity. The calling
+// Resolve a free-text sigil name to a chat from `list_sigils` by proximity. The calling
 // agent is expected to pick the semantically closest name (it sees the list); this maps
 // that name back to a chat id robustly. Scoring, in order:
 //   1. exact normalized match wins outright;

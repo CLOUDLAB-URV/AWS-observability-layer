@@ -1,15 +1,15 @@
-// Usage guide for the diagram-state-visualizer MCP, shown in the Agent (MCP) view.
-// Written for users (how to use it), not as an API reference. `onOpenConnect` opens the
-// "Connect agent" panel so the token reference is one click away.
+// Usage guide for the Sigilum MCP, shown in the Sigils view. Written for users (how to
+// use it), not as an API reference. `onOpenConnect` opens the "Connect agent" panel so
+// the token reference is one click away.
 
 export default function McpGuide({ onOpenConnect }) {
     return (
-        <div className="mcp-guide" role="region" aria-label="How to use the visualizer">
+        <div className="mcp-guide" role="region" aria-label="How to use Sigilum">
             <div className="guide-head">
-                <h3>Using the visualizer</h3>
+                <h3>Using Sigilum</h3>
                 <p className="guide-lede">
                     Connect the MCP once and your AWS work draws itself. Whenever your agent deploys
-                    or changes something in AWS, it's reported for you and the live diagram here
+                    or changes something in AWS, it's reported for you and the live sigil here
                     stays in sync — you never run anything by hand.
                 </p>
             </div>
@@ -19,8 +19,8 @@ export default function McpGuide({ onOpenConnect }) {
                 <h4 className="guide-section-title">It happens automatically</h4>
                 <p>
                     With the MCP active, every time you deploy or modify something in AWS the agent
-                    records it for you (it calls <code>push_deployment</code> behind the scenes) and
-                    the diagram updates on its own. Just build your infrastructure as usual — the
+                    records it for you (it calls <code>push_sigil</code> behind the scenes) and
+                    the sigil updates on its own. Just build your infrastructure as usual — the
                     picture keeps itself up to date.
                 </p>
                 <div className="guide-flow">
@@ -28,45 +28,45 @@ export default function McpGuide({ onOpenConnect }) {
                     <span className="guide-flow-arrow" aria-hidden="true">→</span>
                     <span className="guide-flow-step">Reported automatically<br /><em>no manual step</em></span>
                     <span className="guide-flow-arrow" aria-hidden="true">→</span>
-                    <span className="guide-flow-step">Diagram updates here<br /><em>live</em></span>
+                    <span className="guide-flow-step">Sigil updates here<br /><em>live</em></span>
                 </div>
             </section>
 
-            {/* One chat = one diagram */}
+            {/* One chat = one sigil */}
             <section className="guide-section">
-                <h4 className="guide-section-title">One chat, one diagram</h4>
+                <h4 className="guide-section-title">One chat, one sigil</h4>
                 <p>
-                    Each new chat is its own diagram. The first time you deploy something in a chat,
-                    a <strong>new diagram is created with its own id</strong>, and it's
-                    <strong> named automatically</strong> based on what you built in that first
-                    deployment (for example, “Two-tier web app”). You can rename it anytime from
-                    <strong> Details</strong> in the toolbar above.
+                    Each new chat with your agent is its own sigil. The first time you deploy
+                    something in a chat, a <strong>new sigil is created with its own id</strong>,
+                    and it's <strong>named automatically</strong> based on what you built in that
+                    first deployment (for example, “Two-tier web app”). You can rename it anytime
+                    from <strong>Details</strong> in the toolbar above.
                 </p>
                 <p>
                     From then on, everything you do in that chat — add, change or remove resources —
-                    is reflected in <strong>that same diagram</strong>. The context follows the chat:
-                    the chat you're working in <em>is</em> the diagram you're editing. Start a new
-                    chat and you start a fresh, independent diagram.
+                    is reflected in <strong>that same sigil</strong>. The context follows the chat:
+                    the chat you're working in <em>is</em> the sigil you're editing. Start a new
+                    chat and you start a fresh, independent sigil.
                 </p>
             </section>
 
-            {/* Switching diagrams */}
+            {/* Switching sigils */}
             <section className="guide-section">
-                <h4 className="guide-section-title">Switching to another diagram</h4>
+                <h4 className="guide-section-title">Switching to another sigil</h4>
                 <p>
                     Want to keep working on something you deployed earlier, even from another chat?
-                    Just <strong>ask the agent to load that diagram by name</strong> — for example,
-                    <em> “load the diagram for the serverless API”</em>. It finds the closest match by
-                    name (it doesn't need to be exact) and pulls that diagram's current state into
+                    Just <strong>ask the agent to load that sigil by name</strong> — for example,
+                    <em> “load the sigil for the serverless API”</em>. It finds the closest match by
+                    name (it doesn't need to be exact) and pulls that sigil's current state into
                     context, so everything you do next applies to it.
                 </p>
                 <p>
-                    Not sure what you have? Ask the agent to <strong>list your diagrams</strong> to
+                    Not sure what you have? Ask the agent to <strong>list your sigils</strong> to
                     see everything saved under your account, then load the one you want by name.
                 </p>
                 <p className="guide-aside">
-                    Behind the scenes the agent uses <code>list_chats</code> to see what's available
-                    and <code>load_chat</code> to switch — you just talk to it in plain language.
+                    Behind the scenes the agent uses <code>list_sigils</code> to see what's available
+                    and <code>load_sigil</code> to switch — you just talk to it in plain language.
                 </p>
             </section>
 

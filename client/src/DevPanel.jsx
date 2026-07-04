@@ -330,7 +330,7 @@ export default function DevPanel({ embedded = false }) {
                         />
                     ) : (
                         <div className="devpanel-empty">
-                            <span className="devpanel-empty-icon" aria-hidden="true">⌘</span>
+                            <img className="devpanel-brand-logo" src="/opencode.png" alt="" aria-hidden="true" />
                             {activeStatus === 'checking' ? (
                                 <p>Checking <code>{`localhost:${port}`}</code>…</p>
                             ) : (

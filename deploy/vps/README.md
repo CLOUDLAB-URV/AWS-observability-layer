@@ -1,6 +1,6 @@
 # VPS deployment
 
-Self-contained runtime stack for the AWS Architect Web app. It runs both Docker Hub images
+Self-contained runtime stack for the Sigilum app. It runs both Docker Hub images
 behind a single proxy with **automatic HTTPS** and **auto-redeploys whenever a new image is
 published**.
 
@@ -22,7 +22,7 @@ published**.
 
 ### DNS / firewall (required for HTTPS)
 
-Before `up -d`: point a DNS **A record** (and AAAA if you have IPv6) for `diagrams.alejandropozo.com`
+Before `up -d`: point a DNS **A record** (and AAAA if you have IPv6) for `sigilum.cloud`
 at the server's public IP, and make sure inbound **ports 80 and 443** are open. Port 80 is
 needed for the ACME challenge and the HTTP→HTTPS redirect.
 
@@ -98,10 +98,10 @@ docker compose up -d
 # 4. Check
 docker compose ps                          # backend + frontend should be "healthy"
 docker compose logs -f caddy               # watch it obtain the Let's Encrypt cert
-curl https://diagrams.alejandropozo.com/health   # {"ok":true}  (once the cert is issued)
+curl https://sigilum.cloud/health   # {"ok":true}  (once the cert is issued)
 ```
 
-Open `https://diagrams.alejandropozo.com/` for the app; the **Agent** tab connects over a
+Open `https://sigilum.cloud/` for the app; the **Sigils** tab connects over a
 secure `wss://` WebSocket automatically.
 
 ## Deploy from your machine (one command, with rollback)
@@ -176,6 +176,6 @@ docker compose down                           # stop everything (volumes kept)
   domain, edit `DOMAIN` in `.env` and `docker compose up -d`.
 - **Extra hostnames** (e.g. a dedicated `api.` subdomain) can be added as more site blocks in
   `Caddyfile`; today everything is served under the one `$DOMAIN`.
-- **MCP tokens** are generated per user in the UI (Agent → Deployed state) after logging in;
+- **MCP tokens** are generated per user in the UI (Sigils → Connect agent) after logging in;
   there is no shared token to configure on the server. The user pastes the generated `viz_…`
-  value into their MCP server's `VISUALIZER_TOKEN`.
+  value into their MCP server's `SIGILUM_TOKEN`.

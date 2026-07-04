@@ -1,7 +1,8 @@
-# AWS Architect Web
+# Sigilum
 
-Visual web app for designing AWS architectures by chat, deploying them, and keeping the
-diagram in sync with what is really inside AWS. Clean web rewrite of the
+Visual web app (hosted at [sigilum.cloud](https://sigilum.cloud)) for designing AWS
+architectures by chat, deploying them, and keeping the live **sigil** — the architecture
+diagram — in sync with what is really inside AWS. Clean web rewrite of the
 "Extension Logic" VS Code pipeline: the Node backend is itself the MCP client to
 `awslabs.aws-api-mcp-server` and calls **Gemini on Google Vertex AI** directly (via
 `@google/genai`) — no proxy, no opencode/Copilot needed. Orchestration is a LangGraph

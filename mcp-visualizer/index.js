@@ -1,28 +1,28 @@
 #!/usr/bin/env node
 'use strict';
 
-// Distributable MCP server for the "Deployed state" feature. It is self-contained
-// and does NOT run any AWS commands itself: the agent deploys with its own tools,
-// then REPORTS what changed. After each deploy or modification, the agent calls
-// push_deployment with only the DELTA — the resources it created/changed (upsert)
-// or removed (delete). The AWS Architect Web backend keeps the authoritative,
-// detailed state by applying those changes, and renders a live architecture
-// diagram of what is actually deployed.
+// Distributable MCP server for Sigilum. It is self-contained and does NOT run any
+// AWS commands itself: the agent deploys with its own tools, then REPORTS what
+// changed. After each deploy or modification, the agent calls push_sigil with only
+// the DELTA — the resources it created/changed (upsert) or removed (delete). The
+// Sigilum backend keeps the authoritative, detailed state by applying those
+// changes, and renders a live architecture sigil of what is actually deployed.
 //
-// Three tools:
-//   - push_deployment : report the delta of changes (the only push tool).
-//   - list_chats      : discover previous deployment diagrams (id + name).
-//   - load_chat       : resume a previous diagram BY NAME (resolved by proximity)
-//                       and load its full current deployed state into context.
+// Tools:
+//   - push_sigil   : report the delta of changes (the only push tool).
+//   - deploy_sigil : mark a design sigil Live and get the spec to actually build.
+//   - list_sigils  : discover previous sigils (id + name).
+//   - load_sigil   : resume a previous sigil BY NAME (resolved by proximity)
+//                    and load its full current deployed state into context.
 //
 // This server targets the hosted web app by default; the only thing most users configure
-// is their API token (VISUALIZER_TOKEN). Point it elsewhere (e.g. a local dev backend) with
-// VISUALIZER_URL.
+// is their API token (SIGILUM_TOKEN). Point it elsewhere (e.g. a local dev backend) with
+// SIGILUM_URL. The legacy VISUALIZER_* env names still work as fallbacks.
 //
-//   VISUALIZER_TOKEN   (env, required)  API token generated in the web UI
-//   VISUALIZER_URL     (env, optional)  base URL of the deployment; defaults to the hosted app.
-//                                       For local dev: http://127.0.0.1:3001
-//   VISUALIZER_CHAT_ID (env, optional)  pin a fixed chat id for this session
+//   SIGILUM_TOKEN    (env, required)  API token generated in the web UI
+//   SIGILUM_URL      (env, optional)  base URL of the deployment; defaults to the hosted app.
+//                                     For local dev: http://127.0.0.1:3001
+//   SIGILUM_SIGIL_ID (env, optional)  pin a fixed sigil (chat) id for this session
 
 import process from 'node:process';
 import { randomUUID } from 'node:crypto';
@@ -32,25 +32,26 @@ import { z } from 'zod';
 import { matchByName } from './match.js';
 
 // --- Service endpoints --------------------------------------------------------
-// Default to the hosted deployment; override both with VISUALIZER_URL (e.g. for local dev).
-const BASE_URL = process.env.VISUALIZER_URL || 'https://diagrams.alejandropozo.com';
+// Default to the hosted deployment; override both with SIGILUM_URL (e.g. for local dev).
+// Legacy VISUALIZER_* names are honoured as fallbacks so existing installs keep working.
+const BASE_URL = process.env.SIGILUM_URL || process.env.VISUALIZER_URL || 'https://sigilum.cloud';
 const BACKEND_URL = BASE_URL;
 const WEB_URL = BASE_URL;
 // ------------------------------------------------------------------------------
 
-const TOKEN = process.env.VISUALIZER_TOKEN || '';
+const TOKEN = process.env.SIGILUM_TOKEN || process.env.VISUALIZER_TOKEN || '';
 
-// Each chat gets its own isolated diagram, keyed by (user, chatId). One MCP process
-// ≈ one chat, so we mint a chat id at startup (override with VISUALIZER_CHAT_ID).
-// It is `let` so load_chat can switch the active chat to resume a previous one.
-let activeChatId = process.env.VISUALIZER_CHAT_ID || randomUUID();
+// Each chat gets its own isolated sigil, keyed by (user, chatId). One MCP process
+// ≈ one chat, so we mint a chat id at startup (override with SIGILUM_SIGIL_ID).
+// It is `let` so load_sigil can switch the active sigil to resume a previous one.
+let activeChatId = process.env.SIGILUM_SIGIL_ID || process.env.VISUALIZER_CHAT_ID || randomUUID();
 
 // Upload a batch of incremental changes for a chat to the visualizer backend
 // ({ ok, text, data }). `nameHint` is an optional name hint for a brand-new session
 // (the backend otherwise auto-names it); `chatId` is the storage key.
 async function pushChanges(nameHint, changes, chatId, deployed) {
     if (!TOKEN) {
-        return { ok: false, text: 'VISUALIZER_TOKEN is not set. Generate a token in the web UI and add it to this MCP server config.' };
+        return { ok: false, text: 'SIGILUM_TOKEN is not set. Generate a token in the web UI and add it to this MCP server config.' };
     }
     let response;
     try {
@@ -76,7 +77,7 @@ async function pushChanges(nameHint, changes, chatId, deployed) {
     return { ok: true, text, data };
 }
 
-const server = new McpServer({ name: 'diagram-state-visualizer', version: '0.4.0' });
+const server = new McpServer({ name: 'sigilum', version: '1.0.0' });
 
 // matchByName (name → chat by proximity) lives in ./match.js so it is unit-testable
 // without booting this server's transport.
@@ -109,31 +110,31 @@ const changeSchema = z
     .passthrough();
 
 server.registerTool(
-    'push_deployment',
+    'push_sigil',
     {
-        title: 'Add resources to the architecture diagram (design or live)',
+        title: 'Add resources to the architecture sigil (design or live)',
         description:
-            'Add/modify resources on the architecture diagram, sending ONLY the DELTA — the ' +
-            'resources that are new or changed, not the whole stack. Use `op:"upsert"` for ' +
+            'Add/modify resources on the architecture sigil (the live diagram), sending ONLY the ' +
+            'DELTA — the resources that are new or changed, not the whole stack. Use `op:"upsert"` for ' +
             'resources to create or modify (include all their detail), and `op:"delete"` (just ' +
             '`type` + `id`) for removed ones. ALWAYS include the relationships in `connections` ' +
             '(which resource each one talks to, with protocol and port) and containment in ' +
-            '`vpc`/`subnet`, because the diagram draws those edges. The backend keeps the full ' +
+            '`vpc`/`subnet`, because the sigil draws those edges. The backend keeps the full ' +
             'authoritative state by merging your changes.\n\n' +
-            'A diagram is EITHER "Design" (a sketch — NOTHING is created in AWS) OR "Live" ' +
+            'A sigil is EITHER "Design" (a sketch — NOTHING is created in AWS) OR "Live" ' +
             '(the resources really exist in AWS). It is never a mix of both. Control this with ' +
             '`deployed`:\n' +
-            '  • Omit it (default) → a brand-new diagram is a DESIGN. Use this to draft an ' +
+            '  • Omit it (default) → a brand-new sigil is a DESIGN. Use this to draft an ' +
             'architecture the user can review in the web before anything is deployed. When the ' +
-            'user is happy, call `deploy_diagram` to actually deploy it.\n' +
+            'user is happy, call `deploy_sigil` to actually deploy it.\n' +
             '  • `deployed:true` → you ACTUALLY created these in AWS already (direct deploy, no ' +
-            'design step). The diagram is Live from the start.\n' +
-            'On an existing diagram, `deployed` must match its current mode (the backend rejects a ' +
-            'mismatch) — you cannot add design-only resources to a Live diagram or vice-versa. ' +
-            'After `deploy_diagram`, a diagram is Live, so keep the SAME resource ids and upsert ' +
+            'design step). The sigil is Live from the start.\n' +
+            'On an existing sigil, `deployed` must match its current mode (the backend rejects a ' +
+            'mismatch) — you cannot add design-only resources to a Live sigil or vice-versa. ' +
+            'After `deploy_sigil`, a sigil is Live, so keep the SAME resource ids and upsert ' +
             'them with the real ARNs/ids and `state`.\n\n' +
             'The session is auto-named from the architecture (the user can rename it). By default ' +
-            'changes go to THIS session\'s diagram; if you called load_chat, they merge onto that one.',
+            'changes go to THIS session\'s sigil; if you called load_sigil, they merge onto that one.',
         inputSchema: {
             project: z
                 .string()
@@ -143,16 +144,16 @@ server.registerTool(
             deployed: z
                 .boolean()
                 .optional()
-                .describe('Diagram mode. Omit for a DESIGN sketch (nothing created in AWS — the default for a new diagram). Set true only if you ACTUALLY created these resources in AWS. Must match the diagram\'s existing mode.'),
+                .describe('Sigil mode. Omit for a DESIGN sketch (nothing created in AWS — the default for a new sigil). Set true only if you ACTUALLY created these resources in AWS. Must match the sigil\'s existing mode.'),
             chat: z
                 .string()
                 .optional()
-                .describe('Optional: target an explicit chat id (e.g. one from load_chat). Defaults to this session\'s chat — leave unset for normal use.')
+                .describe('Optional: target an explicit sigil id (e.g. one from load_sigil). Defaults to this session\'s sigil — leave unset for normal use.')
         }
     },
     async ({ project, changes, chat, deployed }) => {
         if (!TOKEN) {
-            return { isError: true, content: [{ type: 'text', text: 'VISUALIZER_TOKEN is not set. Generate a token in the web UI and add it to this MCP server config.' }] };
+            return { isError: true, content: [{ type: 'text', text: 'SIGILUM_TOKEN is not set. Generate a token in the web UI and add it to this MCP server config.' }] };
         }
         if (!Array.isArray(changes) || changes.length === 0) {
             return { isError: true, content: [{ type: 'text', text: 'No changes to report.' }] };
@@ -174,14 +175,14 @@ server.registerTool(
         );
         const nextHint = result.data?.deployed
             ? ''
-            : '\n\nThis diagram is a DESIGN — nothing is created in AWS yet. When the user approves it, call deploy_diagram to deploy it.';
+            : '\n\nThis sigil is a DESIGN — nothing is created in AWS yet. When the user approves it, call deploy_sigil to deploy it.';
         return {
             content: [
                 {
                     type: 'text',
-                    text: `Reported ${changes.length} change(s) for "${name}" (chat ${chatId}) — mode: ${mode}: ${upserts} upsert, ${deletes} delete.\n\n` +
+                    text: `Reported ${changes.length} change(s) for "${name}" (sigil ${chatId}) — mode: ${mode}: ${upserts} upsert, ${deletes} delete.\n\n` +
                         `${lines.join('\n')}\n\n` +
-                        `Diagram updated at ${WEB_URL} (Deployed state → chat ${chatId.slice(0, 8)} · ${name}).${nextHint}`
+                        `Sigil updated at ${WEB_URL} (Sigils → ${chatId.slice(0, 8)} · ${name}).${nextHint}`
                 }
             ]
         };
@@ -189,34 +190,34 @@ server.registerTool(
 );
 
 server.registerTool(
-    'deploy_diagram',
+    'deploy_sigil',
     {
-        title: 'Deploy a design diagram to AWS',
+        title: 'Deploy a design sigil to AWS',
         description:
-            'Deploy the current DESIGN diagram to AWS. Call this when the user has reviewed the ' +
+            'Deploy the current DESIGN sigil to AWS. Call this when the user has reviewed the ' +
             'design in the web and wants it built for real. This does NOT create resources by ' +
-            'itself — the visualizer has no AWS access. It marks the diagram as Live and returns ' +
+            'itself — Sigilum has no AWS access. It marks the sigil as Live and returns ' +
             'the full resource spec; then YOU must create each resource in AWS using your own AWS ' +
             'tools (CLI/SDK), in dependency order (VPC → subnets/security groups → compute → data ' +
-            'stores → wiring). As you create each one, call push_deployment (op:"upsert") with the ' +
+            'stores → wiring). As you create each one, call push_sigil (op:"upsert") with the ' +
             'SAME resource id it has in the design, filling in the real ARN/InstanceId in `arn`/' +
             '`details` and the live `state` — keep the id stable so the node is enriched, not ' +
-            'duplicated. Do not add anything that is not in the spec. Only works on a DESIGN diagram ' +
+            'duplicated. Do not add anything that is not in the spec. Only works on a DESIGN sigil ' +
             '(a Live one is already deployed).',
         inputSchema: {
             chat: z
                 .string()
                 .optional()
-                .describe('Optional chat id to deploy. Defaults to this session\'s active diagram.'),
+                .describe('Optional sigil id to deploy. Defaults to this session\'s active sigil.'),
             resources: z
                 .array(z.record(z.any()))
                 .optional()
-                .describe('Optional: the diagram detail JSON you have in context. Ignored if it differs — the backend\'s stored state is the source of truth and is returned to you.')
+                .describe('Optional: the sigil detail JSON you have in context. Ignored if it differs — the backend\'s stored state is the source of truth and is returned to you.')
         }
     },
     async ({ chat }) => {
         if (!TOKEN) {
-            return { isError: true, content: [{ type: 'text', text: 'VISUALIZER_TOKEN is not set. Generate a token in the web UI and add it to this MCP server config.' }] };
+            return { isError: true, content: [{ type: 'text', text: 'SIGILUM_TOKEN is not set. Generate a token in the web UI and add it to this MCP server config.' }] };
         }
         const chatId = chat || activeChatId;
         let response;
@@ -244,9 +245,9 @@ server.registerTool(
             content: [
                 {
                     type: 'text',
-                    text: `Diagram "${name}" (chat ${chatId}) is now marked LIVE. NOTHING has been created in AWS yet — ` +
+                    text: `Sigil "${name}" (id ${chatId}) is now marked LIVE. NOTHING has been created in AWS yet — ` +
                         `that is YOUR job now. Create the ${resources.length} resource(s) below in AWS with your own tools, ` +
-                        `in dependency order, then call push_deployment (op:"upsert") for each with the SAME id, adding the ` +
+                        `in dependency order, then call push_sigil (op:"upsert") for each with the SAME id, adding the ` +
                         `real ARN/id in \`arn\`/\`details\` and the live \`state\`. Do not add resources that are not in this spec.\n\n` +
                         `Spec to deploy:\n${JSON.stringify(resources, null, 2)}`
                 }
@@ -255,7 +256,7 @@ server.registerTool(
     }
 );
 
-// Fetch the account's diagrams (newest first) from the backend. Returns
+// Fetch the account's sigils (newest first) from the backend. Returns
 // { ok, chats, text } — `text` carries an error message when ok is false.
 async function fetchChats() {
     let response;
@@ -268,35 +269,35 @@ async function fetchChats() {
     }
     if (!response.ok) {
         const text = await response.text();
-        return { ok: false, text: `Could not list diagrams (HTTP ${response.status}): ${text}` };
+        return { ok: false, text: `Could not list sigils (HTTP ${response.status}): ${text}` };
     }
     const data = await response.json();
     return { ok: true, chats: Array.isArray(data.chats) ? data.chats : [] };
 }
 
 server.registerTool(
-    'load_chat',
+    'load_sigil',
     {
-        title: 'Resume a previous diagram by name and load its deployed state',
+        title: 'Resume a previous sigil by name and load its deployed state',
         description:
-            'Resume a PREVIOUS deployment diagram BY ITS NAME. To use it: call list_chats ' +
-            'first, look at the diagram names, pick the one whose name is the CLOSEST ' +
+            'Resume a PREVIOUS sigil BY ITS NAME. To use it: call list_sigils ' +
+            'first, look at the sigil names, pick the one whose name is the CLOSEST ' +
             'semantically to what the user is asking for, and pass that name here. If none of ' +
             'the existing names is a reasonable semantic match, do NOT call this with a made-up ' +
-            'name — tell the user there is no similar diagram. On a match this switches the ' +
-            'active diagram and returns its FULL current deployed state (every live resource, ' +
+            'name — tell the user there is no similar sigil. On a match this switches the ' +
+            'active sigil and returns its FULL current deployed state (every live resource, ' +
             'real IDs/ARNs, relationships) — that becomes the one and only architecture in ' +
-            'context, and every later push_deployment merges onto it. Use this when the user ' +
+            'context, and every later push_sigil merges onto it. Use this when the user ' +
             'wants to keep working on infrastructure deployed earlier.',
         inputSchema: {
             name: z
                 .string()
-                .describe('The diagram NAME to resume (choose the closest one from list_chats). Resolved by proximity to an existing diagram.')
+                .describe('The sigil NAME to resume (choose the closest one from list_sigils). Resolved by proximity to an existing sigil.')
         }
     },
     async ({ name }) => {
         if (!TOKEN) {
-            return { isError: true, content: [{ type: 'text', text: 'VISUALIZER_TOKEN is not set. Generate a token in the web UI and add it to this MCP server config.' }] };
+            return { isError: true, content: [{ type: 'text', text: 'SIGILUM_TOKEN is not set. Generate a token in the web UI and add it to this MCP server config.' }] };
         }
 
         const listed = await fetchChats();
@@ -304,7 +305,7 @@ server.registerTool(
             return { isError: true, content: [{ type: 'text', text: listed.text }] };
         }
         if (listed.chats.length === 0) {
-            return { content: [{ type: 'text', text: 'There are no diagrams yet, so there is nothing to resume. Start a new architecture and it will be created on the first push_deployment.' }] };
+            return { content: [{ type: 'text', text: 'There are no sigils yet, so there is nothing to resume. Start a new architecture and it will be created on the first push_sigil.' }] };
         }
 
         const match = matchByName(name, listed.chats);
@@ -314,7 +315,7 @@ server.registerTool(
                 content: [
                     {
                         type: 'text',
-                        text: `No diagram is semantically similar to "${name}". Tell the user there is no matching diagram and, if useful, offer the available ones:\n${available}`
+                        text: `No sigil is semantically similar to "${name}". Tell the user there is no matching sigil and, if useful, offer the available ones:\n${available}`
                     }
                 ]
             };
@@ -330,27 +331,27 @@ server.registerTool(
         }
         if (!response.ok) {
             const text = await response.text();
-            return { isError: true, content: [{ type: 'text', text: `Could not load diagram "${match.name}" (HTTP ${response.status}): ${text}` }] };
+            return { isError: true, content: [{ type: 'text', text: `Could not load sigil "${match.name}" (HTTP ${response.status}): ${text}` }] };
         }
         const data = await response.json();
         const resources = Array.isArray(data.resources) ? data.resources : [];
         const resolvedName = data.name || match.name || '(unnamed)';
         const isLive = data.deployed === true;
-        // Adopt the diagram so follow-up changes apply onto it.
+        // Adopt the sigil so follow-up changes apply onto it.
         activeChatId = match.chatId;
         const modeLine = isLive
-            ? `This diagram is LIVE: the ${resources.length} resource(s) below are ACTUALLY deployed in AWS right now ` +
-              `(real IDs/ARNs, state and relationships). Report changes with push_deployment and they merge onto this live state.`
-            : `This diagram is a DESIGN: the ${resources.length} resource(s) below are a sketch — NOTHING exists in AWS yet. ` +
-              `Keep refining it with push_deployment; when the user approves, call deploy_diagram to deploy it.`;
+            ? `This sigil is LIVE: the ${resources.length} resource(s) below are ACTUALLY deployed in AWS right now ` +
+              `(real IDs/ARNs, state and relationships). Report changes with push_sigil and they merge onto this live state.`
+            : `This sigil is a DESIGN: the ${resources.length} resource(s) below are a sketch — NOTHING exists in AWS yet. ` +
+              `Keep refining it with push_sigil; when the user approves, call deploy_sigil to deploy it.`;
         return {
             content: [
                 {
                     type: 'text',
-                    text: `Loaded the diagram "${resolvedName}" (chat ${match.chatId}). ` +
+                    text: `Loaded the sigil "${resolvedName}" (id ${match.chatId}). ` +
                         `THIS is now the ONLY active architecture and the only valid context. ${modeLine} ` +
                         `From now on, EVERYTHING the user asks refers EXCLUSIVELY to this architecture; any ` +
-                        `architecture worked on earlier in this session belongs to a different diagram and must be ignored.\n\n` +
+                        `architecture worked on earlier in this session belongs to a different sigil and must be ignored.\n\n` +
                         `Current resources:\n${JSON.stringify(resources, null, 2)}`
                 }
             ]
@@ -359,27 +360,27 @@ server.registerTool(
 );
 
 server.registerTool(
-    'list_chats',
+    'list_sigils',
     {
-        title: 'List previous deployment diagrams',
+        title: 'List previous sigils',
         description:
-            'List the deployment diagrams available for your account (newest first), each with ' +
+            'List the sigils available for your account (newest first), each with ' +
             'its name, id, and last-updated time. This is the FIRST step when the user wants to ' +
             'resume earlier work: look at the names, pick the one closest semantically to what ' +
-            'the user means, then pass that NAME to load_chat (load_chat resolves it by ' +
-            'proximity). If no name is a reasonable match, tell the user there is no similar diagram.',
+            'the user means, then pass that NAME to load_sigil (load_sigil resolves it by ' +
+            'proximity). If no name is a reasonable match, tell the user there is no similar sigil.',
         inputSchema: {}
     },
     async () => {
         if (!TOKEN) {
-            return { isError: true, content: [{ type: 'text', text: 'VISUALIZER_TOKEN is not set. Generate a token in the web UI and add it to this MCP server config.' }] };
+            return { isError: true, content: [{ type: 'text', text: 'SIGILUM_TOKEN is not set. Generate a token in the web UI and add it to this MCP server config.' }] };
         }
         const listed = await fetchChats();
         if (!listed.ok) {
             return { isError: true, content: [{ type: 'text', text: listed.text }] };
         }
         if (listed.chats.length === 0) {
-            return { content: [{ type: 'text', text: 'No previous diagrams yet.' }] };
+            return { content: [{ type: 'text', text: 'No previous sigils yet.' }] };
         }
         const lines = listed.chats.map(
             (c) => `• ${c.name || '(unnamed)'} [${c.deployed ? 'LIVE' : 'DESIGN'}]${c.updatedAt ? ` (updated ${c.updatedAt})` : ''} — id ${c.chatId}`
@@ -388,7 +389,7 @@ server.registerTool(
             content: [
                 {
                     type: 'text',
-                    text: `Diagrams (newest first):\n${lines.join('\n')}\n\nPass the closest NAME to load_chat to resume it.`
+                    text: `Sigils (newest first):\n${lines.join('\n')}\n\nPass the closest NAME to load_sigil to resume it.`
                 }
             ]
         };

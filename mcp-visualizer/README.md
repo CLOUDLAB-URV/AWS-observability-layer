@@ -1,28 +1,32 @@
-# diagram-state-visualizer-mcp
+# sigilum-mcp
 
-A **self-contained** MCP server for the **AWS Architect Web** "Deployed state" view.
-It renders a live diagram of what is actually deployed in AWS — **no AWS MCP server
-required**.
+A **self-contained** MCP server for **Sigilum** ([sigilum.cloud](https://sigilum.cloud)).
+It renders a live **sigil** — an architecture diagram — of what is actually deployed
+in AWS. **No AWS MCP server required.**
 
 The server does **not** run AWS commands. Your agent deploys with its own tools and
 then **reports what changed**: after each deploy or modification it calls
-`push_deployment` with just the **delta** — the resources it created or modified
+`push_sigil` with just the **delta** — the resources it created or modified
 (`upsert`) and the ones it removed (`delete`). The backend keeps the full,
-authoritative state by merging those changes and regenerates the diagram.
+authoritative state by merging those changes and regenerates the sigil.
 
 The backend and web URLs are **baked into the server** (`BACKEND_URL` / `WEB_URL`
 constants at the top of `index.js`) because it targets one specific web app. The
-**only** thing you configure is your API token, via the `VISUALIZER_TOKEN`
+**only** thing you configure is your API token, via the `SIGILUM_TOKEN`
 environment variable.
 
-**One diagram per chat.** Each MCP process gets its own chat id at startup, so every
-chat session keeps an isolated diagram — you don't manage project names. To resume a
-previous deployment (so the agent knows what already exists), use the `load_chat` /
-`list_chats` tools, or pin a fixed chat with the optional `VISUALIZER_CHAT_ID` env var.
+**One sigil per chat.** Each MCP process gets its own sigil id at startup, so every
+chat session keeps an isolated sigil — you don't manage project names. To resume a
+previous deployment (so the agent knows what already exists), use the `load_sigil` /
+`list_sigils` tools, or pin a fixed sigil with the optional `SIGILUM_SIGIL_ID` env var.
 
 **Where it sends.** By default it talks to the hosted app. Point it at another deployment
-(or a local dev backend) with the optional `VISUALIZER_URL` env var — e.g.
-`VISUALIZER_URL=http://127.0.0.1:3001` for local development.
+(or a local dev backend) with the optional `SIGILUM_URL` env var — e.g.
+`SIGILUM_URL=http://127.0.0.1:3001` for local development.
+
+> **Legacy env names.** The old `VISUALIZER_TOKEN` / `VISUALIZER_URL` /
+> `VISUALIZER_CHAT_ID` names still work as fallbacks, so existing installs keep
+> running while you migrate.
 
 ---
 
@@ -31,19 +35,19 @@ previous deployment (so the agent knows what already exists), use the `load_chat
 - **Node.js 20+** (so `npx` can run this server).
 - A way for your agent to **deploy to AWS** (its own AWS tooling / CLI / MCP). This
   server does not deploy — it only receives the resulting changes.
-- The **AWS Architect Web app running** (backend on `:3001`, web on `:5173`).
+- The **Sigilum app running** (backend on `:3001`, web on `:5173`).
 
 > You do **not** need `awslabs.aws-api-mcp-server` for this server itself, and you
 > do **not** need to clone this repo — `npx` downloads and runs the server.
 
 ## 2. Get your API token
 
-Open the web app → **Deployed state** tab → **⚙ Connect agent** → **Generate token**.
-Copy the `viz_…` value (shown once). This is your `VISUALIZER_TOKEN`.
+Open the web app → **Sigils** tab → **⚙ Connect agent** → **Generate token**.
+Copy the `viz_…` value (shown once). This is your `SIGILUM_TOKEN`.
 
 ## 3. Configure your agent (via npx)
 
-Register **only this one** MCP server. `npx -y diagram-state-visualizer-mcp@latest`
+Register **only this one** MCP server. `npx -y sigilum-mcp@latest`
 always runs the latest published version — no install step, auto-updates.
 
 ### Claude Code
@@ -52,9 +56,9 @@ always runs the latest published version — no install step, auto-updates.
 omit `-s` = local/private.
 
 ```bash
-claude mcp add diagram-state-visualizer -s user \
-  -e VISUALIZER_TOKEN=viz_your_token_here \
-  -- npx -y diagram-state-visualizer-mcp@latest
+claude mcp add sigilum -s user \
+  -e SIGILUM_TOKEN=viz_your_token_here \
+  -- npx -y sigilum-mcp@latest
 ```
 
 Verify with `claude mcp list`.
@@ -64,11 +68,11 @@ Verify with `claude mcp list`.
 ```json
 {
   "mcpServers": {
-    "diagram-state-visualizer": {
+    "sigilum": {
       "command": "npx",
-      "args": ["-y", "diagram-state-visualizer-mcp@latest"],
+      "args": ["-y", "sigilum-mcp@latest"],
       "env": {
-        "VISUALIZER_TOKEN": "viz_your_token_here"
+        "SIGILUM_TOKEN": "viz_your_token_here"
       }
     }
   }
@@ -83,11 +87,11 @@ Global: `~/.config/opencode/opencode.json`. Project: `opencode.json` in the repo
 {
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
-    "diagram-state-visualizer": {
+    "sigilum": {
       "type": "local",
-      "command": ["npx", "-y", "diagram-state-visualizer-mcp@latest"],
+      "command": ["npx", "-y", "sigilum-mcp@latest"],
       "environment": {
-        "VISUALIZER_TOKEN": "viz_your_token_here"
+        "SIGILUM_TOKEN": "viz_your_token_here"
       },
       "enabled": true
     }
@@ -102,25 +106,25 @@ Global: `~/.config/opencode/opencode.json`. Project: `opencode.json` in the repo
 1. Make sure the web app is running and your agent can reach AWS.
 2. In your agent, ask it to deploy something, e.g.
    *"Create an S3 bucket and an SQS queue under project `my-api`, and visualize it."*
-3. The agent deploys with its own tools and then calls **`push_deployment`** with the
-   resources it created (`op: "upsert"`). The diagram for the current chat appears.
-4. Open the web app → **Deployed state** → pick the chat from the selector → see the
-   live diagram. It updates automatically after each push.
+3. The agent deploys with its own tools and then calls **`push_sigil`** with the
+   resources it created (`op: "upsert"`). The sigil for the current chat appears.
+4. Open the web app → **Sigils** → pick the sigil from the selector → see it live.
+   It updates automatically after each push.
 5. Ask for a change — e.g. *"remove one of the EC2s"* — and the agent calls
-   `push_deployment` again with just that delta (`op: "delete"`); the diagram updates
+   `push_sigil` again with just that delta (`op: "delete"`); the sigil updates
    in place, keeping the same layout.
-6. To continue earlier work in a new session, ask the agent to **`list_chats`** then
-   **`load_chat`** with the id — it loads the current live resources (IDs/ARNs) as
+6. To continue earlier work in a new session, ask the agent to **`list_sigils`** then
+   **`load_sigil`** with the name — it loads the current live resources (IDs/ARNs) as
    context and new changes merge onto them.
 
 The agent only ever reports the **delta**; the backend maintains the full state and
-the diagram, so the agent never has to resend the whole stack.
+the sigil, so the agent never has to resend the whole stack.
 
 ---
 
 ## Tools
 
-### `push_deployment({ project, changes })` — the push tool
+### `push_sigil({ project, changes })` — the push tool
 
 Report what changed in AWS after a deploy or modification. `changes` is the **delta**,
 one entry per resource that changed:
@@ -139,24 +143,30 @@ one entry per resource that changed:
 
 - Send **only what changed**, not the whole deployment. `op: "delete"` needs just
   `type` + `id`.
-- Always include the **relationships** (`connections`, `vpc`, `subnet`) — the diagram
+- Always include the **relationships** (`connections`, `vpc`, `subnet`) — the sigil
   draws those edges and containment.
-- The backend merges each change onto the chat's state (upsert sets the resource,
-  delete removes it) and regenerates the diagram, evolving the previous one.
+- The backend merges each change onto the sigil's state (upsert sets the resource,
+  delete removes it) and regenerates the sigil, evolving the previous one.
 
-### `list_chats()` — discover previous chats
+### `deploy_sigil({ chat })` — deploy a design sigil
 
-Lists your deployment chats (newest first) with their id, label, and last-updated
-time, so you can pick one to resume.
+Marks a **Design** sigil as **Live** and returns the full resource spec; the agent
+then creates each resource in AWS with its own tools and reports the real IDs back
+via `push_sigil`.
 
-### `load_chat({ chat })` — resume a previous deployment
+### `list_sigils()` — discover previous sigils
 
-Switches this session to an existing chat and returns its **current live resources**
-(real IDs/ARNs, state, relationships). After loading, `push_deployment` merges onto
-that chat's state.
+Lists your sigils (newest first) with their name, id, and last-updated time, so you
+can pick one to resume.
 
-> `push_deployment` also accepts an optional `chat` argument to target an explicit
-> chat for a single call.
+### `load_sigil({ name })` — resume a previous sigil
+
+Switches this session to an existing sigil (matched by name, resolved by proximity)
+and returns its **current live resources** (real IDs/ARNs, state, relationships).
+After loading, `push_sigil` merges onto that sigil's state.
+
+> `push_sigil` also accepts an optional `chat` argument to target an explicit
+> sigil for a single call.
 
 ---
 
@@ -172,7 +182,7 @@ npm install
 
 ## Publishing & updating (maintainer)
 
-Published to npm as [`diagram-state-visualizer-mcp`](https://www.npmjs.com/package/diagram-state-visualizer-mcp).
+Published to npm as [`sigilum-mcp`](https://www.npmjs.com/package/sigilum-mcp).
 
 **One-time setup**
 

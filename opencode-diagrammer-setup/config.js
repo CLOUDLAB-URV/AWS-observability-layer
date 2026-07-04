@@ -3,8 +3,8 @@
 // Pure helpers for the opencode setup (no I/O), so they're easy to unit-test. The interactive
 // runner in index.js does the file reading/writing and process spawning around these.
 
-// The MCP entry we manage inside opencode's config, under `mcp.diagram-state-visualizer`.
-export const SERVER_KEY = 'diagram-state-visualizer';
+// The MCP entry we manage inside opencode's config, under `mcp.sigilum`.
+export const SERVER_KEY = 'sigilum';
 export const OPENCODE_SCHEMA = 'https://opencode.ai/config.json';
 
 // Build a fresh MCP entry. Mirrors the JSON documented in the README and the web "Connect agent"
@@ -13,18 +13,18 @@ export const OPENCODE_SCHEMA = 'https://opencode.ai/config.json';
 function freshEntry({ token, url }) {
     return {
         type: 'local',
-        command: ['npx', '-y', 'diagram-state-visualizer-mcp@latest'],
+        command: ['npx', '-y', 'sigilum-mcp@latest'],
         enabled: true,
         environment: {
-            VISUALIZER_TOKEN: token,
-            ...(url ? { VISUALIZER_URL: url } : {})
+            SIGILUM_TOKEN: token,
+            ...(url ? { SIGILUM_URL: url } : {})
         }
     };
 }
 
-// Idempotently ensure `config.mcp["diagram-state-visualizer"]` carries the given token.
+// Idempotently ensure `config.mcp["sigilum"]` carries the given token.
 //   - no `mcp` / no entry  → create the full entry (and the wrapper objects as needed).
-//   - entry already exists → ONLY set environment.VISUALIZER_TOKEN, preserving command/type/enabled
+//   - entry already exists → ONLY set environment.SIGILUM_TOKEN, preserving command/type/enabled
 //     and any extra fields the user added, exactly where they are.
 // `url` is only applied when the entry is created (never overwritten on re-runs), matching the
 // "only the token changes when re-run" guarantee. Returns the same `config` object (mutated).
@@ -56,15 +56,16 @@ export function applyOpencodeConfig(config, { token, url } = {}) {
     if (!existing.environment || typeof existing.environment !== 'object' || Array.isArray(existing.environment)) {
         existing.environment = {};
     }
-    existing.environment.VISUALIZER_TOKEN = token;
+    existing.environment.SIGILUM_TOKEN = token;
     return config;
 }
 
 const TOKEN_RE = /^viz_[A-Za-z0-9]+$/;
 
 // Resolve options from CLI argv (e.g. process.argv.slice(2)) and the environment. Token comes from
-// VISUALIZER_TOKEN or --token/-t (env wins is NOT assumed — an explicit flag overrides env). URL
-// from VISUALIZER_URL (used only when creating the entry). `yes` auto-confirms the install prompt.
+// SIGILUM_TOKEN (legacy VISUALIZER_TOKEN also honoured) or --token/-t (an explicit flag overrides
+// env). URL from SIGILUM_URL / VISUALIZER_URL (used only when creating the entry). `yes`
+// auto-confirms the install prompt.
 // Returns { token, url, yes }. Throws with a clear message when the token is missing/malformed.
 export function parseArgs(argv = [], env = {}) {
     let token = '';
@@ -81,15 +82,15 @@ export function parseArgs(argv = [], env = {}) {
         }
     }
     if (!token) {
-        token = env.VISUALIZER_TOKEN || '';
+        token = env.SIGILUM_TOKEN || env.VISUALIZER_TOKEN || '';
     }
     token = String(token).trim();
     if (!token) {
-        throw new Error('missing token: pass VISUALIZER_TOKEN=… (or --token viz_…)');
+        throw new Error('missing token: pass SIGILUM_TOKEN=… (or --token viz_…)');
     }
     if (!TOKEN_RE.test(token)) {
         throw new Error('that token does not look valid (expected a viz_… token from the web UI)');
     }
-    const url = String(env.VISUALIZER_URL || '').trim() || undefined;
+    const url = String(env.SIGILUM_URL || env.VISUALIZER_URL || '').trim() || undefined;
     return { token, url, yes };
 }
