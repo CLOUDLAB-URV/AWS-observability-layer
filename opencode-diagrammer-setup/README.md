@@ -1,11 +1,11 @@
-# @apozo/sigilum-setup
+# sigilum-opencode-setup
 
 One-shot setup that connects the **sigilum** MCP to
 [opencode](https://opencode.ai). It writes the MCP entry into
 `~/.config/opencode/opencode.json` for you — no hand-editing JSON.
 
 ```bash
-SIGILUM_TOKEN=viz_your_token npx -y @apozo/sigilum-setup
+SIGILUM_TOKEN=viz_your_token npx -y sigilum-opencode-setup
 ```
 
 Get your `viz_…` token from the web app → **Sigils** → **⚙ Connect agent** →
@@ -50,10 +50,18 @@ The entry it writes:
 - `SIGILUM_URL` (env; legacy `VISUALIZER_URL`) — point the MCP at another deployment
   (e.g. `http://127.0.0.1:3001` for local dev). Only applied when the entry is first created.
 - `--yes` / `-y` — auto-confirm the opencode install prompt (useful for unattended runs).
+- `--uninstall` / `-u` — remove the MCP instead of adding it (see below). No token needed.
 
 ## Remove it later
 
-Delete the `sigilum` block from `~/.config/opencode/opencode.json`.
+```bash
+npx -y sigilum-opencode-setup --uninstall
+```
+
+Idempotently checks `~/.config/opencode/opencode.json` and removes the `sigilum` entry if it's
+there — running it again (or when the entry was never added) is a safe no-op. Doesn't touch
+opencode itself or any other MCP entries. Equivalent to deleting the `sigilum` block from
+`~/.config/opencode/opencode.json` by hand.
 
 ---
 

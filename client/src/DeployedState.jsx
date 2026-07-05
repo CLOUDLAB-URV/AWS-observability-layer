@@ -88,6 +88,9 @@ const SIZES_KEY = 'viz-dock-sizes-v7';
 const HIDDEN_KEY = 'viz-dock-hidden-v7';
 // The sigil (chat) the user last had selected, so it reopens on reload / revisit.
 const CHAT_KEY = 'viz-current-chat';
+// The agent chosen in the Connect Agent panel (opencode | claude). Persisted independently of the
+// dock layout, so Reset panels never touches it and the last choice sticks across reloads.
+const AGENT_KEY = 'viz-connect-agent';
 
 // Per-panel remembered zone, persisted so reopening a panel returns it to where the user
 // last left it. Seeded from the defaults above.
@@ -170,6 +173,12 @@ export default function DeployedState() {
     const [chats, setChats] = useState([]);
     const [chatId, setChatId] = useState(() => {
         try { return localStorage.getItem(CHAT_KEY) || ''; } catch { return ''; }
+    });
+    // Which agent the Connect Agent panel targets (opencode | claude). Restored from localStorage so
+    // the last choice sticks across reloads; unaffected by Reset panels (separate key).
+    const [agent, setAgent] = useState(() => {
+        try { return localStorage.getItem(AGENT_KEY) === 'claude' ? 'claude' : 'opencode'; }
+        catch { return 'opencode'; }
     });
     const [svg, setSvg] = useState('');
     const [renderError, setRenderError] = useState(null);
@@ -298,6 +307,11 @@ export default function DeployedState() {
             else localStorage.removeItem(CHAT_KEY);
         } catch { /* quota / disabled storage */ }
     }, [chatId]);
+
+    // Persist the Connect Agent tool choice (independent of the dock layout / Reset panels).
+    useEffect(() => {
+        try { localStorage.setItem(AGENT_KEY, agent); } catch { /* quota / disabled storage */ }
+    }, [agent]);
 
     // Keep the rename field in sync with the selected chat's current name, and leave
     // edit mode whenever the selected chat changes.
@@ -732,16 +746,17 @@ export default function DeployedState() {
         saveZones(zonesRef.current);
         saveSizes(sizesRef.current);
         saveHidden(hiddenRef.current);
-        // 3) Rebuild empty (diagram only), then reopen ONLY the panels that were open — ensurePanel
-        // reads the just-reset caches, so each lands in its default zone at its default size, and
-        // panels sharing a zone stack as tabs.
-        buildDefault(api);
+        // 3) Close ONLY the side panels (never the diagram) so the diagram stays mounted — clearing
+        // the whole layout would remount it and re-render the SVG (a visible flash/jump on reset).
+        api.panels.filter((p) => p.id !== 'diagram').forEach((p) => p.api.close());
+        // 4) Reopen ONLY the panels that were open — ensurePanel reads the just-reset caches, so each
+        // lands in its default zone at its default size, and panels sharing a zone stack as tabs.
         openIds.forEach((id) => ensurePanel(id));
-        // 4) Restore the active tab of each rebuilt zone, then persist the new arrangement.
+        // 5) Restore the active tab of each rebuilt zone, then persist the new arrangement.
         activeIds.forEach((id) => api.getPanel(id)?.api.setActive());
         setHiddenTick((n) => n + 1);
         persist(api);
-    }, [buildDefault, ensurePanel, persist]);
+    }, [ensurePanel, persist]);
 
     const onReady = useCallback((event) => {
         const api = event.api;
@@ -948,6 +963,17 @@ export default function DeployedState() {
     const tokenForCmd = dev ? devToken : (newToken || TOKEN_PLACEHOLDER);
     // In dev, point the MCP at the local server; in prod it defaults to the hosted deployment.
     const urlEnv = dev && visualizerUrl ? ` SIGILUM_URL=${visualizerUrl}` : '';
+    // Claude Code path (registered/removed straight from the user's terminal — no iframe). In dev use
+    // the "-local" server name + SIGILUM_URL so it targets the local backend and coexists with a hosted
+    // entry; in prod it's a unique-per-OS-user name ($USER expands when pasted into a shell).
+    const SERVER_NAME = dev ? 'sigilum-local' : 'sigilum-$USER';
+    const claudeUrlFlag = dev && visualizerUrl ? `\n    --env SIGILUM_URL=${visualizerUrl} \\` : '';
+    // Ready-to-paste Claude Code CLI command: registers the published MCP at user scope (loaded in
+    // every session on this machine) with the token baked in.
+    const claudeAddCommand = `claude mcp add --scope user ${SERVER_NAME} \\
+    --env SIGILUM_TOKEN=${tokenForCmd} \\${claudeUrlFlag}
+    -- npx -y sigilum-mcp@latest`;
+    const claudeRemoveCommand = `claude mcp remove --scope user ${SERVER_NAME}`;
     // opencode in production: one command that installs opencode if needed and writes the MCP entry
     // into ~/.config/opencode/opencode.json (idempotent — re-running only refreshes the token). The
     // token goes via env var (same name the MCP reads), so it's not stored as a CLI flag.
@@ -964,8 +990,13 @@ export default function DeployedState() {
 }`;
     const opencodeAddCommand = dev
         ? opencodeDevSnippet
-        : `SIGILUM_TOKEN=${tokenForCmd}${urlEnv} npx -y @apozo/sigilum-setup`;
-    const addCommand = opencodeAddCommand;
+        : `SIGILUM_TOKEN=${tokenForCmd}${urlEnv} npx -y sigilum-opencode-setup`;
+    // The step-2 block follows the agent picker in the Connect Agent panel.
+    const addCommand = agent === 'claude' ? claudeAddCommand : opencodeAddCommand;
+    // Ready-to-paste removal: the setup helper's --uninstall flag idempotently checks opencode's
+    // config and removes the "sigilum" entry if present — no token needed. Only meaningful in prod
+    // (the "-local" dev entry isn't managed by this helper, so dev keeps the manual instruction).
+    const opencodeRemoveCommand = 'npx -y sigilum-opencode-setup --uninstall';
 
     function copy(text, key) {
         navigator.clipboard?.writeText(text).catch(() => {});
@@ -986,7 +1017,8 @@ export default function DeployedState() {
         dev, devToken, visualizerUrl, tokens, tokenError, newToken,
         TOKEN_LIMIT, TOKEN_PLACEHOLDER,
         generateToken, revokeToken, confirmRevoke, setConfirmRevoke,
-        opencodeDevSnippet, addCommand,
+        agent, setAgent,
+        opencodeDevSnippet, addCommand, claudeAddCommand, claudeRemoveCommand, opencodeRemoveCommand,
         openConnectAgent
     };
 
@@ -1071,28 +1103,30 @@ export default function DeployedState() {
                         </div>
                     )}
                     <div className="tbar-spacer" />
-                    <div className="tbar-group" role="group" aria-label="Disposición de paneles">
+                    <div className="tbar-group" role="group" aria-label="Panel layout">
                         <button
                             type="button"
                             className="icon-btn"
                             onClick={resetLayout}
-                            title="Restablecer la disposición de los paneles"
-                            aria-label="Restablecer la disposición de los paneles"
+                            title="Reset panel layout"
+                            aria-label="Reset panel layout"
                         >
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
                                 strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                <polyline points="1 4 1 10 7 10" />
-                                <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+                                <rect x="3" y="4" width="18" height="16" rx="2" />
+                                <line x1="3" y1="10" x2="21" y2="10" />
+                                <polyline points="7.5 15 6 16.5 7.5 18" />
+                                <path d="M6 16.5h4.5a2 2 0 0 0 2-2" />
                             </svg>
                         </button>
-                        <div className="zone-toggles" role="group" aria-label="Ocultar o mostrar zonas">
+                        <div className="zone-toggles" role="group" aria-label="Show or hide zones">
                             <button
                                 type="button"
                                 className="zone-toggle icon-btn"
                                 onClick={() => toggleZone('left')}
                                 aria-pressed={zoneState('left') === 'visible'}
-                                title="Ocultar o mostrar la barra izquierda"
-                                aria-label="Ocultar o mostrar la barra izquierda"
+                                title="Show or hide the left sidebar"
+                                aria-label="Show or hide the left sidebar"
                             >
                                 <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
                                     <rect x="3" y="4" width="18" height="16" rx="2" fill="none" stroke="currentColor" strokeWidth="1.6" />
@@ -1105,8 +1139,8 @@ export default function DeployedState() {
                                 onClick={() => toggleZone('bottom')}
                                 aria-pressed={zoneState('bottom') === 'visible'}
                                 disabled={zoneState('bottom') === 'empty'}
-                                title="Ocultar o mostrar el panel inferior"
-                                aria-label="Ocultar o mostrar el panel inferior"
+                                title="Show or hide the bottom panel"
+                                aria-label="Show or hide the bottom panel"
                             >
                                 <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
                                     <rect x="3" y="4" width="18" height="16" rx="2" fill="none" stroke="currentColor" strokeWidth="1.6" />
@@ -1118,8 +1152,8 @@ export default function DeployedState() {
                                 className="zone-toggle icon-btn"
                                 onClick={() => toggleZone('right')}
                                 aria-pressed={zoneState('right') === 'visible'}
-                                title="Ocultar o mostrar la barra derecha"
-                                aria-label="Ocultar o mostrar la barra derecha"
+                                title="Show or hide the right sidebar"
+                                aria-label="Show or hide the right sidebar"
                             >
                                 <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
                                     <rect x="3" y="4" width="18" height="16" rx="2" fill="none" stroke="currentColor" strokeWidth="1.6" />

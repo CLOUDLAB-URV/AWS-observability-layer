@@ -1660,7 +1660,19 @@ body {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+}
+.agent-select {
+    flex: none;
+    border: 1px solid var(--border-input);
+    border-radius: 6px;
+    padding: 4px 8px;
+    background: var(--surface-app);
+    color: var(--text-primary);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
 }
 .viz-step-hint { margin: 0 0 12px; line-height: 1.55; max-width: 620px; }
 .viz-step-body code,

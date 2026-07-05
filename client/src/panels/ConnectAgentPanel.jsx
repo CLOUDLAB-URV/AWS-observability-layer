@@ -1,13 +1,15 @@
 import { useDeployed } from '../DeployedContext.js';
 
-// "Connect your agent": token management (step 1) + ready-to-paste MCP config for
-// opencode (step 2) + how it works (step 3). Identical content to the former inline
-// strip, now a dockable panel reading everything from context.
+// "Connect your agent": token management (step 1) + ready-to-paste MCP config for the
+// chosen agent — opencode or Claude Code (step 2) + how it works (step 3). The agent picker
+// in step 2 drives the command block and the "Remove the MCP later" instructions. Note the
+// opencode iframe panel elsewhere in the dock is opencode-only; this picker is just about
+// which MCP setup instructions to show (Claude Code is driven from the user's terminal).
 export default function ConnectAgentPanel() {
     const {
         dev, devToken, visualizerUrl, tokens, tokenError, newToken, TOKEN_LIMIT, TOKEN_PLACEHOLDER,
         generateToken, revokeToken, confirmRevoke, setConfirmRevoke, formatDate, copy, copied,
-        opencodeDevSnippet, addCommand
+        agent, setAgent, addCommand, claudeRemoveCommand, opencodeRemoveCommand
     } = useDeployed();
 
     return (
@@ -112,59 +114,77 @@ export default function ConnectAgentPanel() {
                 <li className="viz-step">
                     <div className="viz-step-num">2</div>
                     <div className="viz-step-body">
-                        <div className="viz-step-title">
-                            Add the MCP to your agent
+                        <div className="viz-step-title viz-step-title-row">
+                            <span>Add the MCP to your agent</span>
+                            <select
+                                className="agent-select"
+                                value={agent}
+                                onChange={(e) => setAgent(e.target.value)}
+                                aria-label="Choose your agent"
+                            >
+                                <option value="opencode">opencode</option>
+                                <option value="claude">Claude Code</option>
+                            </select>
                         </div>
-                        {dev ? (
-                            <>
+                        {agent === 'opencode' ? (
+                            dev ? (
+                                <>
+                                    <p className="viz-step-hint">
+                                        A ready-to-paste config for a separate <code>-local</code> MCP pointing at
+                                        your local backend (<code>{visualizerUrl}</code>), so it coexists with your
+                                        hosted one. The fixed dev token <code>{devToken}</code> is already included.
+                                    </p>
+                                    <div className="cmd-label">
+                                        opencode <span className="cmd-label-sub">— add under <code>mcp</code> in <code>~/.config/opencode/opencode.json</code></span>
+                                    </div>
+                                </>
+                            ) : newToken ? (
                                 <p className="viz-step-hint">
-                                    A ready-to-paste config for a separate <code>-local</code> MCP pointing at
-                                    your local backend (<code>{visualizerUrl}</code>), so it coexists with your
-                                    hosted one. The fixed dev token <code>{devToken}</code> is already included.
+                                    Paste this in your terminal — it installs opencode if needed and writes the
+                                    MCP into <code>~/.config/opencode/opencode.json</code> for you.{' '}
+                                    <strong>Your new token is already included.</strong> Re-running it later only
+                                    refreshes the token.
                                 </p>
-                                <div className="cmd-label">
-                                    opencode <span className="cmd-label-sub">— add under <code>mcp</code> in <code>~/.config/opencode/opencode.json</code></span>
-                                </div>
-                                <div className="cmd-block">
-                                    <button
-                                        type="button"
-                                        className={`copy-btn ${copied === 'add-oc' ? 'is-copied' : ''}`}
-                                        onClick={() => copy(opencodeDevSnippet, 'add-oc')}
-                                    >
-                                        {copied === 'add-oc' ? 'Copied' : 'Copy'}
-                                    </button>
-                                    <pre className="mcp-snippet">{opencodeDevSnippet}</pre>
-                                </div>
-                            </>
+                            ) : (
+                                <p className="viz-step-hint">
+                                    Paste this in your terminal — it installs opencode if needed and writes the
+                                    MCP config for you. Replace <code>{TOKEN_PLACEHOLDER}</code> with your token
+                                    (shown once when generated; if you don't have it,{' '}
+                                    <strong>generate another above</strong>, up to {TOKEN_LIMIT}).
+                                </p>
+                            )
                         ) : (
-                            <>
-                                {newToken ? (
-                                    <p className="viz-step-hint">
-                                        Paste this in your terminal — it installs opencode if needed and writes the
-                                        MCP into <code>~/.config/opencode/opencode.json</code> for you.{' '}
-                                        <strong>Your new token is already included.</strong> Re-running it later only
-                                        refreshes the token.
-                                    </p>
-                                ) : (
-                                    <p className="viz-step-hint">
-                                        Paste this in your terminal — it installs opencode if needed and writes the
-                                        MCP config for you. Replace <code>{TOKEN_PLACEHOLDER}</code> with your token
-                                        (shown once when generated; if you don't have it,{' '}
-                                        <strong>generate another above</strong>, up to {TOKEN_LIMIT}).
-                                    </p>
-                                )}
-                                <div className="cmd-block">
-                                    <button
-                                        type="button"
-                                        className={`copy-btn ${copied === 'add' ? 'is-copied' : ''}`}
-                                        onClick={() => copy(addCommand, 'add')}
-                                    >
-                                        {copied === 'add' ? 'Copied' : 'Copy'}
-                                    </button>
-                                    <pre className="mcp-snippet">{addCommand}</pre>
-                                </div>
-                            </>
+                            dev ? (
+                                <p className="viz-step-hint">
+                                    Registers a separate <code>-local</code> MCP pointing at your local backend
+                                    (<code>{visualizerUrl}</code>) at user scope, so it coexists with your hosted
+                                    one. The fixed dev token <code>{devToken}</code> is already included.
+                                </p>
+                            ) : newToken ? (
+                                <p className="viz-step-hint">
+                                    Paste the whole command in your terminal. User scope = loaded in every
+                                    session on this machine. <strong>Your new token is already included</strong>{' '}
+                                    in the command below.
+                                </p>
+                            ) : (
+                                <p className="viz-step-hint">
+                                    Paste the command in your terminal (user scope = loaded in every session on
+                                    this machine). Replace <code>{TOKEN_PLACEHOLDER}</code> with your token —
+                                    it's only shown once when generated, so if you don't have it,{' '}
+                                    <strong>generate another above</strong> (up to {TOKEN_LIMIT}).
+                                </p>
+                            )
                         )}
+                        <div className="cmd-block">
+                            <button
+                                type="button"
+                                className={`copy-btn ${copied === 'add' ? 'is-copied' : ''}`}
+                                onClick={() => copy(addCommand, 'add')}
+                            >
+                                {copied === 'add' ? 'Copied' : 'Copy'}
+                            </button>
+                            <pre className="mcp-snippet">{addCommand}</pre>
+                        </div>
                     </div>
                 </li>
 
@@ -185,10 +205,42 @@ export default function ConnectAgentPanel() {
 
             <details className="viz-remove">
                 <summary>Remove the MCP later</summary>
-                <p className="viz-step-hint">
-                    Delete the <code>{dev ? 'sigilum-local' : 'sigilum'}</code>{' '}
-                    entry under <code>mcp</code> in <code>~/.config/opencode/opencode.json</code>.
-                </p>
+                {agent === 'opencode' ? (
+                    dev ? (
+                        <p className="viz-step-hint">
+                            Delete the <code>sigilum-local</code> entry under <code>mcp</code> in{' '}
+                            <code>~/.config/opencode/opencode.json</code>.
+                        </p>
+                    ) : (
+                        <>
+                            <p className="viz-step-hint">
+                                Paste this in your terminal — it idempotently checks your opencode
+                                config and removes the <code>sigilum</code> entry if it's there.
+                            </p>
+                            <div className="cmd-block">
+                                <button
+                                    type="button"
+                                    className={`copy-btn ${copied === 'rm-oc' ? 'is-copied' : ''}`}
+                                    onClick={() => copy(opencodeRemoveCommand, 'rm-oc')}
+                                >
+                                    {copied === 'rm-oc' ? 'Copied' : 'Copy'}
+                                </button>
+                                <pre className="mcp-snippet">{opencodeRemoveCommand}</pre>
+                            </div>
+                        </>
+                    )
+                ) : (
+                    <div className="cmd-block">
+                        <button
+                            type="button"
+                            className={`copy-btn ${copied === 'rm' ? 'is-copied' : ''}`}
+                            onClick={() => copy(claudeRemoveCommand, 'rm')}
+                        >
+                            {copied === 'rm' ? 'Copied' : 'Copy'}
+                        </button>
+                        <pre className="mcp-snippet">{claudeRemoveCommand}</pre>
+                    </div>
+                )}
             </details>
         </div>
     );

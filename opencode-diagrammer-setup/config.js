@@ -60,16 +60,38 @@ export function applyOpencodeConfig(config, { token, url } = {}) {
     return config;
 }
 
+// Idempotently remove the sigilum MCP entry from opencode's config. No-op (returns false) when
+// `mcp` or the entry itself isn't present — running this twice in a row, or against a config that
+// never had the entry, does nothing the second time. Cleans up the now-empty `mcp` wrapper, but
+// otherwise leaves everything else ($schema, other servers) exactly as it is. Returns the same
+// `config` object (mutated) plus whether anything was actually removed.
+export function removeOpencodeConfig(config) {
+    if (!config || typeof config !== 'object' || Array.isArray(config)) {
+        throw new Error('opencode config must be a JSON object');
+    }
+    if (!config.mcp || typeof config.mcp !== 'object' || Array.isArray(config.mcp) || !(SERVER_KEY in config.mcp)) {
+        return false;
+    }
+    delete config.mcp[SERVER_KEY];
+    if (Object.keys(config.mcp).length === 0) {
+        delete config.mcp;
+    }
+    return true;
+}
+
 const TOKEN_RE = /^viz_[A-Za-z0-9]+$/;
 
 // Resolve options from CLI argv (e.g. process.argv.slice(2)) and the environment. Token comes from
 // SIGILUM_TOKEN (legacy VISUALIZER_TOKEN also honoured) or --token/-t (an explicit flag overrides
 // env). URL from SIGILUM_URL / VISUALIZER_URL (used only when creating the entry). `yes`
-// auto-confirms the install prompt.
-// Returns { token, url, yes }. Throws with a clear message when the token is missing/malformed.
+// auto-confirms the install prompt. `--uninstall`/`-u` requests removal instead of setup — it
+// needs no token, so it short-circuits before the token is resolved/validated.
+// Returns { token, url, yes, uninstall }. Throws with a clear message when the token is
+// missing/malformed (never thrown when `--uninstall` is passed).
 export function parseArgs(argv = [], env = {}) {
     let token = '';
     let yes = false;
+    let uninstall = false;
     for (let i = 0; i < argv.length; i += 1) {
         const arg = argv[i];
         if (arg === '--token' || arg === '-t') {
@@ -79,7 +101,12 @@ export function parseArgs(argv = [], env = {}) {
             token = arg.slice('--token='.length);
         } else if (arg === '--yes' || arg === '-y') {
             yes = true;
+        } else if (arg === '--uninstall' || arg === '-u') {
+            uninstall = true;
         }
+    }
+    if (uninstall) {
+        return { token: '', url: undefined, yes, uninstall: true };
     }
     if (!token) {
         token = env.SIGILUM_TOKEN || env.VISUALIZER_TOKEN || '';
@@ -92,5 +119,5 @@ export function parseArgs(argv = [], env = {}) {
         throw new Error('that token does not look valid (expected a viz_… token from the web UI)');
     }
     const url = String(env.SIGILUM_URL || env.VISUALIZER_URL || '').trim() || undefined;
-    return { token, url, yes };
+    return { token, url, yes, uninstall: false };
 }

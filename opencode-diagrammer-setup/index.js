@@ -3,7 +3,7 @@
 
 // One-shot setup for using the sigilum MCP with opencode.
 //
-//   SIGILUM_TOKEN=viz_… npx -y @apozo/sigilum-setup
+//   SIGILUM_TOKEN=viz_… npx -y sigilum-opencode-setup
 //
 // What it does (Linux):
 //   1. Checks the token (from SIGILUM_TOKEN — legacy VISUALIZER_TOKEN also works — or --token).
@@ -11,6 +11,11 @@
 //      official curl installer as fallback) and continues — or stops if you decline.
 //   3. Idempotently adds the `sigilum` MCP entry to ~/.config/opencode/opencode.json.
 //      Re-running only refreshes the token; everything else is left exactly as it is.
+//
+// Pass --uninstall (or -u) to do the reverse: idempotently check opencode's config and, if the
+// `sigilum` MCP is registered there, remove it. No token needed for this path.
+//
+//   npx -y sigilum-opencode-setup --uninstall
 //
 // The token is never printed.
 
@@ -20,7 +25,7 @@ import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
 import { spawnSync } from 'node:child_process';
-import { applyOpencodeConfig, parseArgs, SERVER_KEY } from './config.js';
+import { applyOpencodeConfig, removeOpencodeConfig, parseArgs, SERVER_KEY } from './config.js';
 
 const CONFIG_DIR = path.join(os.homedir(), '.config', 'opencode');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'opencode.json');
@@ -84,6 +89,34 @@ function readConfig() {
     }
 }
 
+// --uninstall path: idempotently remove the `sigilum` MCP entry from opencode's config, if it's
+// there. Doesn't touch opencode itself (install status is irrelevant — we're only editing JSON),
+// and never creates the config file/dir when there's nothing to remove.
+function removeFromOpencode() {
+    const { config, error } = readConfig();
+    if (error) {
+        err(`✖ ${CONFIG_FILE} exists but couldn't be parsed (${error}).`);
+        err('  Fix or remove that file, then run this again — refusing to overwrite it.');
+        return 1;
+    }
+
+    const removed = removeOpencodeConfig(config);
+    if (!removed) {
+        log(`Nothing to remove — the "${SERVER_KEY}" MCP isn't configured in opencode (${CONFIG_FILE}).`);
+        return 0;
+    }
+
+    try {
+        fs.writeFileSync(CONFIG_FILE, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+    } catch (e) {
+        err(`✖ Could not write ${CONFIG_FILE}: ${e.message}`);
+        return 1;
+    }
+
+    log(`✓ Removed the "${SERVER_KEY}" MCP from opencode (${CONFIG_FILE}).`);
+    return 0;
+}
+
 export async function runSetupOpencode(argv) {
     let opts;
     try {
@@ -91,8 +124,12 @@ export async function runSetupOpencode(argv) {
     } catch (e) {
         err(`✖ ${e.message}`);
         err('  Generate a token in the web UI → Sigils → Connect agent, then run:');
-        err('    SIGILUM_TOKEN=viz_your_token npx -y @apozo/sigilum-setup');
+        err('    SIGILUM_TOKEN=viz_your_token npx -y sigilum-opencode-setup');
         return 1;
+    }
+
+    if (opts.uninstall) {
+        return removeFromOpencode();
     }
 
     // 1) opencode present?

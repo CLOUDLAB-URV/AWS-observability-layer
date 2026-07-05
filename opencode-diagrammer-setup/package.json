@@ -1,10 +1,10 @@
 {
-  "name": "@apozo/sigilum-setup",
+  "name": "sigilum-opencode-setup",
   "version": "1.0.0",
   "description": "One-shot setup: registers the sigilum MCP in opencode (~/.config/opencode/opencode.json) with your token. Installs opencode if missing. Idempotent — re-running only refreshes the token.",
   "type": "module",
   "bin": {
-    "sigilum-setup": "index.js"
+    "sigilum-opencode-setup": "index.js"
   },
   "main": "index.js",
   "files": [
