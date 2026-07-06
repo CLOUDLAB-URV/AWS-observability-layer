@@ -1,6 +1,6 @@
 # sigilum-opencode-setup
 
-One-shot setup that idempotently connects the **sigilum** MCP to
+One-shot setup that connects the **sigilum** MCP to
 [opencode](https://opencode.ai). It writes the MCP entry into
 `~/.config/opencode/opencode.json` for you — no hand-editing JSON.
 

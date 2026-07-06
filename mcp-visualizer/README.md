@@ -103,7 +103,7 @@ Global: `~/.config/opencode/opencode.json`. Project: `opencode.json` in the repo
 
 ## 4. Use it
 
-1. Make sure the web app is opened and your agent can reach AWS.
+1. Make sure the web app is running and your agent can reach AWS.
 2. In your agent, ask it to deploy something, e.g.
    *"Create an S3 bucket and an SQS queue under project `my-api`, and visualize it."*
 3. The agent deploys with its own tools and then calls **`push_sigil`** with the
