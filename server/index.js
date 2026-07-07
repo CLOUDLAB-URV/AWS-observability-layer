@@ -23,6 +23,7 @@ import * as visualizerStore from './visualizerStore.js';
 import * as tokenStore from './tokenStore.js';
 import { features } from './features.js';
 import * as auth from './auth.js';
+import * as admin from './admin.js';
 import { DEV, persistRoot, DEV_USER_ID, DEV_TOKEN } from './persistence.js';
 import { runStateViz, suggestSessionName } from './agents/stateviz/index.js';
 import { runExplainDiagram } from './agents/explain/index.js';
@@ -39,6 +40,8 @@ app.use(express.json({ limit: '5mb' }));
 // Internal login + session endpoints (/api/auth/*, /api/me). Auth is off in local dev: requests
 // resolve to an ephemeral "dev" user (see auth.js / persistence.js), so no login screen appears.
 auth.registerRoutes(app);
+// Read-only admin API (/api/admin/*), gated on role 'admin' (granted via scripts/admin-cli.js).
+admin.registerAdminRoutes(app);
 const server = http.createServer(app);
 // Two WebSocket endpoints on one HTTP server: '/ws' (legacy design flow) and
 // '/ws-visualizer' (deployed-state feature). They MUST use noServer + manual

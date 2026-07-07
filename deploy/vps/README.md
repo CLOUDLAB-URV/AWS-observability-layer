@@ -79,6 +79,28 @@ email with a **6-digit code**; then they log in with email-or-username + passwor
 sessions/diagrams and generates its own MCP tokens. Accounts, sessions, tokens and deployed-state
 all live in the `app_data` volume, so they **survive container recreation / Watchtower updates**.
 
+## Admin accounts
+
+Accounts with the `admin` role get an **"Admin view"** entry in their profile menu: a read-only
+panel listing every account, its sigils, last login and usage stats. The role can **only** be
+granted or revoked from the server via the operator CLI — there is deliberately no web/API way to
+change roles.
+
+The persistence volume is mounted only in the backend container, so run the CLI inside it:
+
+```bash
+docker compose exec backend npm run admin -- list                       # table of all accounts
+docker compose exec backend npm run admin -- grant alice@example.com    # promote (asks y/N)
+docker compose exec backend npm run admin -- revoke alice --yes         # demote, no prompt
+docker compose exec backend npm run admin -- stats                      # accounts/verified/admins
+```
+
+- Identifiers are an **email or username** (case-insensitive); the CLI echoes the matched account
+  before asking for confirmation, so a typo can't silently promote the wrong person.
+- Role changes apply on the target user's **next request** — no restart, no re-login needed.
+- Every grant/revoke appends a JSONL line to the audit log:
+  `docker compose exec backend cat persistence/admin-audit.log`.
+
 ## Deploy on a machine
 
 Requires Docker Engine + the Compose plugin.

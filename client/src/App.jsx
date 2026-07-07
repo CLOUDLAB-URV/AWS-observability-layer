@@ -6,6 +6,7 @@ import ConfirmModal from './ConfirmModal.jsx';
 import { createSocket } from './ws.js';
 import DevPanel from './DevPanel.jsx';
 import UserMenu from './UserMenu.jsx';
+import AdminPanel from './admin/AdminPanel.jsx';
 import Logo from './Logo.jsx';
 import { useChatPanel } from './hooks/useChatPanel.js';
 
@@ -21,7 +22,10 @@ export default function App({ features, user }) {
     // Open on the first enabled mode (Design takes priority when both are on).
     const INITIAL_VIEW = DESIGN_ENABLED ? 'design' : 'deployed';
 
+    // 'design' | 'deployed' | 'admin'. Admin is only reachable from the profile menu (no tab);
+    // previousViewRef remembers where to return when leaving it.
     const [view, setView] = useState(INITIAL_VIEW);
+    const previousViewRef = useRef(INITIAL_VIEW);
     // Socket connection state is tracked (setConnected feeds the socket) but no longer surfaced
     // in the header — the connection indicator was removed.
     const [, setConnected] = useState(false);
@@ -270,7 +274,15 @@ export default function App({ features, user }) {
                 <output className="status-text" aria-live="polite" aria-atomic="true">
                     {status}
                 </output>
-                {user && <UserMenu user={user} />}
+                {user && (
+                    <UserMenu
+                        user={user}
+                        onOpenAdmin={() => {
+                            if (view !== 'admin') previousViewRef.current = view;
+                            setView('admin');
+                        }}
+                    />
+                )}
                 {view === 'design' && (mode === 'preview' || mode === 'partial') && (
                     <button
                         className="deploy-btn"
@@ -308,6 +320,10 @@ export default function App({ features, user }) {
                         </div>
                     </div>
                 </main>
+            ) : view === 'admin' ? (
+                <main id="main-content" className="layout" role="main">
+                    <AdminPanel user={user} onBack={() => setView(previousViewRef.current)} />
+                </main>
             ) : view === 'deployed' ? (
                 <main id="main-content" className="layout layout-deployed" role="main">
                     <DeployedState />
@@ -344,7 +360,7 @@ export default function App({ features, user }) {
             )}
             {/* In the Agent (MCP) view the dev panel lives inside the dockview layout (movable);
                 elsewhere it stays as the bottom drawer. */}
-            {view !== 'deployed' && <DevPanel />}
+            {view !== 'deployed' && view !== 'admin' && <DevPanel />}
         </div>
     );
 }

@@ -6,7 +6,8 @@
 //
 // Layout:
 //   persistence/users.json          → { [userId]: { email, emailLower, username, usernameLower,
-//                                        passwordHash, verified, createdAt, code|null } }
+//                                        passwordHash, verified, createdAt, code|null,
+//                                        role?: 'admin', lastLogin?: ISO } }
 //   persistence/sessions/<sid>.json → { userId, createdAt, expiresAt }
 //
 // Auth is email + username + password with an email verification CODE. Passwords are scrypt-hashed;
@@ -27,6 +28,10 @@ const PERSIST = process.env.AUTH_PERSIST_DIR
     : path.join(__dirname, 'persistence');
 const USERS_FILE = path.join(PERSIST, 'users.json');
 const SESSIONS_DIR = path.join(PERSIST, 'sessions');
+
+// Exposed so the operator CLI (scripts/admin-cli.js) writes its audit log next to users.json —
+// same resolution, zero drift with whatever the running server uses.
+export const persistDir = PERSIST;
 
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;   // 30 days
 const CODE_TTL_MS = 10 * 60 * 1000;                // verification code lifetime: 10 min
@@ -90,12 +95,45 @@ async function writeUsers(map) {
     await fs.writeFile(USERS_FILE, `${JSON.stringify(map, null, 2)}\n`, 'utf8');
 }
 
+// Role is stored only when it is 'admin' (revoking deletes the key), so any other/missing/garbage
+// value degrades safely to 'user'. Admin is granted exclusively via the operator CLI
+// (scripts/admin-cli.js) — there is no HTTP path that mutates it.
+function roleOf(rec) {
+    return rec.role === 'admin' ? 'admin' : 'user';
+}
+
 function publicUser(userId, rec) {
-    return { userId, email: rec.email, username: rec.username, name: rec.username };
+    return { userId, email: rec.email, username: rec.username, name: rec.username, role: roleOf(rec) };
 }
 
 export async function countUsers() {
     return Object.keys(await readUsers()).length;
+}
+
+// Full account listing for the admin panel / operator CLI. Read-only projection: public shape
+// plus the account metadata an admin needs (never the password hash or pending codes/tokens).
+export async function listUsers() {
+    const map = await readUsers();
+    return Object.entries(map)
+        .map(([userId, rec]) => ({
+            ...publicUser(userId, rec),
+            verified: Boolean(rec.verified),
+            createdAt: rec.createdAt || null,
+            lastLogin: rec.lastLogin || null
+        }))
+        .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+}
+
+// Account/usage summary for the admin panel header ("N of M accounts") and the CLI `stats` command.
+export async function usageStats() {
+    const map = await readUsers();
+    const recs = Object.values(map);
+    return {
+        totalCount: recs.length,
+        verifiedCount: recs.filter((r) => r.verified).length,
+        adminCount: recs.filter((r) => roleOf(r) === 'admin').length,
+        maxUsers: maxUsers()
+    };
 }
 
 export async function getUser(userId) {
@@ -240,6 +278,45 @@ export function changePassword(userId, currentPassword, newPassword) {
         rec.passwordHash = hashPassword(newPassword);
         await writeUsers(map);
         return { ok: true };
+    });
+}
+
+// Grant or revoke the admin role. Identifier is an email OR username (same dual lookup as
+// verifyLogin). Only ever called by the operator CLI — never exposed over HTTP. Revoking deletes
+// the role key so records stay clean. Returns { ok, user, previousRole } or
+// { error:'not_found'|'bad_role' }.
+export function setRole(identifier, role) {
+    return enqueue(async () => {
+        if (role !== 'admin' && role !== 'user') {
+            return { error: 'bad_role' };
+        }
+        const map = await readUsers();
+        const key = String(identifier ?? '').trim().toLowerCase();
+        const id = findIdBy(map, 'emailLower', key) || findIdBy(map, 'usernameLower', key);
+        if (!id) {
+            return { error: 'not_found' };
+        }
+        const previousRole = roleOf(map[id]);
+        if (role === 'admin') {
+            map[id].role = 'admin';
+        } else {
+            delete map[id].role;
+        }
+        await writeUsers(map);
+        return { ok: true, user: publicUser(id, map[id]), previousRole };
+    });
+}
+
+// Stamp the account's last login time. Called fire-and-forget when a session is created — a
+// failed write must never break the login itself.
+export function touchLastLogin(userId) {
+    return enqueue(async () => {
+        const map = await readUsers();
+        if (!map[userId]) {
+            return;
+        }
+        map[userId].lastLogin = new Date().toISOString();
+        await writeUsers(map);
     });
 }
 

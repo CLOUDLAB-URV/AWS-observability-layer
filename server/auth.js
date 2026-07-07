@@ -80,7 +80,8 @@ function clearSessionCookie(res) {
 export async function resolveUser(req) {
     if (!authEnabled()) {
         // Fixed dev identity (no disk read): the env-var MCP token resolves to this same userId.
-        return { userId: DEV_USER_ID, email: 'dev@localhost', username: 'dev', name: 'Local dev', dev: true };
+        // Dev gets the admin role so the admin panel is testable locally without real auth.
+        return { userId: DEV_USER_ID, email: 'dev@localhost', username: 'dev', name: 'Local dev', role: 'admin', dev: true };
     }
     const signed = readCookies(req)[SESSION_COOKIE];
     const sid = signed ? unsign(signed) : null;
@@ -119,6 +120,8 @@ function validateRegistration({ email, username, password }) {
 async function startSession(res, userId) {
     const sid = await authStore.createSession(userId);
     setSessionCookie(res, sid);
+    // Fire-and-forget: a lastLogin write hiccup must never break the login itself.
+    authStore.touchLastLogin(userId).catch(() => {});
 }
 
 // --- routes -------------------------------------------------------------------------------

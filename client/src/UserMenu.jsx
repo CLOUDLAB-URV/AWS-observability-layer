@@ -4,7 +4,8 @@ import { changePassword, deleteAccount, logout } from './auth.js';
 // Profile menu in the top bar: the avatar + name is a trigger that opens a dropdown with the
 // account actions (Change password, Delete account, Log out). The old always-visible Logout
 // button lives here now. Two of the actions open their own modal (reusing the .modal-* shell).
-export default function UserMenu({ user }) {
+// Admins additionally get an "Admin view" entry (server-enforced — the menu gating is only UX).
+export default function UserMenu({ user, onOpenAdmin }) {
     const [open, setOpen] = useState(false);
     const [modal, setModal] = useState(null); // null | 'password' | 'delete'
     const wrapRef = useRef(null);
@@ -48,6 +49,15 @@ export default function UserMenu({ user }) {
                         <div className="user-menu-head-name">{label}</div>
                         {user.email && <div className="user-menu-head-email">{user.email}</div>}
                     </div>
+                    {user.role === 'admin' && onOpenAdmin && (
+                        <>
+                            <button type="button" className="user-menu-item" role="menuitem"
+                                onClick={() => { setOpen(false); onOpenAdmin(); }}>
+                                Admin view
+                            </button>
+                            <div className="user-menu-sep" />
+                        </>
+                    )}
                     <button type="button" className="user-menu-item" role="menuitem"
                         onClick={() => { setOpen(false); setModal('password'); }}>
                         Change password
