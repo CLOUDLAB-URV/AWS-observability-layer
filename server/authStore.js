@@ -92,7 +92,12 @@ async function readUsers() {
 
 async function writeUsers(map) {
     await fs.mkdir(PERSIST, { recursive: true });
-    await fs.writeFile(USERS_FILE, `${JSON.stringify(map, null, 2)}\n`, 'utf8');
+    // Atomic write (tmp + rename): request handlers read this file outside the
+    // write queue, so a plain writeFile could hand them a truncated JSON mid-write
+    // (seen as intermittent 401s under concurrent sign-ups).
+    const tmp = `${USERS_FILE}.tmp`;
+    await fs.writeFile(tmp, `${JSON.stringify(map, null, 2)}\n`, 'utf8');
+    await fs.rename(tmp, USERS_FILE);
 }
 
 // Role is stored only when it is 'admin' (revoking deletes the key), so any other/missing/garbage

@@ -13,6 +13,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { GoogleGenAI } from '@google/genai';
+import { withLimit, withRetry } from './limiter.js';
 
 // Per-agent model routing (cost control): cheap Flash for diagram design and
 // state reconciliation, Pro for the agentic AWS tool loop.
@@ -88,7 +89,19 @@ class GeminiMessageStream {
         return this._final;
     }
 
-    async _run(params) {
+    // Every attempt (request + full stream consumption) runs inside one
+    // concurrency slot; the retry sits outside the slot so backoff sleeps never
+    // hold capacity. Once any text has been emitted to a listener we stop
+    // retrying — re-running would duplicate the streamed output downstream.
+    _run(params) {
+        let emitted = false;
+        return withRetry(
+            () => withLimit(() => this._attempt(params, () => { emitted = true; })),
+            { canRetry: () => !emitted }
+        );
+    }
+
+    async _attempt(params, markEmitted) {
         const config = {
             maxOutputTokens: params.max_tokens ?? 8192,
             safetySettings: SAFETY_SETTINGS
@@ -118,6 +131,7 @@ class GeminiMessageStream {
                 }
                 if (typeof part.text === 'string' && part.text) {
                     text += part.text;
+                    markEmitted();
                     this._emit('text', part.text);
                 } else if (part.functionCall) {
                     functionCalls.push(part.functionCall);

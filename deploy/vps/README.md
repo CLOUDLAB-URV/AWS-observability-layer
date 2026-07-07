@@ -58,6 +58,10 @@ gets every key via `env_file: .env`:**
 - **Secrets:** `SESSION_SECRET` (signs session cookies), `SMTP_HOST/PORT/USER/PASS` + `MAIL_FROM`
   (email verification codes), `GCP_PROJECT_ID` / `CLOUD_ML_REGION` (only for Design). There is
   **no MCP token here** — each user generates their own from the UI (Agent → Deployed state).
+- `LLM_MAX_CONCURRENT` → cap on simultaneous Gemini calls (default 16 — sustains ~20 users
+  pushing sigils every 30s). Bursts beyond the cap queue FIFO instead of hammering Vertex's
+  shared quota; transient 429s retry with backoff. Load-test with `node loadtest/run.js`
+  (see `loadtest/README.md`).
 
 > **Design & Deploy** is `false` by default: enabling it needs `uv`/python + AWS credentials
 > that aren't in the image (the Design tab would appear but its AWS deploy would fail). Set
