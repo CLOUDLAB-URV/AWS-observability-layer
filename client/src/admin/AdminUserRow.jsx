@@ -1,9 +1,58 @@
-import { formatDate, formatRelative } from './format.js';
+import { useEffect, useRef, useState } from 'react';
+import { formatDate, formatRelative, formatTokens } from './format.js';
 
-// One account row in the admin table + its expandable sigil drill-down. The parent owns the
-// expansion state and the lazily-fetched diagram cache, so collapsing/re-expanding never refetches.
-export default function AdminUserRow({ user, isSelf, expanded, detail, onToggle }) {
+// One account row in the admin table + its expandable drill-down (sigils + admin actions).
+// The parent owns the expansion state and the lazily-fetched diagram cache, so collapsing and
+// re-expanding never refetches. Ban/unban/delete handlers live in the parent too (they refresh
+// the table); this component only owns the transient UI state (duration picker, confirm step).
+
+const BAN_CHOICES = [
+    { label: '1 hour', hours: 1 },
+    { label: '24 hours', hours: 24 },
+    { label: '7 days', hours: 168 },
+    { label: '30 days', hours: 720 }
+];
+
+export default function AdminUserRow({ user, isSelf, expanded, detail, onToggle, onBan, onUnban, onDelete }) {
     const initial = (user.username || user.email || '?').trim().charAt(0).toUpperCase();
+    const banned = Boolean(user.bannedUntil);
+    // Actions never apply to admins (server rejects; the CLI is the only way to touch admins)
+    // nor to the acting admin's own account.
+    const actionable = user.role !== 'admin' && !isSelf;
+
+    const [banOpen, setBanOpen] = useState(false);
+    const [customHours, setCustomHours] = useState('');
+    const [confirmDelete, setConfirmDelete] = useState(false);
+    const [busy, setBusy] = useState(false);
+    const [actionError, setActionError] = useState(null);
+    const confirmTimer = useRef(null);
+
+    useEffect(() => () => clearTimeout(confirmTimer.current), []);
+
+    async function run(action) {
+        setBusy(true);
+        setActionError(null);
+        const { ok, error } = await action();
+        setBusy(false);
+        if (!ok) {
+            setActionError(error || 'Action failed.');
+        } else {
+            setBanOpen(false);
+            setCustomHours('');
+            setConfirmDelete(false);
+        }
+    }
+
+    function askDelete() {
+        if (confirmDelete) {
+            run(() => onDelete(user.userId));
+            return;
+        }
+        setConfirmDelete(true);
+        clearTimeout(confirmTimer.current);
+        confirmTimer.current = setTimeout(() => setConfirmDelete(false), 4000);
+    }
+
     return (
         <>
             <tr className={`admin-row ${expanded ? 'is-expanded' : ''}`}>
@@ -13,7 +62,7 @@ export default function AdminUserRow({ user, isSelf, expanded, detail, onToggle 
                         className="admin-expand-btn"
                         onClick={onToggle}
                         aria-expanded={expanded}
-                        aria-label={`${expanded ? 'Hide' : 'Show'} sigils of ${user.username}`}
+                        aria-label={`${expanded ? 'Hide' : 'Show'} details of ${user.username}`}
                     >
                         <svg className="admin-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none"
                             stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"
@@ -38,6 +87,13 @@ export default function AdminUserRow({ user, isSelf, expanded, detail, onToggle 
                     {user.role === 'admin'
                         ? <span className="admin-role-pill">admin</span>
                         : <span className="admin-role-plain">user</span>}
+                </td>
+                <td className="admin-cell admin-cell-status">
+                    {banned ? (
+                        <span className="admin-banned-pill" title={`Banned until ${formatDate(user.bannedUntil)}`}>banned</span>
+                    ) : (
+                        <span className="admin-dash" aria-label="Active">—</span>
+                    )}
                 </td>
                 <td className="admin-cell admin-cell-verified">
                     {user.verified ? (
@@ -65,7 +121,7 @@ export default function AdminUserRow({ user, isSelf, expanded, detail, onToggle 
             </tr>
             {expanded && (
                 <tr className="admin-detail-row">
-                    <td colSpan={7} className="admin-user-detail">
+                    <td colSpan={8} className="admin-user-detail">
                         {!detail ? (
                             <div className="admin-detail-hint">Loading sigils…</div>
                         ) : detail.error ? (
@@ -88,6 +144,65 @@ export default function AdminUserRow({ user, isSelf, expanded, detail, onToggle 
                                 ))}
                             </ul>
                         )}
+
+                        <div className="admin-llm-usage" title="Gemini tokens this calendar month">
+                            AI this month:{' '}
+                            <span className="admin-llm-num">{formatTokens(user.llmMonth?.total)}</span> tokens
+                            {user.llmMonth?.calls > 0 && (
+                                <span className="admin-llm-detail">
+                                    {' '}({formatTokens(user.llmMonth.input)} in / {formatTokens(user.llmMonth.output)} out · {user.llmMonth.calls} calls)
+                                </span>
+                            )}
+                        </div>
+
+                        {user.role === 'admin' ? (
+                            <div className="admin-detail-hint admin-actions-note">Admin account — no limits apply; manage the role from the server CLI.</div>
+                        ) : actionable && (
+                            <div className="admin-actions">
+                                {banned ? (
+                                    <button type="button" className="admin-action-btn" disabled={busy}
+                                        onClick={() => run(() => onUnban(user.userId))}>
+                                        Unban
+                                    </button>
+                                ) : banOpen ? (
+                                    <span className="admin-ban-picker">
+                                        <span className="admin-ban-label">Ban for</span>
+                                        {BAN_CHOICES.map(({ label, hours }) => (
+                                            <button key={hours} type="button" className="admin-action-btn" disabled={busy}
+                                                onClick={() => run(() => onBan(user.userId, hours))}>
+                                                {label}
+                                            </button>
+                                        ))}
+                                        <input
+                                            type="number" min="1" placeholder="hours" value={customHours}
+                                            onChange={(e) => setCustomHours(e.target.value)}
+                                            aria-label="Custom ban duration in hours"
+                                        />
+                                        <button type="button" className="admin-action-btn" disabled={busy || !(Number(customHours) > 0)}
+                                            onClick={() => run(() => onBan(user.userId, Number(customHours)))}>
+                                            Apply
+                                        </button>
+                                        <button type="button" className="link-btn" disabled={busy} onClick={() => setBanOpen(false)}>
+                                            Cancel
+                                        </button>
+                                    </span>
+                                ) : (
+                                    <button type="button" className="admin-action-btn" disabled={busy} onClick={() => setBanOpen(true)}>
+                                        Ban…
+                                    </button>
+                                )}
+                                <button
+                                    type="button"
+                                    className={`admin-action-btn admin-action-danger ${confirmDelete ? 'is-armed' : ''}`}
+                                    disabled={busy}
+                                    onClick={askDelete}
+                                >
+                                    {confirmDelete ? 'Confirm delete' : 'Delete account…'}
+                                </button>
+                                {actionError && <span className="admin-action-error">{actionError}</span>}
+                            </div>
+                        )}
+
                         <div className="admin-detail-userid" title="Account id (for the operator CLI)">{user.userId}</div>
                     </td>
                 </tr>

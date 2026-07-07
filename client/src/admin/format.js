@@ -27,6 +27,14 @@ export function formatRelative(iso) {
     return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
+// Compact token counts for the admin panel: 950 → "950", 12400 → "12.4k", 1200000 → "1.2M".
+export function formatTokens(n) {
+    const v = Number(n) || 0;
+    if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(v >= 10_000_000 ? 0 : 1)}M`;
+    if (v >= 1_000) return `${(v / 1_000).toFixed(v >= 10_000 ? 0 : 1)}k`;
+    return String(v);
+}
+
 // True when the timestamp falls within the last `days` days (used for the "Active 7d" stat).
 export function withinDays(iso, days) {
     if (!iso) return false;

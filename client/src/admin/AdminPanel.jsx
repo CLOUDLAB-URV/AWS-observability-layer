@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import AdminUserRow from './AdminUserRow.jsx';
-import { withinDays } from './format.js';
+import AdminLimits from './AdminLimits.jsx';
+import { formatTokens, withinDays } from './format.js';
 
-// Full-page admin view (reached from the profile menu, admins only). Read-only console over
-// every account: usage stats, searchable user table, per-user sigil drill-down. The menu gating
-// is only UX — the /api/admin routes are the real enforcement (403 for non-admins), and this
-// panel surfaces that as an error state.
+// Full-page admin view (reached from the profile menu, admins only). Console over every account:
+// usage stats, runtime limits editor, searchable user table with per-user drill-down and the
+// user-management actions (temporary ban, delete). The menu gating is only UX — the /api/admin
+// routes are the real enforcement (403 for non-admins), and this panel surfaces that as an error
+// state. Role changes stay CLI-only; admin accounts can't be banned or deleted from here.
 
 async function fetchAdminUsers() {
     const res = await fetch('/api/admin/users', { headers: { Accept: 'application/json' } });
@@ -21,6 +23,14 @@ async function fetchAdminUserDiagrams(userId) {
     let data = {};
     try { data = await res.json(); } catch { /* empty body */ }
     return { ok: res.ok, data };
+}
+
+// Mutations share one shape: { ok, error } so rows can surface failures inline.
+async function adminMutate(path, init) {
+    const res = await fetch(path, { headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, ...init });
+    let data = {};
+    try { data = await res.json(); } catch { /* empty body */ }
+    return { ok: res.ok, error: data.error };
 }
 
 export default function AdminPanel({ user, onBack }) {
@@ -55,6 +65,38 @@ export default function AdminPanel({ user, onBack }) {
             const { ok, data } = await fetchAdminUserDiagrams(next);
             setDetails((d) => ({ ...d, [next]: ok ? { diagrams: data.diagrams || [] } : { error: true } }));
         }
+    }
+
+    // Refresh the table in place after a mutation (no loading flash — keep the current data
+    // visible while the fresh list arrives).
+    async function refresh() {
+        const { ok, data } = await fetchAdminUsers();
+        if (ok) {
+            setState((s) => ({ ...s, data }));
+        }
+    }
+
+    async function banUser(userId, hours) {
+        const result = await adminMutate(`/api/admin/users/${encodeURIComponent(userId)}/ban`, {
+            method: 'POST', body: JSON.stringify({ hours })
+        });
+        if (result.ok) await refresh();
+        return result;
+    }
+
+    async function unbanUser(userId) {
+        const result = await adminMutate(`/api/admin/users/${encodeURIComponent(userId)}/ban`, { method: 'DELETE' });
+        if (result.ok) await refresh();
+        return result;
+    }
+
+    async function deleteUser(userId) {
+        const result = await adminMutate(`/api/admin/users/${encodeURIComponent(userId)}`, { method: 'DELETE' });
+        if (result.ok) {
+            setExpandedId(null);
+            await refresh();
+        }
+        return result;
     }
 
     const users = state.data?.users || [];
@@ -125,7 +167,13 @@ export default function AdminPanel({ user, onBack }) {
                                 <span className="admin-stat-value">{active7d}</span>
                                 <span className="admin-stat-label">Active last 7 days</span>
                             </div>
+                            <div className="admin-stat-tile" title={`${state.data.llmMonthTotal?.calls ?? 0} calls this month (all users + Design mode)`}>
+                                <span className="admin-stat-value">{formatTokens(state.data.llmMonthTotal?.total)}</span>
+                                <span className="admin-stat-label">AI tokens (month)</span>
+                            </div>
                         </div>
+
+                        <AdminLimits onSaved={refresh} />
 
                         <div className="admin-toolbar">
                             <div className="admin-search">
@@ -159,6 +207,7 @@ export default function AdminPanel({ user, onBack }) {
                                             <th className="admin-cell-expand" aria-label="Expand" />
                                             <th>User</th>
                                             <th>Role</th>
+                                            <th>Status</th>
                                             <th>Verified</th>
                                             <th>Sigils</th>
                                             <th>Created</th>
@@ -174,6 +223,9 @@ export default function AdminPanel({ user, onBack }) {
                                                 expanded={expandedId === u.userId}
                                                 detail={details[u.userId]}
                                                 onToggle={() => toggleExpand(u.userId)}
+                                                onBan={banUser}
+                                                onUnban={unbanUser}
+                                                onDelete={deleteUser}
                                             />
                                         ))}
                                     </tbody>

@@ -95,3 +95,40 @@ test('usageStats counts totals, verified and admins against the cap', async () =
     assert.equal(stats.adminCount, 1);
     await store.setRole('admuser', 'user');
 });
+
+test('setBan bans and unbans; ban blocks login and sessions; expiry self-clears', async () => {
+    const userId = await makeVerifiedUser({
+        email: 'banme@example.com', username: 'banme', password: 'password123'
+    });
+    const sid = await store.createSession(userId);
+    assert.ok(await store.getSessionUser(sid), 'session works before the ban');
+
+    // Ban for an hour: login rejected with the expiry, session cut, listUsers exposes it.
+    const until = new Date(Date.now() + 3600_000).toISOString();
+    const banned = await store.setBan(userId, until);
+    assert.equal(banned.ok, true);
+    assert.equal(banned.user.bannedUntil, until);
+    const login = await store.verifyLogin('banme@example.com', 'password123');
+    assert.equal(login.error, 'banned');
+    assert.equal(login.until, until);
+    assert.equal(await store.getSessionUser(sid), null, 'existing session is cut');
+    assert.equal(await store.banStatus(userId), until);
+    const listed = (await store.listUsers()).find((u) => u.userId === userId);
+    assert.equal(listed.bannedUntil, until);
+
+    // Unban restores access without re-login (the session file was never deleted).
+    await store.setBan(userId, null);
+    assert.ok(await store.getSessionUser(sid), 'session works again after unban');
+    assert.equal(await store.banStatus(userId), null);
+    const raw = JSON.parse(await fs.readFile(path.join(tmp, 'users.json'), 'utf8'));
+    assert.equal('bannedUntil' in raw[userId], false, 'unban deletes the key');
+
+    // An already-expired ban is inert everywhere.
+    await store.setBan(userId, new Date(Date.now() - 1000).toISOString());
+    assert.ok((await store.verifyLogin('banme@example.com', 'password123')).user);
+    assert.equal(await store.banStatus(userId), null);
+
+    // Validation and unknown targets.
+    assert.equal((await store.setBan(userId, 'not-a-date')).error, 'bad_until');
+    assert.equal((await store.setBan('usr_nope', until)).error, 'not_found');
+});

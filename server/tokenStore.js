@@ -12,18 +12,16 @@
 //
 // The full token secret is only ever returned once (at create time); afterwards the
 // UI only sees a masked preview and a non-secret `id` it can use to revoke. Each user
-// may hold at most MAX_TOKENS_PER_USER tokens.
+// may hold at most maxTokensPerUser tokens (admin-configurable; admins exempt).
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { persistRoot, DEV, DEV_USER_ID, DEV_TOKEN } from './persistence.js';
+import { getSetting } from './settingsStore.js';
 
 const TOKENS_FILE = path.join(persistRoot(), 'tokens.json');
 const OWNER_FILE = path.join(persistRoot(), 'owner.json');
-
-// Max API tokens a single user may hold at once.
-export const MAX_TOKENS_PER_USER = 3;
 
 // The owner userId is created once and persisted, then reused for every credential
 // on this machine. Cached in-process after the first resolve.
@@ -93,8 +91,10 @@ export async function countForUser(userId) {
 
 // Create a token for the user, unless they're already at the cap. Returns
 // { token, id } on success, or { error: 'limit', max } when the cap is reached.
-// The full `token` is the only time the secret is exposed.
-export function create(userId, label = '') {
+// The full `token` is the only time the secret is exposed. The cap is
+// admin-configurable (settings store); admins themselves are exempt — the route
+// passes `isAdmin` from the authenticated session.
+export function create(userId, label = '', { isAdmin = false } = {}) {
     if (DEV) {
         // No generated tokens in local dev — the MCP uses the fixed DEV_VISUALIZER_TOKEN.
         return Promise.resolve({ error: 'dev_disabled' });
@@ -102,9 +102,10 @@ export function create(userId, label = '') {
     return enqueue(async () => {
         const owner = userId || (await getOwnerUserId());
         const map = await readAll();
+        const max = await getSetting('maxTokensPerUser');
         const count = Object.values(map).filter((v) => v.userId === owner).length;
-        if (count >= MAX_TOKENS_PER_USER) {
-            return { error: 'limit', max: MAX_TOKENS_PER_USER };
+        if (!isAdmin && count >= max) {
+            return { error: 'limit', max };
         }
         const token = `viz_${randomBytes(24).toString('hex')}`;
         const id = `tok_${randomBytes(8).toString('hex')}`;

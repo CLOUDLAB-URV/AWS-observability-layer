@@ -14,6 +14,7 @@
 import { randomUUID } from 'node:crypto';
 import { GoogleGenAI } from '@google/genai';
 import { withLimit, withRetry } from './limiter.js';
+import * as usageStore from '../../usageStore.js';
 
 // Per-agent model routing (cost control): cheap Flash for diagram design and
 // state reconciliation, Pro for the agentic AWS tool loop.
@@ -123,8 +124,12 @@ class GeminiMessageStream {
 
         // Aggregate the streamed chunks into a single Anthropic-shaped message.
         let text = '';
+        let usage = null; // last usageMetadata wins — the final chunk carries the totals
         const functionCalls = [];
         for await (const chunk of stream) {
+            if (chunk?.usageMetadata) {
+                usage = chunk.usageMetadata;
+            }
             for (const part of chunk?.candidates?.[0]?.content?.parts ?? []) {
                 if (part.thought) {
                     continue; // internal reasoning, never surfaced to the user
@@ -137,6 +142,17 @@ class GeminiMessageStream {
                     functionCalls.push(part.functionCall);
                 }
             }
+        }
+
+        // Per-user token accounting (admin panel + monthly cap). params.user is the
+        // userId the call runs for; calls without one (Design mode's shared session)
+        // accrue under the _design pseudo-user. Never blocks or fails the response.
+        if (usage) {
+            usageStore.record(params.user ?? null, {
+                input: (usage.promptTokenCount ?? 0) + (usage.toolUsePromptTokenCount ?? 0),
+                output: (usage.candidatesTokenCount ?? 0) + (usage.thoughtsTokenCount ?? 0),
+                total: usage.totalTokenCount ?? 0
+            }).catch((error) => console.error('[llm-usage] record failed', error));
         }
 
         return toAnthropicMessage(text, functionCalls);

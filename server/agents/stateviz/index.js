@@ -69,7 +69,8 @@ export async function runStateViz(userId, chatId) {
     const stream = getGemini().messages.stream({
         model: MODELS.reconciler,
         max_tokens: 16000,
-        messages: [{ role: 'user', content: prompt }]
+        messages: [{ role: 'user', content: prompt }],
+        user: userId // token-usage attribution
     });
 
     const message = await stream.finalMessage();
@@ -91,8 +92,9 @@ export async function runStateViz(userId, chatId) {
 // (e.g. "S3 + SQS pipeline"). Used to auto-name a brand-new session on its first
 // deploy; the user can rename it later from the web. Takes the current resource
 // inventory (Object.values of the state map). Returns '' on any failure so the
-// caller can fall back gracefully. Cheap model, no tools.
-export async function suggestSessionName(resources) {
+// caller can fall back gracefully. Cheap model, no tools. `userId` is only for
+// token-usage attribution.
+export async function suggestSessionName(resources, userId = null) {
     if (!Array.isArray(resources) || resources.length === 0) {
         return '';
     }
@@ -110,7 +112,8 @@ export async function suggestSessionName(resources) {
             // text is emitted, so leave generous headroom for the short name.
             model: MODELS.reconciler,
             max_tokens: 256,
-            messages: [{ role: 'user', content: prompt }]
+            messages: [{ role: 'user', content: prompt }],
+            user: userId
         });
         const message = await stream.finalMessage();
         const text = message.content

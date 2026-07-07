@@ -235,6 +235,11 @@ export function registerRoutes(app) {
             }
             return;
         }
+        if (result.error === 'banned') {
+            const until = new Date(result.until).toUTCString();
+            res.status(403).json({ error: `This account is suspended until ${until}.` });
+            return;
+        }
         if (result.error) {
             res.status(401).json({ error: 'Wrong email/username or password.' });
             return;

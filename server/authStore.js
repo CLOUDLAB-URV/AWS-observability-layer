@@ -7,7 +7,7 @@
 // Layout:
 //   persistence/users.json          → { [userId]: { email, emailLower, username, usernameLower,
 //                                        passwordHash, verified, createdAt, code|null,
-//                                        role?: 'admin', lastLogin?: ISO } }
+//                                        role?: 'admin', lastLogin?: ISO, bannedUntil?: ISO } }
 //   persistence/sessions/<sid>.json → { userId, createdAt, expiresAt }
 //
 // Auth is email + username + password with an email verification CODE. Passwords are scrypt-hashed;
@@ -39,9 +39,12 @@ const CODE_MAX_ATTEMPTS = 5;                       // wrong tries before a code 
 const RESEND_COOLDOWN_MS = 30 * 1000;              // min gap between code sends
 const RESET_TTL_MS = 30 * 60 * 1000;               // password-reset link lifetime: 30 min
 
-function maxUsers() {
-    const n = Number.parseInt(process.env.MAX_USERS ?? '', 10);
-    return Number.isFinite(n) && n > 0 ? n : 30;
+// Registration cap. Admin-configurable at runtime (settings store), with the
+// MAX_USERS env var as the bootstrap default. Lazy import avoids loading the
+// settings store when only the pure helpers (hashPassword) are imported by tests.
+async function maxUsers() {
+    const { getSetting } = await import('./settingsStore.js');
+    return getSetting('maxUsers');
 }
 
 // --- password hashing (scrypt, no deps) ---------------------------------------------------
@@ -107,8 +110,18 @@ function roleOf(rec) {
     return rec.role === 'admin' ? 'admin' : 'user';
 }
 
+// A ban is a `bannedUntil` ISO timestamp on the record; once it passes, the ban
+// auto-expires (no cleanup pass needed). Missing/garbage values = not banned.
+function activeBan(rec) {
+    const until = Date.parse(rec?.bannedUntil ?? '');
+    return Number.isFinite(until) && until > Date.now() ? rec.bannedUntil : null;
+}
+
 function publicUser(userId, rec) {
-    return { userId, email: rec.email, username: rec.username, name: rec.username, role: roleOf(rec) };
+    return {
+        userId, email: rec.email, username: rec.username, name: rec.username,
+        role: roleOf(rec), bannedUntil: activeBan(rec)
+    };
 }
 
 export async function countUsers() {
@@ -137,7 +150,7 @@ export async function usageStats() {
         totalCount: recs.length,
         verifiedCount: recs.filter((r) => r.verified).length,
         adminCount: recs.filter((r) => roleOf(r) === 'admin').length,
-        maxUsers: maxUsers()
+        maxUsers: await maxUsers()
     };
 }
 
@@ -175,7 +188,7 @@ export function createPendingUser({ email, username, password }) {
         const userId = (emailId && !map[emailId].verified) ? emailId : `usr_${randomBytes(8).toString('hex')}`;
 
         // Enforce the cap only when adding a genuinely new account.
-        if (!map[userId] && Object.keys(map).length >= maxUsers()) {
+        if (!map[userId] && Object.keys(map).length >= (await maxUsers())) {
             return { error: 'limit' };
         }
 
@@ -264,6 +277,10 @@ export async function verifyLogin(identifier, password) {
     if (!map[id].verified) {
         return { error: 'unverified', email: map[id].email };
     }
+    const banned = activeBan(map[id]);
+    if (banned) {
+        return { error: 'banned', until: banned };
+    }
     return { user: publicUser(id, map[id]) };
 }
 
@@ -310,6 +327,36 @@ export function setRole(identifier, role) {
         await writeUsers(map);
         return { ok: true, user: publicUser(id, map[id]), previousRole };
     });
+}
+
+// Ban (or unban with null) an account until an ISO timestamp. Like `role`, the key is stored
+// only while set — unbanning deletes it. Expired bans clear themselves via activeBan(), so a
+// stale key is harmless. Admin-target guards live in the route (admin.js), not here.
+export function setBan(userId, untilIso) {
+    return enqueue(async () => {
+        const map = await readUsers();
+        const rec = map[userId];
+        if (!rec) {
+            return { error: 'not_found' };
+        }
+        if (untilIso === null) {
+            delete rec.bannedUntil;
+        } else {
+            if (!Number.isFinite(Date.parse(untilIso))) {
+                return { error: 'bad_until' };
+            }
+            rec.bannedUntil = untilIso;
+        }
+        await writeUsers(map);
+        return { ok: true, user: publicUser(userId, rec) };
+    });
+}
+
+// Active-ban lookup by userId (null when not banned / unknown). Used by the Bearer-token
+// request path, which resolves identity via tokenStore and never touches sessions.
+export async function banStatus(userId) {
+    const rec = (await readUsers())[userId];
+    return rec ? activeBan(rec) : null;
 }
 
 // Stamp the account's last login time. Called fire-and-forget when a session is created — a
@@ -414,7 +461,10 @@ export async function getSessionUser(sid) {
         await deleteSession(id);
         return null;
     }
-    return getUser(record.userId);
+    // A banned account is cut off on its next request (HTTP and WS share this path);
+    // the session itself survives, so access resumes when the ban expires.
+    const user = await getUser(record.userId);
+    return user && user.bannedUntil ? null : user;
 }
 
 export async function deleteSession(sid) {

@@ -85,10 +85,24 @@ all live in the `app_data` volume, so they **survive container recreation / Watc
 
 ## Admin accounts
 
-Accounts with the `admin` role get an **"Admin view"** entry in their profile menu: a read-only
-panel listing every account, its sigils, last login and usage stats. The role can **only** be
-granted or revoked from the server via the operator CLI — there is deliberately no web/API way to
-change roles.
+Accounts with the `admin` role get an **"Admin view"** entry in their profile menu: a panel
+listing every account, its sigils, last login and usage stats, plus day-to-day user management —
+**runtime limits** (max accounts / sigils per user / MCP tokens per user), **temporary bans**
+(the ban cuts the user's web session AND their MCP pushes on the next request, and auto-expires),
+and **account deletion** (removes the account with all its sigils, tokens and sessions).
+
+- Limit changes persist in the `app_data` volume (`persistence/settings.json`) — they survive
+  redeploys and migrate with the rest of the data. The `MAX_*` values in `.env` are only the
+  bootstrap defaults used while no panel override exists.
+- **AI spend is tracked per user** (Gemini tokens, calendar-month buckets in
+  `persistence/llm-usage.json`) and shown in the panel; `MAX_LLM_TOKENS_PER_MONTH` caps each
+  user's monthly spend (403 once exhausted, resets on the 1st). Design-mode calls have no
+  per-user identity and accrue under `_design` (counted in the total, never capped).
+- **Admins are exempt from every limit** and cannot be banned or deleted from the panel (revoke
+  the role via the CLI first). Panel mutations are appended to the same audit log as the CLI.
+
+The role itself can **only** be granted or revoked from the server via the operator CLI — there
+is deliberately no web/API way to change roles.
 
 The persistence volume is mounted only in the backend container, so run the CLI inside it:
 

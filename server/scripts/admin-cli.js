@@ -16,13 +16,10 @@
 
 import process from 'node:process';
 import os from 'node:os';
-import path from 'node:path';
-import fs from 'node:fs/promises';
 import { parseArgs } from 'node:util';
 import * as readline from 'node:readline/promises';
 import * as authStore from '../authStore.js';
-
-const AUDIT_FILE = path.join(authStore.persistDir, 'admin-audit.log');
+import { audit as appendAudit } from '../audit.js';
 
 const HELP = `Sigilum admin CLI — manage the admin role from the server.
 
@@ -60,8 +57,7 @@ function printTable(headers, rows) {
 }
 
 async function audit(entry) {
-    const line = `${JSON.stringify({ ts: new Date().toISOString(), ...entry, actor: 'cli', host: os.hostname() })}\n`;
-    await fs.appendFile(AUDIT_FILE, line, 'utf8');
+    await appendAudit({ ...entry, actor: 'cli', host: os.hostname() });
 }
 
 async function confirm(question) {

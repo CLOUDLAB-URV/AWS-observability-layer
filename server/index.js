@@ -23,7 +23,10 @@ import * as visualizerStore from './visualizerStore.js';
 import * as tokenStore from './tokenStore.js';
 import { features } from './features.js';
 import * as auth from './auth.js';
+import * as authStore from './authStore.js';
 import * as admin from './admin.js';
+import { getSetting } from './settingsStore.js';
+import * as usageStore from './usageStore.js';
 import { DEV, persistRoot, DEV_USER_ID, DEV_TOKEN } from './persistence.js';
 import { runStateViz, suggestSessionName } from './agents/stateviz/index.js';
 import { runExplainDiagram } from './agents/explain/index.js';
@@ -249,13 +252,19 @@ function requireFeature(isOn, label) {
 const agentGate = requireFeature(() => features.agent, 'Agent (MCP)');
 const designGate = requireFeature(() => features.design, 'Design & Deploy');
 
-// Bearer-token auth → resolves req.userId, or 401.
+// Bearer-token auth → resolves req.userId, or 401. Banned accounts are rejected
+// here too — a ban must cut off MCP pushes, not just the web session.
 async function requireToken(req, res, next) {
     const header = req.get('authorization') || '';
     const token = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
     const identity = await tokenStore.verify(token);
     if (!identity) {
         res.status(401).json({ error: 'Invalid or missing API token.' });
+        return;
+    }
+    const bannedUntil = await authStore.banStatus(identity.userId);
+    if (bannedUntil) {
+        res.status(403).json({ error: `This account is suspended until ${new Date(bannedUntil).toUTCString()}.` });
         return;
     }
     req.userId = identity.userId;
@@ -287,6 +296,26 @@ async function requireSessionOrToken(req, res, next) {
     return requireSession(req, res, next);
 }
 
+// Monthly LLM-token quota gate for the user-attributed AI routes (deployments ingest and
+// explanation). Gate-at-entry: an in-flight call may finish past the cap, which is fine —
+// the overshoot counts against next requests. Admins are exempt; skipped in local dev.
+// Returns the 403 payload when over quota, or null to proceed.
+async function llmQuotaBlock(userId) {
+    if (DEV) {
+        return null;
+    }
+    const user = await authStore.getUser(userId);
+    if (user?.role === 'admin') {
+        return null;
+    }
+    const cap = await getSetting('maxLlmTokensPerUserPerMonth');
+    const used = (await usageStore.monthUsage(userId)).total;
+    if (used < cap) {
+        return null;
+    }
+    return { error: `Monthly AI quota reached (${used} of ${cap} tokens used). It resets on the 1st.` };
+}
+
 // Ingest: the MCP tool POSTs a batch of incremental changes (upsert/delete per
 // resource) for a chat. We merge them into the chat's authoritative state,
 // regenerate the deployed-state D2, render it, and push it live to any web clients
@@ -296,6 +325,12 @@ app.post('/api/chats/:chatId/deployments', agentGate, requireToken, async (req, 
     const chatId = visualizerStore.sanitizeChatId(req.params.chatId);
     if (!chatId) {
         res.status(400).json({ error: 'Invalid chat id.' });
+        return;
+    }
+
+    const quota = await llmQuotaBlock(req.userId);
+    if (quota) {
+        res.status(403).json(quota);
         return;
     }
 
@@ -320,6 +355,23 @@ app.post('/api/chats/:chatId/deployments', agentGate, requireToken, async (req, 
         const exists = Boolean(priorMeta.createdAt);
         const isNewSession = !(priorMeta.name || priorMeta.project);
 
+        // Per-user sigil cap (admin-configurable; admins exempt). Enforced only when the push
+        // would create a brand-new sigil — this route is the sole way sigils come into existence.
+        // Skipped in local dev: the single dev user is the machine owner (same status as admin).
+        if (!exists && !DEV) {
+            const pusher = await authStore.getUser(req.userId);
+            if (pusher?.role !== 'admin') {
+                const max = await getSetting('maxSigilsPerUser');
+                const owned = (await visualizerStore.listChats(req.userId)).length;
+                if (owned >= max) {
+                    res.status(403).json({
+                        error: `Sigil limit reached (max ${max} per account). Delete an existing sigil from the web before creating a new one.`
+                    });
+                    return;
+                }
+            }
+        }
+
         // Enforce the "never mixed" invariant: pushing resources of the wrong mode
         // into an existing sigil is rejected.
         if (exists && wantDeployed !== undefined && wantDeployed !== priorMeta.deployed) {
@@ -337,7 +389,7 @@ app.post('/api/chats/:chatId/deployments', agentGate, requireToken, async (req, 
         // Auto-name a new session from its architecture when no hint was provided.
         let name = nameHint || priorMeta.name || priorMeta.project || '';
         if (isNewSession && !nameHint) {
-            const suggested = await suggestSessionName(resources);
+            const suggested = await suggestSessionName(resources, req.userId);
             if (suggested) {
                 await visualizerStore.renameSession(req.userId, chatId, suggested);
                 name = suggested;
@@ -490,6 +542,11 @@ app.post('/api/chats/:chatId/explanation', agentGate, requireSession, async (req
         res.status(404).json({ error: 'No such diagram (or it is empty) — nothing to explain.' });
         return;
     }
+    const quota = await llmQuotaBlock(req.userId);
+    if (quota) {
+        res.status(403).json(quota);
+        return;
+    }
     try {
         const payload = await runExplainDiagram(req.userId, chatId);
         if (!payload) {
@@ -536,7 +593,9 @@ app.post('/api/tokens', agentGate, requireSession, async (req, res) => {
         res.status(403).json({ error: 'Token generation is disabled in local dev — the MCP uses the DEV_VISUALIZER_TOKEN env var.' });
         return;
     }
-    const result = await tokenStore.create(req.userId, String(req.body?.label || ''));
+    const result = await tokenStore.create(req.userId, String(req.body?.label || ''), {
+        isAdmin: req.user?.role === 'admin'
+    });
     if (result.error === 'limit') {
         res.status(409).json({ error: `Token limit reached (max ${result.max}). Revoke one first.`, max: result.max });
         return;

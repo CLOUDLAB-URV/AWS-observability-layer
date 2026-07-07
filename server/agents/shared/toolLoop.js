@@ -12,7 +12,7 @@
 
 import { FatalToolError } from './errors.js';
 
-export async function runToolLoop({ client, model, system, tools, messages, emit, maxTurns = 60 }) {
+export async function runToolLoop({ client, model, system, tools, messages, emit, maxTurns = 60, user = null }) {
     const toolDefs = tools.map(({ name, description, input_schema }) => ({ name, description, input_schema }));
     const toolsByName = new Map(tools.map((tool) => [tool.name, tool]));
 
@@ -22,7 +22,8 @@ export async function runToolLoop({ client, model, system, tools, messages, emit
             max_tokens: 16000,
             system,
             tools: toolDefs,
-            messages
+            messages,
+            user // token-usage attribution only; not part of the Gemini request
         });
 
         stream.on('text', (delta) => emit({ type: 'chat-delta', text: delta }));
