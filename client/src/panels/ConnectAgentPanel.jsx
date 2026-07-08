@@ -203,6 +203,15 @@ export default function ConnectAgentPanel() {
                 </li>
             </ol>
 
+            {!dev && (
+                <p className="viz-step-hint viz-demo-link">
+                    On a lab machine without an agent yet?{' '}
+                    <a className="guide-inline-link" href="/api/opencode-vertex-demo.sh" download>
+                        Download the opencode quick-setup script
+                    </a>.
+                </p>
+            )}
+
             <details className="viz-remove">
                 <summary>Remove the MCP later</summary>
                 {agent === 'opencode' ? (

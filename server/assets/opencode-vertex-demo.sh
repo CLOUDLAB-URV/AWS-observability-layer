@@ -4,7 +4,7 @@
 # MCP at all — this is not sigilum-opencode-setup, it's just "get opencode + Gemini working" for
 # people trying out the app.
 #
-#   bash <(curl -fsSL https://sigilum.cloud/opencode-vertex-demo.sh)
+# Only downloadable from inside the logged-in app (Sigils → Connect agent) — not a public URL.
 #
 # What it does (Linux):
 #   1. Checks whether `opencode` is on PATH; if not, installs it — `npm install -g opencode-ai`
@@ -24,7 +24,7 @@
 set -euo pipefail
 
 # ---- fill this in before publishing, then revoke it in the GCP console once the demo is over ----
-API_KEY="AQ.Ab8RN6LLhy4yGCEYDbh5NSGdwWUtVcgF24riLaDrp6cNkOQ0Fw"
+API_KEY="AQ.Ab8RN6LKkkzYvbMMClGfbNm8ounScHsgyH4ztrgMRAuNDsXpgQ"
 # ----------------------------------------------------------------------------------------------
 
 CONFIG_DIR="$HOME/.config/opencode"
