@@ -58,10 +58,11 @@ export function registerAdminRoutes(app) {
     // "_design" pseudo-user (Design-mode calls, which have no per-user identity).
     app.get('/api/admin/users', requireSession, requireAdmin, async (req, res, next) => {
         try {
-            const [users, stats, llm] = await Promise.all([
+            const [users, stats, llm, llmMonthCap] = await Promise.all([
                 authStore.listUsers(),
                 authStore.usageStats(),
-                usageStore.currentMonthByUser()
+                usageStore.currentMonthByUser(),
+                settingsStore.getSetting('maxLlmTokensPerUserPerMonth')
             ]);
             const withCounts = await Promise.all(users.map(async (u) => {
                 const chats = await visualizerStore.listChats(u.userId);
@@ -72,7 +73,7 @@ export function registerAdminRoutes(app) {
                     llmMonth: llm.byUser[u.userId] ?? { input: 0, output: 0, total: 0, calls: 0 }
                 };
             }));
-            res.json({ ...stats, users: withCounts, llmMonthTotal: llm.grandTotal });
+            res.json({ ...stats, users: withCounts, llmMonthTotal: llm.grandTotal, llmMonthCap });
         } catch (error) {
             next(error);
         }

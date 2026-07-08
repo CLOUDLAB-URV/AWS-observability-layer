@@ -220,6 +220,7 @@ export default function AdminPanel({ user, onBack }) {
                                                 key={u.userId}
                                                 user={u}
                                                 isSelf={u.userId === user?.userId}
+                                                cap={state.data.llmMonthCap}
                                                 expanded={expandedId === u.userId}
                                                 detail={details[u.userId]}
                                                 onToggle={() => toggleExpand(u.userId)}

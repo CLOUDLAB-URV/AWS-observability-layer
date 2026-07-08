@@ -2697,6 +2697,33 @@ body {
 .admin-llm-num { font-family: var(--font-mono); color: var(--text-primary); }
 .admin-llm-detail { color: var(--text-muted); }
 
+/* Per-user monthly LLM spend vs. cap — a thin progress bar under the usage line. */
+.admin-llm-meter-wrap { margin-top: 6px; max-width: 340px; }
+.admin-llm-meter {
+    height: 6px;
+    border-radius: 3px;
+    background: var(--surface-raised, rgba(255, 255, 255, 0.06));
+    border: 1px solid var(--border-default);
+    overflow: hidden;
+}
+.admin-llm-meter-fill {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    transition: width 240ms var(--ease, ease);
+}
+.admin-llm-meter-ok    .admin-llm-meter-fill { background: var(--fn-green); }
+.admin-llm-meter-warn  .admin-llm-meter-fill { background: var(--fn-amber); }
+.admin-llm-meter-over  .admin-llm-meter-fill { background: var(--fn-red); }
+.admin-llm-meter-admin .admin-llm-meter-fill { background: var(--text-muted); }
+.admin-llm-meter-label {
+    margin-top: 4px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+}
+.admin-llm-over { color: var(--fn-red); }
+
 /* Per-user actions inside the expanded row */
 .admin-actions {
     display: flex;

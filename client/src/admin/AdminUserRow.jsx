@@ -13,12 +13,23 @@ const BAN_CHOICES = [
     { label: '30 days', hours: 720 }
 ];
 
-export default function AdminUserRow({ user, isSelf, expanded, detail, onToggle, onBan, onUnban, onDelete }) {
+export default function AdminUserRow({ user, isSelf, cap, expanded, detail, onToggle, onBan, onUnban, onDelete }) {
     const initial = (user.username || user.email || '?').trim().charAt(0).toUpperCase();
     const banned = Boolean(user.bannedUntil);
     // Actions never apply to admins (server rejects; the CLI is the only way to touch admins)
     // nor to the acting admin's own account.
     const actionable = user.role !== 'admin' && !isSelf;
+
+    // Monthly LLM spend vs. the configurable cap. Admins are exempt from the cap but their spend
+    // is still tracked and shown — the bar uses the same cap purely as a visual reference, in a
+    // neutral colour and labelled "not enforced" so it never implies admins have a real limit.
+    const isAdmin = user.role === 'admin';
+    const used = Number(user.llmMonth?.total) || 0;
+    const capValue = Number(cap) || 0;
+    const ratio = capValue > 0 ? used / capValue : 0;
+    const pct = Math.min(ratio, 1) * 100;
+    const meterState = isAdmin ? 'admin' : ratio >= 1 ? 'over' : ratio >= 0.8 ? 'warn' : 'ok';
+    const remaining = Math.max(capValue - used, 0);
 
     const [banOpen, setBanOpen] = useState(false);
     const [customHours, setCustomHours] = useState('');
@@ -154,6 +165,32 @@ export default function AdminUserRow({ user, isSelf, expanded, detail, onToggle,
                                 </span>
                             )}
                         </div>
+
+                        {capValue > 0 && (
+                            <div className="admin-llm-meter-wrap">
+                                <div
+                                    className={`admin-llm-meter admin-llm-meter-${meterState}`}
+                                    role="progressbar"
+                                    aria-valuemin={0}
+                                    aria-valuemax={capValue}
+                                    aria-valuenow={Math.min(used, capValue)}
+                                    aria-label="Monthly AI token usage against the limit"
+                                >
+                                    <span className="admin-llm-meter-fill" style={{ width: `${pct}%` }} />
+                                </div>
+                                <div className="admin-llm-meter-label">
+                                    <span className="admin-llm-num">{formatTokens(used)}</span>
+                                    {' / '}{formatTokens(capValue)}
+                                    {isAdmin ? (
+                                        <span className="admin-llm-detail"> · not enforced (admin)</span>
+                                    ) : used >= capValue ? (
+                                        <span className="admin-llm-over"> · over by {formatTokens(used - capValue)}</span>
+                                    ) : (
+                                        <span className="admin-llm-detail"> · {formatTokens(remaining)} left</span>
+                                    )}
+                                </div>
+                            </div>
+                        )}
 
                         {user.role === 'admin' ? (
                             <div className="admin-detail-hint admin-actions-note">Admin account — no limits apply; manage the role from the server CLI.</div>
