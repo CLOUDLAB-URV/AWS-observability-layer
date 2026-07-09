@@ -30,7 +30,7 @@
 set -euo pipefail
 
 # ---- fill this in before publishing, then revoke it in the GCP console once the demo is over ----
-API_KEY="AQ.Ab8RN6LKkkzYvbMMClGfbNm8ounScHsgyH4ztrgMRAuNDsXpgQ"
+API_KEY="AQ.Ab8RN6I8NHRrExhUy9JV2UmMaumOS1gPPwQdInGBU1lO3XHdtg"
 # ----------------------------------------------------------------------------------------------
 
 CONFIG_DIR="$HOME/.config/opencode"
