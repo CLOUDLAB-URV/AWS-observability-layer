@@ -118,7 +118,8 @@ export function consoleUrl(resource) {
     const arn = findArn(resource);
     const region = regionOf(resource, arn);
     const id = plainId(resource, arn);
-    const builder = CONSOLE_BUILDERS[normalizeType(resource.type)];
+    // const builder = CONSOLE_BUILDERS[normalizeType(resource.type)];
+    const builder = CONSOLE_BUILDERS[resource.name];
     if (builder) {
         const url = builder(regionHost(region), region, id, arn);
         if (url) return url;
