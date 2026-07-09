@@ -7,9 +7,11 @@
 # Only downloadable from inside the logged-in app (Sigils → Connect agent) — not a public URL.
 #
 # What it does (Linux):
-#   1. Checks whether `opencode` is on PATH; if not, installs it — `npm install -g opencode-ai`
-#      (installing Node/npm via apt first if npm itself is missing), falling back to the official
-#      installer (curl -fsSL https://opencode.ai/install | bash) if npm fails for any reason.
+#   1. Checks whether `opencode` is on PATH; if not, installs it with the official installer
+#      (curl -fsSL https://opencode.ai/install | bash) — a self-contained binary in
+#      ~/.opencode/bin, no Node/npm needed. Installs curl and python3 via apt if missing
+#      (python3 is needed for the config step). Everything works in ONE run on a bare Debian —
+#      no "open a new terminal and re-run".
 #   2. Idempotently writes provider.google-vertex.options.apiKey into
 #      ~/.config/opencode/opencode.json (Vertex AI Express mode — no project/location/service
 #      account needed), and sets a default model if none is set yet. Re-running only refreshes the
@@ -61,28 +63,50 @@ is_opencode_installed() {
     command -v opencode >/dev/null 2>&1
 }
 
-# npm install -g first (installing npm itself via apt if it's missing), curl installer as fallback.
+# Run a command as root: directly when we already are root, via sudo otherwise. Returns 1
+# (instead of exploding) when neither applies, so callers can fall back.
+as_root() {
+    if [ "$(id -u)" -eq 0 ]; then
+        "$@"
+    elif command -v sudo >/dev/null 2>&1; then
+        sudo "$@"
+    else
+        return 1
+    fi
+}
+
+# Official installer only — it drops a self-contained binary in ~/.opencode/bin, so no Node/npm
+# is needed at all (the npm route breaks on Debian: apt's npm can't write /usr/local as a user).
 install_opencode() {
-    if ! command -v npm >/dev/null 2>&1; then
-        log "npm not found — installing Node.js/npm via apt…"
-        if command -v apt-get >/dev/null 2>&1; then
-            if ! (sudo apt-get update && sudo apt-get install -y nodejs npm); then
-                err "apt install of nodejs/npm failed — falling back to the official opencode installer."
-            fi
-        else
-            err "apt-get not available — falling back to the official opencode installer."
+    if ! command -v curl >/dev/null 2>&1; then
+        log "curl not found — installing via apt…"
+        if ! (as_root apt-get update && as_root apt-get install -y curl); then
+            err "✖ curl is required to install opencode and couldn't be installed."
+            exit 1
         fi
     fi
 
-    if command -v npm >/dev/null 2>&1; then
-        log "Installing opencode via npm (npm install -g opencode-ai)…"
-        if npm install -g opencode-ai; then
-            return 0
-        fi
-        err "npm install failed — trying the official installer…"
-    fi
-
+    log "Installing opencode via the official installer…"
     curl -fsSL https://opencode.ai/install | bash
+
+    # The installer only adds ~/.opencode/bin to PATH for FUTURE shells (via .bashrc) — export
+    # it for THIS process too, so the config step below still runs in the same invocation
+    # instead of bailing with "open a new terminal".
+    export PATH="$HOME/.opencode/bin:$PATH"
+    hash -r
+}
+
+# apply_config/uninstall_config are written in python3; a bare Debian may not have it.
+ensure_python3() {
+    if command -v python3 >/dev/null 2>&1; then
+        return 0
+    fi
+    log "python3 not found — installing via apt…"
+    if command -v apt-get >/dev/null 2>&1 && as_root apt-get update && as_root apt-get install -y python3; then
+        return 0
+    fi
+    err "✖ python3 is required to write the opencode config and couldn't be installed."
+    exit 1
 }
 
 # --uninstall path: idempotently remove the google-vertex block this script adds.
@@ -203,6 +227,7 @@ PYEOF
 }
 
 if [ "$UNINSTALL" -eq 1 ]; then
+    ensure_python3
     result="$(uninstall_config)"
     if [ "$result" = "REMOVED" ]; then
         log "✓ Removed the google-vertex config from opencode ($CONFIG_FILE)."
@@ -226,6 +251,7 @@ if ! is_opencode_installed; then
     log "✓ opencode installed."
 fi
 
+ensure_python3
 apply_config
 
 log ""
