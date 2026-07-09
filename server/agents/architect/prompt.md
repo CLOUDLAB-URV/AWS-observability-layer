@@ -99,6 +99,7 @@ Common mappings: ALB/NLB → `aws-elb`; SES/email → `aws-ses`; Aurora → `aws
 - Keep labels concise so ELK can route cleanly; one short label per connection.
 - Do NOT draw Security Groups, AMIs, Route Tables, ENIs, NAT Gateways, or Internet Gateways as boxes.
 - Keep diagrams **minimal**: only draw what the user explicitly asked for. Prefer fewer nodes over exhaustive completeness — fewer, well-connected nodes render far cleaner.
+- In autoscaling groups (ASG), draw a box representing the ASG, including the different EC2 instances associated to it inside the box.
 
 ### EXAMPLE OUTPUT
 
