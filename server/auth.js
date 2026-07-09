@@ -152,15 +152,17 @@ export function registerRoutes(app) {
             return;
         }
 
-        try {
-            await sendVerificationCode(email, result.code, username);
-        } catch (error) {
-            console.error('[mailer] send failed', error);
-            res.status(502).json({ error: 'Could not send the verification email. Try again shortly.' });
+        // TEMP: email verification disabled — the account is verified immediately and a session
+        // starts right away, no code is emailed. To re-enable, replace this block with the
+        // original sendVerificationCode flow (see git history) and drop the early-return added
+        // to onSignup in client/src/Auth.jsx.
+        const verified = await authStore.verifyEmailCode(email, result.code);
+        if (verified.error) {
+            res.status(500).json({ error: 'Could not create the account. Try again shortly.' });
             return;
         }
-        // In dev (no SMTP) return the code so local testing works without an inbox.
-        res.json({ ok: true, email, ...(smtpConfigured() ? {} : { devCode: result.code }) });
+        await startSession(res, verified.user.userId);
+        res.json({ ok: true, user: verified.user });
     });
 
     // Verify the code → mark verified and start a session.

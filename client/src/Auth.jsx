@@ -56,6 +56,9 @@ export default function Auth() {
         const { ok, data } = await register({ email, username, password });
         setBusy(false);
         if (!ok) { setError(data.error || 'Could not create the account.'); return; }
+        // TEMP: with email verification disabled the server opens a session on register and
+        // returns the user directly — reload into the app, skipping the code step.
+        if (data.user) { window.location.reload(); return; }
         setPendingEmail(data.email || email);
         setDevCode(data.devCode || '');
         setCode('');
