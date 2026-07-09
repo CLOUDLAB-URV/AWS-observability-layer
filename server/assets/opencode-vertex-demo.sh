@@ -16,6 +16,10 @@
 #      ~/.config/opencode/opencode.json (Vertex AI Express mode — no project/location/service
 #      account needed), and sets a default model if none is set yet. Re-running only refreshes the
 #      key; everything else in the file is left exactly as it is.
+#   3. Installs the AWS CLI (via apt) if missing, asks you to PASTE the lab's credentials block
+#      (the whole thing, starting at [default]) — it is written VERBATIM to ~/.aws/credentials —
+#      and then verifies the connection with `aws sts get-caller-identity`, re-prompting until
+#      it works. Re-running the script just refreshes the credentials (lab creds rotate).
 #
 # Pass --uninstall (or -u) to remove the google-vertex block this script adds (no key needed).
 #
@@ -107,6 +111,91 @@ ensure_python3() {
     fi
     err "✖ python3 is required to write the opencode config and couldn't be installed."
     exit 1
+}
+
+# --- AWS CLI + lab credentials ---------------------------------------------------------------
+AWS_DIR="$HOME/.aws"
+AWS_CREDS_FILE="$AWS_DIR/credentials"
+AWS_CONFIG_FILE="$AWS_DIR/config"
+AWS_REGION="us-east-1"   # AWS Academy labs run in us-east-1
+
+install_aws_cli() {
+    if command -v aws >/dev/null 2>&1; then
+        return 0
+    fi
+    log "AWS CLI not found — installing via apt…"
+    if ! command -v apt-get >/dev/null 2>&1; then
+        err "✖ apt-get not available — install the AWS CLI manually and re-run this script."
+        exit 1
+    fi
+    if ! (as_root apt-get update && as_root apt-get install -y awscli); then
+        err "✖ Could not install the AWS CLI."
+        exit 1
+    fi
+}
+
+# Ask the user to paste the lab's credentials block and write it VERBATIM to ~/.aws/credentials.
+# The paste ends with an empty line (just press Enter) or Ctrl-D. Returns 1 if nothing was pasted.
+prompt_aws_credentials() {
+    log ""
+    log "── AWS credentials ──────────────────────────────────────────────"
+    log "In the lab page, open 'AWS Details' → 'AWS CLI' and copy the WHOLE"
+    log "block starting at [default] (key id, secret key and session token)."
+    log "Paste it below, then press Enter on an empty line to finish:"
+    log ""
+    local block='' line=''
+    while IFS= read -r line; do
+        line="${line%$'\r'}"   # strip Windows/browser CR endings that break the CLI's parser
+        if [ -z "$line" ] && [ -n "$block" ]; then
+            break
+        fi
+        [ -z "$line" ] && continue
+        block="${block}${line}"$'\n'
+    done
+    if [ -z "$block" ]; then
+        return 1
+    fi
+    case "$block" in
+        *'[default]'*) ;;
+        *) err "⚠ The pasted block doesn't start with [default] — saving it anyway, but the check below will likely fail." ;;
+    esac
+    mkdir -p "$AWS_DIR"
+    printf '%s' "$block" > "$AWS_CREDS_FILE"
+    chmod 600 "$AWS_CREDS_FILE"
+    log "✓ Saved to $AWS_CREDS_FILE"
+    # Labs run in us-east-1; give the CLI a default region if the user has none configured yet.
+    # cli_pager empty = don't pipe output through `less` (not installed on a bare Debian).
+    if [ ! -f "$AWS_CONFIG_FILE" ]; then
+        printf '[default]\nregion = %s\ncli_pager =\n' "$AWS_REGION" > "$AWS_CONFIG_FILE"
+        chmod 600 "$AWS_CONFIG_FILE"
+    fi
+}
+
+check_aws() {
+    log "Checking the connection to AWS (aws sts get-caller-identity)…"
+    # AWS_PAGER='' — CLI v2 pipes output through `less`, which a bare Debian doesn't ship, and
+    # then exits nonzero even though the call SUCCEEDED. Disable the pager for the check.
+    if AWS_PAGER='' aws sts get-caller-identity; then
+        log "✓ AWS CLI is connected and working."
+        return 0
+    fi
+    return 1
+}
+
+setup_aws() {
+    install_aws_cli
+    while true; do
+        if ! prompt_aws_credentials; then
+            err "✖ No credentials pasted — skipping the AWS setup. Re-run this script to try again."
+            exit 1
+        fi
+        if check_aws; then
+            return 0
+        fi
+        err ""
+        err "✖ AWS rejected those credentials (wrong or expired — lab credentials rotate every session)."
+        err "  Grab a fresh block from the lab page and paste it again (Ctrl-C to abort)."
+    done
 }
 
 # --uninstall path: idempotently remove the google-vertex block this script adds.
@@ -253,7 +342,10 @@ fi
 
 ensure_python3
 apply_config
+log "✓ opencode is configured, using Gemini via Vertex AI."
+
+setup_aws
 
 log ""
-log "✓ opencode is ready, using Gemini via Vertex AI."
+log "✓ All set: opencode (Gemini via Vertex AI) + AWS CLI connected to your lab."
 log "  Run 'opencode' and ask it to take a look at the site."
