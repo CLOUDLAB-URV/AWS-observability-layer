@@ -5,13 +5,13 @@ import { useDeployed } from '../DeployedContext.js';
 // (selectedResource set) and closed when the selection clears. Closing the panel's
 // tab also clears the selection (DeployedState watches the layout for its removal).
 export default function ResourceDetailPanel() {
-    const { selectedResource, setSelectedResource } = useDeployed();
+    const { selectedResource, setSelectedResource, deployed } = useDeployed();
     if (!selectedResource) {
         return <div className="dv-pane dv-pane-empty">No resource selected.</div>;
     }
     return (
         <div className="dv-pane">
-            <ResourceDetail resource={selectedResource} onClose={() => setSelectedResource(null)} />
+            <ResourceDetail resource={selectedResource} deployed={deployed} onClose={() => setSelectedResource(null)} />
         </div>
     );
 }

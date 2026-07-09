@@ -99,6 +99,7 @@ const changeSchema = z
         type: z.string().describe('AWS service type, e.g. "ec2", "rds", "s3", "lambda", "vpc".'),
         id: z.string().describe('Stable identifier of the resource (InstanceId / ARN / bucket name). This is the key the backend stores it under.'),
         name: z.string().optional().describe('Friendly name, if any.'),
+        arn: z.string().optional().describe('Full AWS ARN of the resource (arn:aws:…). Always include it on Live sigils once the resource really exists in AWS — the web links it to the AWS console.'),
         region: z.string().optional().describe('AWS region, e.g. "us-east-1".'),
         state: z.string().optional().describe('Lifecycle state, e.g. "running", "available".'),
         vpc: z.string().optional().describe('VPC id this resource lives in (for containment in the diagram).'),

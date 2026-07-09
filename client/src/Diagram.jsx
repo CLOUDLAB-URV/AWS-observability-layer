@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback } from 'react';
+import { findArn, shortArn } from './awsConsole.js';
 
 // Mirror of the sanitization the stateviz prompt applies to a resource id when it becomes a D2
 // node id, so we can match a rendered SVG node back to its resource. Keep both in lockstep.
@@ -22,7 +23,7 @@ function decodeNodePath(cls) {
     return /^[A-Za-z0-9_.]+$/.test(decoded) ? decoded : null;
 }
 
-export default function Diagram({ svg, renderError, resources = [], onSelectResource, selectedId }) {
+export default function Diagram({ svg, renderError, resources = [], onSelectResource, selectedId, deployed = false }) {
     const stageRef = useRef(null);
     const canvasRef = useRef(null);
     const tooltipRef = useRef(null);
@@ -205,6 +206,16 @@ export default function Diagram({ svg, renderError, resources = [], onSelectReso
             meta.className = 'svc-tip-meta';
             meta.textContent = `${resource.type || 'resource'}${region}${state}`;
             tip.append(title, meta);
+            // Live sigils: the resource really exists in AWS — surface its ARN (abbreviated).
+            if (deployed) {
+                const arn = findArn(resource);
+                if (arn) {
+                    const arnLine = document.createElement('div');
+                    arnLine.className = 'svc-tip-arn';
+                    arnLine.textContent = shortArn(arn);
+                    tip.append(arnLine);
+                }
+            }
             tip.classList.add('is-visible');
             moveTip(event);
         };
@@ -268,7 +279,7 @@ export default function Diagram({ svg, renderError, resources = [], onSelectReso
             hideTip();
             cleanups.forEach((fn) => fn());
         };
-    }, [svg, resources, selectedId, onSelectResource]);
+    }, [svg, resources, selectedId, onSelectResource, deployed]);
 
     const zoomIn = () => {
         const stage = stageRef.current;
