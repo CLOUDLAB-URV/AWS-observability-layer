@@ -86,6 +86,8 @@ Icon URL format: `https://api.iconify.design/logos:<slug>.svg`. Using a slug tha
 
 Common mappings: ALB/NLB → `aws-elb`; SES/email → `aws-ses`; Aurora → `aws-aurora`; Fargate task → `aws-fargate`; SNS topic → `aws-sns`; EventBridge rule → `aws-eventbridge`.
 
+Just for draw Amazon Transcribe or Amazon Comprehend (just for this 2 services): use https://icon.icepanel.io/AWS/svg/Machine-Learning/{Transcribe|Comprehend}.svg
+
 ### CONNECTIONS
 
 - **CRITICAL — connect the SERVICES, using each node's FULL path.** Every endpoint of every connection MUST be the complete path of a node you already defined, from the diagram root, including every container prefix: `aws.`, `aws.vpc.`. Example: a node defined as `cloudfront` inside the `aws { … }` block is `aws.cloudfront`; a node inside the `vpc` block is `aws.vpc.ec2`.
