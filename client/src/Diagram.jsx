@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback } from 'react';
+import { findArn, shortArn } from './awsLinks.js';
 
 // Mirror of the sanitization the stateviz prompt applies to a resource id when it becomes a D2
 // node id, so we can match a rendered SVG node back to its resource. Keep both in lockstep.
@@ -252,6 +253,16 @@ export default function Diagram({ svg, renderError, resources = [], onSelectReso
             status.className = `svc-tip-status ${deployed ? 'is-deployed' : 'is-undeployed'}`;
             status.textContent = deployed ? 'In the AWS cloud' : 'Not deployed to AWS';
             tip.append(title, meta, status);
+            // Deployed resources really exist in AWS — surface their ARN (abbreviated) too.
+            if (deployed) {
+                const arn = findArn(resource);
+                if (arn) {
+                    const arnLine = document.createElement('div');
+                    arnLine.className = 'svc-tip-arn';
+                    arnLine.textContent = shortArn(arn);
+                    tip.append(arnLine);
+                }
+            }
             tip.classList.add('is-visible');
             moveTip(event);
         };

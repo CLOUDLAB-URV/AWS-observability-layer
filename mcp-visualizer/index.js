@@ -109,7 +109,7 @@ const changeSchema = z
             .string()
             .optional()
             .describe('Short human reason why this resource diverges from the sigil mode — e.g. "user asked to keep it design-only for now" or "create failed: AccessDenied (missing iam:CreateRole)". Shown to the user on the diagram badge and in the resource panel.'),
-        arn: z.string().optional().describe('The resource ARN, when known. Include it for deployed resources — it powers the "Open in AWS Console" link in the web.'),
+        arn: z.string().optional().describe('Full AWS ARN of the resource (arn:aws:…). Always include it on Live sigils once the resource really exists in AWS — it powers the "Open in AWS Console" link and the copyable ARN in the web.'),
         vpc: z.string().optional().describe('VPC id this resource lives in (for containment in the diagram).'),
         subnet: z.string().optional().describe('Subnet id this resource lives in.'),
         connections: z.array(connectionSchema).optional().describe('Relationships to OTHER resources (who it talks to, protocol, port). Always include these so the diagram draws the edges.'),

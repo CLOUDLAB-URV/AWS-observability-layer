@@ -1,10 +1,12 @@
+import { useEffect, useRef, useState } from 'react';
+import { findArn, consoleUrl } from './awsLinks.js';
+
 // Slide-in panel showing the full live detail of one deployed resource, opened by clicking a
 // service node in the diagram. The diagram node itself only carries the service kind (e.g.
 // "Lambda"); everything identifying and specific about the resource is surfaced here instead —
 // read straight from the resource record the backend keeps in state.json (id/arn/region/state/
-// connections/details), so this panel is where "all the detail" lives.
-
-import { consoleUrl } from './awsLinks.js';
+// connections/details), so this panel is where "all the detail" lives. When the resource is
+// deployed it really exists in AWS, so the ARN gets a copy button and a console deep link.
 
 // Fields we promote to the Identity section, in display order.
 const TOP_FIELDS = [
@@ -103,13 +105,33 @@ function KVRow({ label, value }) {
 }
 
 export default function ResourceDetail({ resource, onClose }) {
+    // "Copied" feedback for the ARN copy button (auto-clears).
+    const [copied, setCopied] = useState(false);
+    const copiedTimer = useRef(null);
+    useEffect(() => () => clearTimeout(copiedTimer.current), []);
+
     if (!resource) return null;
 
     const connections = Array.isArray(resource.connections) ? resource.connections : [];
     const details = resource.details && typeof resource.details === 'object' ? resource.details : null;
     // The backend backfills `deployed` on read, so it's always a boolean by the time it's here.
     const deployed = resource.deployed === true;
-    const identityRows = TOP_FIELDS.filter(([key]) => resource[key] != null && resource[key] !== '');
+    // Deployed only: the resource exists in AWS — derive its ARN (explicit field, ARN-shaped id,
+    // or from `details`). The derived ARN gets its own copyable row, so the plain-text `arn`
+    // identity row drops out to avoid showing it twice.
+    const liveArn = deployed ? findArn(resource) : null;
+    const identityRows = TOP_FIELDS.filter(
+        ([key]) => resource[key] != null && resource[key] !== '' && !(liveArn && key === 'arn')
+    );
+
+    async function copyArn() {
+        try {
+            await navigator.clipboard.writeText(liveArn);
+            setCopied(true);
+            clearTimeout(copiedTimer.current);
+            copiedTimer.current = setTimeout(() => setCopied(false), 2000);
+        } catch { /* clipboard unavailable — leave the text selectable */ }
+    }
     const extraRows = Object.entries(resource).filter(
         ([key, value]) => !HANDLED.has(key) && value != null && value !== ''
     );
@@ -166,9 +188,38 @@ export default function ResourceDetail({ resource, onClose }) {
                     )}
                 </section>
 
-                {identityRows.length > 0 && (
+                {(identityRows.length > 0 || liveArn) && (
                     <section className="rd-section">
                         <h4 className="rd-section-title">Identity</h4>
+                        {liveArn && (
+                            <div className="rd-kv-block rd-arn-block">
+                                <span className="rd-kv-key">ARN</span>
+                                <div className="rd-arn-row">
+                                    <code className="rd-arn-value">{liveArn}</code>
+                                    <button
+                                        type="button"
+                                        className="rd-arn-copy"
+                                        onClick={copyArn}
+                                        title="Copy ARN"
+                                        aria-label="Copy ARN to clipboard"
+                                    >
+                                        {copied ? (
+                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                                strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                                <path d="M20 6L9 17l-5-5" />
+                                            </svg>
+                                        ) : (
+                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                                strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                                <rect x="9" y="9" width="13" height="13" rx="2" />
+                                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                                            </svg>
+                                        )}
+                                        {copied ? 'Copied' : 'Copy'}
+                                    </button>
+                                </div>
+                            </div>
+                        )}
                         {identityRows.map(([key, label]) => (
                             <KVRow key={key} label={label} value={resource[key]} />
                         ))}

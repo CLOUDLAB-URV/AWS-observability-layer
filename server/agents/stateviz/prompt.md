@@ -39,11 +39,18 @@ Rendered with the **ELK layout engine, left-to-right**.
 The diagram renders on a **dark canvas**. Use dark, tinted container fills, bright AWS icons with **no card**, light labels and light arrows — everything must read cleanly and stay in harmony on dark.
 
 - **Grouping is allowed and encouraged WHEN it clarifies.** Beyond `aws` (the cloud boundary) and `aws.vpc`, you MAY create **semantic groups** — by tier/purpose/subnet, e.g. `edge`, `compute`, `data`, `messaging` — as colored containers, each with a DISTINCT accent color, to separate the architecture visually. Do not over-group: only add a group when it genuinely makes the picture clearer, keep nesting shallow (`aws` → group → nodes), and NEVER create a group that holds a single node.
-- **Accent palette for groups** (border = accent, fill = its dark tint, label uses the accent via `font-color`), give each a short label like `"COMPUTE"`, `"DATA"`, `"MESSAGING"`:
-  - blue `#3b82f6` / fill `#0f1d33` · green `#22c55e` / fill `#0e2417` · amber `#f59e0b` / fill `#2a1f06` · red `#ef4444` / fill `#2a1113` · purple `#a855f7` / fill `#1e1233` · cyan `#06b6d4` / fill `#07222b`
+- **Group colors are the OFFICIAL AWS category colors** (border = accent, fill = its dark tint, label = its light tint via `font-color`). The color is NOT free — pick it by what the group HOLDS, matching the AWS Architecture Icons category of its services. Give each group a short label like `"COMPUTE"`, `"DATA"`, `"MESSAGING"`:
+  - Compute (EC2/ECS/EKS/Lambda/Fargate/Batch…): accent `#ED7100` / fill `#2a1806` / label `#ffb066`
+  - Database (RDS/Aurora/DynamoDB/ElastiCache/DocumentDB…): accent `#C925D1` / fill `#260a27` / label `#e58aeb`
+  - Storage (S3/EBS/EFS/Glacier/Backup…): accent `#7AA116` / fill `#1a2008` / label `#b9d97a`
+  - Networking/Edge (CloudFront/Route 53/ALB/NLB/API Gateway…): accent `#8C4FFF` / fill `#1a1233` / label `#c3a8ff`
+  - Messaging/Integration (SQS/SNS/EventBridge/MQ/Step Functions…): accent `#E7157B` / fill `#2a0d1b` / label `#f291bd`
+  - Security (IAM/KMS/WAF/Cognito/Secrets Manager…): accent `#DD344C` / fill `#2a0d12` / label `#ee8b9a`
+  - Analytics/ML (Kinesis/Glue/Athena/Redshift/SageMaker…): accent `#01A88D` / fill `#06211d` / label `#67d6c2`
+  - A mixed/other group: reuse the closest category above. Two groups in one diagram never share an accent — if they would, keep the accent on the better-matching group and give the other its next-closest category color.
   ```
   aws.compute: "COMPUTE" {
-    style.fill: "#2a1113"; style.stroke: "#ef4444"; style.stroke-width: 2; style.border-radius: 10; style.font-color: "#fca5a5"
+    style.fill: "#2a1806"; style.stroke: "#ED7100"; style.stroke-width: 2; style.border-radius: 10; style.font-color: "#ffb066"
   }
   ```
 - **External client** (internet / end-user), only if the deployment is publicly reachable:
@@ -176,11 +183,11 @@ aws: "AWS Cloud (us-east-1)" {
   }
 
   data: "DATA" {
-    style.fill: "#0e2417"
-    style.stroke: "#22c55e"
+    style.fill: "#260a27"
+    style.stroke: "#C925D1"
     style.stroke-width: 2
     style.border-radius: 10
-    style.font-color: "#86efac"
+    style.font-color: "#e58aeb"
 
     orders_db: "RDS" {
       shape: image

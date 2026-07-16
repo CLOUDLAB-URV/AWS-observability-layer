@@ -4,19 +4,44 @@
 // otherwise that service's console page (or the region's console home as the universal
 // fallback), so "Open in AWS Console" is never missing.
 
-// The resource ARN, if the agent reported one (top-level `arn` or inside `details`).
-export function resourceArn(resource) {
-    if (!resource) return '';
-    const candidates = [
-        resource.arn,
-        resource.details?.arn,
-        resource.details?.Arn,
-        resource.details?.ARN
-    ];
-    for (const c of candidates) {
-        if (typeof c === 'string' && c.startsWith('arn:')) return c;
+const ARN_RE = /^arn:aws[a-z0-9-]*:/;
+const isArn = (v) => typeof v === 'string' && ARN_RE.test(v.trim());
+
+// Shallow scan (≤2 levels) of an object for the first ARN-shaped string value — covers the
+// common describe/create output keys (FunctionArn, TopicArn, DBInstanceArn, Arn, …) the agent
+// buries in `details`, without walking arbitrarily deep JSON.
+function scanForArn(obj, depth = 0) {
+    if (!obj || typeof obj !== 'object' || depth > 2) return '';
+    for (const value of Object.values(obj)) {
+        if (isArn(value)) return value.trim();
+    }
+    for (const value of Object.values(obj)) {
+        if (value && typeof value === 'object' && !Array.isArray(value)) {
+            const found = scanForArn(value, depth + 1);
+            if (found) return found;
+        }
     }
     return '';
+}
+
+// The resource ARN: explicit `arn` field, an ARN-shaped `id`, or the first ARN found anywhere
+// in the free-form `details` blob. Empty string when the resource carries none.
+export function resourceArn(resource) {
+    if (!resource || typeof resource !== 'object') return '';
+    if (isArn(resource.arn)) return resource.arn.trim();
+    if (isArn(resource.id)) return resource.id.trim();
+    return scanForArn(resource.details);
+}
+
+// Alias kept for callers that read the ARN for display (tooltip / copy button).
+export const findArn = (resource) => resourceArn(resource) || null;
+
+// Middle-ellipsis for long ARNs in tight UI (tooltip): keep the service head + resource tail.
+export function shortArn(arn, max = 44) {
+    if (typeof arn !== 'string' || arn.length <= max) return arn;
+    const head = Math.ceil((max - 1) * 0.45);
+    const tail = max - 1 - head;
+    return `${arn.slice(0, head)}…${arn.slice(-tail)}`;
 }
 
 // arn:partition:service:region:account:rest → { service, region, account, rest }
@@ -201,5 +226,10 @@ export function consoleUrl(resource) {
     };
     const builder = BUILDERS[serviceKey(resource?.type)];
     const url = builder ? builder(args) : null;
-    return url || `${REGION_HOST(region)}/console/home?region=${region}`;
+    if (url) return url;
+    // No dedicated builder: if we have an ARN, hand it to AWS's official resolver (opens the
+    // exact resource in whatever console owns it); otherwise fall back to the region's console
+    // home so the link is never missing.
+    if (arn) return `https://console.aws.amazon.com/go/view?arn=${encodeURIComponent(arn)}`;
+    return `${REGION_HOST(region)}/console/home?region=${region}`;
 }

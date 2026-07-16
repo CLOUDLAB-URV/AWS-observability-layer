@@ -9,6 +9,8 @@ export default function ResourceDetailPanel() {
     if (!selectedResource) {
         return <div className="dv-pane dv-pane-empty">No resource selected.</div>;
     }
+    // ResourceDetail reads the per-resource `deployed` flag off the resource itself
+    // (the backend backfills it), so no sigil-level prop is needed here.
     return (
         <div className="dv-pane">
             <ResourceDetail resource={selectedResource} onClose={() => setSelectedResource(null)} />
