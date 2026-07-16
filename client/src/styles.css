@@ -369,6 +369,17 @@ body {
 .sigil-mode-badge.is-live   { background: var(--badge-deployed-bg); color: var(--badge-deployed-text); }
 .sigil-mode-badge.is-design { background: var(--badge-preview-bg);  color: var(--badge-preview-text); }
 
+/* Deployment inconsistency warning on the selected sigil (some resource diverges from the
+   sigil mode). The hover explanation lives in the title/aria-label. */
+.sigil-mixed-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    color: var(--fn-amber);
+    cursor: help;
+}
+
 .sigil-select-pop {
     position: absolute;
     top: calc(100% + 6px);
@@ -513,6 +524,55 @@ body {
     font-size: 11px;
     color: var(--text-muted);
 }
+/* Cloud-status line in the node tooltip: a leading dot + short state. */
+.svc-tip-status {
+    margin-top: 5px;
+    font-size: 11px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+.svc-tip-status::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    flex: none;
+}
+.svc-tip-status.is-deployed   { color: var(--fn-green); }
+.svc-tip-status.is-undeployed { color: var(--fn-amber); }
+/* Badge tooltip variants: the title takes the badge's color. */
+.svc-tip-title.svc-tip-warn { color: var(--fn-amber); }
+.svc-tip-title.svc-tip-live { color: var(--fn-green); }
+
+/* ---- Divergence badges (corner marks injected into node <g>s) --------------------------- */
+/* A small circle pinned to a node's top-right corner marking a resource whose deployment
+   state diverges from the sigil mode. Scales with the diagram (it lives inside the SVG). */
+.svc-badge { cursor: help; }
+.svc-badge circle {
+    stroke: var(--surface-stage);
+    stroke-width: 2.5;
+}
+.svc-badge-warn circle { fill: var(--fn-amber); }
+.svc-badge-live circle { fill: var(--fn-green); }
+.svc-badge-glyph {
+    stroke: #10130f;
+    stroke-width: 2.4;
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    pointer-events: none;
+}
+.svc-badge-glyph-text {
+    fill: #191308;
+    font-size: 13px;
+    font-weight: 700;
+    font-family: var(--font-ui);
+    pointer-events: none;
+    user-select: none;
+}
 
 /* ---- Resource detail panel (opens on click) ------------------------------------------- */
 .resource-detail {
@@ -567,6 +627,41 @@ body {
 }
 .rd-close:hover { background: var(--surface-app); color: var(--text-primary); }
 .rd-badges { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 16px 0; }
+
+/* Deployment section: cloud status + agent note + the always-present console link. */
+.rd-cloud-status {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 13px;
+    font-weight: 600;
+}
+.rd-cloud-status .rd-cloud-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: currentColor;
+    flex: none;
+}
+.rd-cloud-status.is-deployed   { color: var(--fn-green); }
+.rd-cloud-status.is-undeployed { color: var(--fn-amber); }
+.rd-deploy-note {
+    margin: 8px 0 0;
+    padding: 8px 10px;
+    border-left: 3px solid var(--fn-amber);
+    border-radius: 6px;
+    background: rgba(217, 174, 107, 0.08);
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--text-secondary);
+    word-break: break-word;
+}
+.rd-cloud-status.is-deployed + .rd-deploy-note { border-left-color: var(--fn-green); background: rgba(126, 166, 126, 0.08); }
+.rd-console-link {
+    margin-top: 10px;
+    text-decoration: none;
+}
+.rd-console-link svg { margin-left: 2px; }
 .rd-badge {
     font-size: 11px;
     padding: 2px 8px;
@@ -1191,6 +1286,15 @@ body {
     white-space: nowrap;
 }
 .chat-details-mode-hint { font-size: 12px; color: var(--text-muted); }
+
+/* Consistency row: shown only when some resource diverges from the sigil mode. */
+.details-mixed {
+    color: var(--fn-amber);
+    font-size: 12.5px;
+    align-items: flex-start;
+}
+.details-mixed svg { flex: none; margin-top: 2px; }
+.details-mixed span { color: var(--text-secondary); }
 
 /* Subtle text/link action (Rename, Copy, Cancel) — quiet until hover. */
 .link-btn {

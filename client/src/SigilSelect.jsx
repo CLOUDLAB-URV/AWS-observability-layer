@@ -20,7 +20,9 @@ function relativeTime(iso) {
 // The centred sigil picker: a large combobox button showing the selected sigil (status dot +
 // name + last update) that opens a listbox of all the user's sigils, each with its
 // Design/Live badge and last-updated time. Replaces the old small native <select>.
-export default function SigilSelect({ chats, chatId, onSelect, onRefresh, chatLabel }) {
+// `mixed` marks a deployment inconsistency on the SELECTED sigil (some resource diverges
+// from the sigil mode) — shown as a small warning icon whose hover explains it.
+export default function SigilSelect({ chats, chatId, onSelect, onRefresh, chatLabel, mixed = false, deployed = false }) {
     const [open, setOpen] = useState(false);
     const [highlighted, setHighlighted] = useState(-1);
     const wrapRef = useRef(null);
@@ -106,6 +108,25 @@ export default function SigilSelect({ chats, chatId, onSelect, onRefresh, chatLa
                         <span className={`sigil-mode-badge ${selected.deployed ? 'is-live' : 'is-design'}`}>
                             {selected.deployed ? 'Live' : 'Design'}
                         </span>
+                        {mixed && (
+                            <span
+                                className="sigil-mixed-icon"
+                                role="img"
+                                aria-label={deployed
+                                    ? 'Inconsistent state: some resources are not deployed to AWS yet. Hover a marked node or open a resource for details.'
+                                    : 'Inconsistent state: some resources are already deployed to AWS (at your request).'}
+                                title={deployed
+                                    ? 'Some resources are not deployed to AWS yet — hover the marked nodes on the diagram or open a resource for details.'
+                                    : 'Some resources are already deployed to AWS (at your request) although this sigil is a Design.'}
+                            >
+                                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+                                    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                    <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                                    <line x1="12" y1="9" x2="12" y2="13" />
+                                    <line x1="12" y1="17" x2="12.01" y2="17" />
+                                </svg>
+                            </span>
+                        )}
                     </>
                 ) : (
                     <span className="sigil-select-placeholder">

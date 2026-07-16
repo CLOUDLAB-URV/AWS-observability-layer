@@ -99,8 +99,17 @@ const changeSchema = z
         type: z.string().describe('AWS service type, e.g. "ec2", "rds", "s3", "lambda", "vpc".'),
         id: z.string().describe('Stable identifier of the resource (InstanceId / ARN / bucket name). This is the key the backend stores it under.'),
         name: z.string().optional().describe('Friendly name, if any.'),
-        region: z.string().optional().describe('AWS region, e.g. "us-east-1".'),
+        region: z.string().optional().describe('AWS region, e.g. "us-east-1". Include it whenever known — it powers the "Open in AWS Console" link in the web.'),
         state: z.string().optional().describe('Lifecycle state, e.g. "running", "available".'),
+        deployed: z
+            .boolean()
+            .optional()
+            .describe('Whether THIS resource really exists in AWS right now. Omit to inherit the sigil\'s mode. Set it ONLY when this resource diverges: e.g. `false` on a Live sigil for a resource that failed to create or that the user asked to keep undeployed, or `true` on a Design sigil for something the user explicitly asked to deploy already. Always pair a divergence with `deploy_note`.'),
+        deploy_note: z
+            .string()
+            .optional()
+            .describe('Short human reason why this resource diverges from the sigil mode — e.g. "user asked to keep it design-only for now" or "create failed: AccessDenied (missing iam:CreateRole)". Shown to the user on the diagram badge and in the resource panel.'),
+        arn: z.string().optional().describe('The resource ARN, when known. Include it for deployed resources — it powers the "Open in AWS Console" link in the web.'),
         vpc: z.string().optional().describe('VPC id this resource lives in (for containment in the diagram).'),
         subnet: z.string().optional().describe('Subnet id this resource lives in.'),
         connections: z.array(connectionSchema).optional().describe('Relationships to OTHER resources (who it talks to, protocol, port). Always include these so the diagram draws the edges.'),
@@ -129,10 +138,15 @@ server.registerTool(
             'user is happy, call `deploy_sigil` to actually deploy it.\n' +
             '  • `deployed:true` → you ACTUALLY created these in AWS already (direct deploy, no ' +
             'design step). The sigil is Live from the start.\n' +
-            'On an existing sigil, `deployed` must match its current mode (the backend rejects a ' +
-            'mismatch) — you cannot add design-only resources to a Live sigil or vice-versa. ' +
+            'On an existing sigil, the top-level `deployed` must match its current mode (the ' +
+            'backend rejects a mismatch). A SINGLE resource may still diverge from the sigil mode ' +
+            'via the PER-RESOURCE `deployed` + `deploy_note` fields on its change: e.g. on a Live ' +
+            'sigil, a resource that failed to create (`deployed:false`, `deploy_note:"create ' +
+            'failed: AccessDenied…"`) or that the user asked to keep undeployed; on a Design ' +
+            'sigil, something the user explicitly asked to deploy already (`deployed:true` + ' +
+            'note). The web marks divergent resources on the diagram and shows your note. ' +
             'After `deploy_sigil`, a sigil is Live, so keep the SAME resource ids and upsert ' +
-            'them with the real ARNs/ids and `state`.\n\n' +
+            'them with the real ARNs/ids (`arn`, `region`) and `state`.\n\n' +
             'The session is auto-named from the architecture (the user can rename it). By default ' +
             'changes go to THIS session\'s sigil; if you called load_sigil, they merge onto that one.',
         inputSchema: {
@@ -200,9 +214,13 @@ server.registerTool(
             'the full resource spec; then YOU must create each resource in AWS using your own AWS ' +
             'tools (CLI/SDK), in dependency order (VPC → subnets/security groups → compute → data ' +
             'stores → wiring). As you create each one, call push_sigil (op:"upsert") with the ' +
-            'SAME resource id it has in the design, filling in the real ARN/InstanceId in `arn`/' +
-            '`details` and the live `state` — keep the id stable so the node is enriched, not ' +
-            'duplicated. Do not add anything that is not in the spec. Only works on a DESIGN sigil ' +
+            'SAME resource id it has in the design, filling in the real `arn`/InstanceId, the ' +
+            '`region`, and the live `state` — keep the id stable so the node is enriched, not ' +
+            'duplicated. If a resource FAILS to create (permissions, quotas, conflicts), still ' +
+            'push it with `deployed:false` and a `deploy_note` explaining the error, so the user ' +
+            'sees exactly what is pending and why on the diagram. Resources you have not ' +
+            're-reported yet show as "not deployed" in the web until you push them. Do not add ' +
+            'anything that is not in the spec. Only works on a DESIGN sigil ' +
             '(a Live one is already deployed).',
         inputSchema: {
             chat: z

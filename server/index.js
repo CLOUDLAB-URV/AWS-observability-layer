@@ -103,7 +103,21 @@ function normalizeChanges(body) {
             }
             const op = change.op === 'delete' ? 'delete' : 'upsert';
             // Carry the whole detailed record through; only normalize the controls.
-            return { ...change, op, type, id };
+            const normalized = { ...change, op, type, id };
+            // Per-resource deployment divergence: `deployed` must be a strict boolean (anything
+            // else is dropped → inherits the sigil mode), `deploy_note` a short trimmed string.
+            if (typeof change.deployed === 'boolean') {
+                normalized.deployed = change.deployed;
+            } else {
+                delete normalized.deployed;
+            }
+            const note = typeof change.deploy_note === 'string' ? change.deploy_note.trim() : '';
+            if (note) {
+                normalized.deploy_note = note.slice(0, 300);
+            } else {
+                delete normalized.deploy_note;
+            }
+            return normalized;
         })
         .filter(Boolean);
 }
@@ -299,7 +313,13 @@ app.get('/api/chats/:chatId', agentGate, requireSessionOrToken, async (req, res)
         visualizerStore.readState(req.userId, chatId),
         visualizerStore.readDiagram(req.userId, chatId)
     ]);
-    res.json({ chat: chatId, name: meta.name || meta.project || '', deployed: meta.deployed === true, resources: Object.values(state), d2 });
+    const sigilDeployed = meta.deployed === true;
+    // Read-side backfill: resources stored before per-resource deployment state existed have
+    // no `deployed` field — they inherit the sigil mode, so old sigils read as consistent.
+    const resources = Object.values(state).map((r) => (
+        typeof r.deployed === 'boolean' ? r : { ...r, deployed: sigilDeployed }
+    ));
+    res.json({ chat: chatId, name: meta.name || meta.project || '', deployed: sigilDeployed, resources, d2 });
 });
 
 // Transition a sigil from "Design" to "Live": mark it deployed and hand the caller

@@ -22,7 +22,49 @@ function decodeNodePath(cls) {
     return /^[A-Za-z0-9_.]+$/.test(decoded) ? decoded : null;
 }
 
-export default function Diagram({ svg, renderError, resources = [], onSelectResource, selectedId }) {
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+// Small corner badge injected INTO a node's <g> (so it pans/zooms with the diagram for
+// free): marks a resource whose deployment state diverges from the sigil mode. `isDeployed`
+// true → green check ("deployed although this is a Design sigil"); false → amber "!"
+// ("not deployed although this is a Live sigil").
+function makeBadge(g, isDeployed) {
+    let bbox;
+    try {
+        bbox = g.getBBox();
+    } catch {
+        return null;
+    }
+    if (!bbox || !bbox.width) return null;
+    const cx = bbox.x + bbox.width - 3;
+    const cy = bbox.y + 3;
+    const badge = document.createElementNS(SVG_NS, 'g');
+    badge.setAttribute('class', `svc-badge ${isDeployed ? 'svc-badge-live' : 'svc-badge-warn'}`);
+    const circle = document.createElementNS(SVG_NS, 'circle');
+    circle.setAttribute('cx', cx);
+    circle.setAttribute('cy', cy);
+    circle.setAttribute('r', 9);
+    badge.appendChild(circle);
+    if (isDeployed) {
+        const check = document.createElementNS(SVG_NS, 'path');
+        check.setAttribute('d', `M ${cx - 4} ${cy} l 2.6 3 l 5.2 -6`);
+        check.setAttribute('class', 'svc-badge-glyph');
+        badge.appendChild(check);
+    } else {
+        const mark = document.createElementNS(SVG_NS, 'text');
+        mark.setAttribute('x', cx);
+        mark.setAttribute('y', cy);
+        mark.setAttribute('text-anchor', 'middle');
+        mark.setAttribute('dominant-baseline', 'central');
+        mark.setAttribute('class', 'svc-badge-glyph-text');
+        mark.textContent = '!';
+        badge.appendChild(mark);
+    }
+    g.appendChild(badge);
+    return badge;
+}
+
+export default function Diagram({ svg, renderError, resources = [], onSelectResource, selectedId, sigilDeployed = false }) {
     const stageRef = useRef(null);
     const canvasRef = useRef(null);
     const tooltipRef = useRef(null);
@@ -204,6 +246,31 @@ export default function Diagram({ svg, renderError, resources = [], onSelectReso
             const meta = document.createElement('div');
             meta.className = 'svc-tip-meta';
             meta.textContent = `${resource.type || 'resource'}${region}${state}`;
+            // Cloud status line, always present so deployment state reads at a glance.
+            const deployed = resource.deployed === true;
+            const status = document.createElement('div');
+            status.className = `svc-tip-status ${deployed ? 'is-deployed' : 'is-undeployed'}`;
+            status.textContent = deployed ? 'In the AWS cloud' : 'Not deployed to AWS';
+            tip.append(title, meta, status);
+            tip.classList.add('is-visible');
+            moveTip(event);
+        };
+        // Richer tooltip for the divergence badge: what the mark means + the agent's reason.
+        const showBadgeTip = (resource, event) => {
+            if (!tip) return;
+            const deployed = resource.deployed === true;
+            tip.innerHTML = '';
+            const title = document.createElement('div');
+            title.className = `svc-tip-title ${deployed ? 'svc-tip-live' : 'svc-tip-warn'}`;
+            title.textContent = deployed
+                ? 'Deployed to AWS'
+                : 'Not deployed to AWS';
+            const meta = document.createElement('div');
+            meta.className = 'svc-tip-meta';
+            meta.textContent = resource.deploy_note
+                || (deployed
+                    ? 'This resource is already live in AWS (deployed at your request) although the sigil is still a Design.'
+                    : 'This resource does not exist in AWS yet — it is pending or was skipped.');
             tip.append(title, meta);
             tip.classList.add('is-visible');
             moveTip(event);
@@ -232,6 +299,27 @@ export default function Diagram({ svg, renderError, resources = [], onSelectReso
             g.classList.add('svc-node');
             if (selectedId && sanitizeId(resource.id) === sanitizeId(selectedId)) {
                 g.classList.add('svc-selected');
+            }
+
+            // Divergence badge: mark resources whose deployment state differs from the sigil
+            // mode (not deployed on a Live sigil / already deployed on a Design one). Hovering
+            // the badge swaps the tooltip for the status + the agent's reason; leaving it
+            // restores the normal resource tooltip (mouseenter/leave don't bubble).
+            const isDeployed = resource.deployed === true;
+            let badge = null;
+            if (isDeployed !== (sigilDeployed === true)) {
+                badge = makeBadge(g, isDeployed);
+                if (badge) {
+                    const onBadgeEnter = (e) => showBadgeTip(resource, e);
+                    const onBadgeLeave = (e) => showTip(resource, e);
+                    badge.addEventListener('mouseenter', onBadgeEnter);
+                    badge.addEventListener('mouseleave', onBadgeLeave);
+                    cleanups.push(() => {
+                        badge.removeEventListener('mouseenter', onBadgeEnter);
+                        badge.removeEventListener('mouseleave', onBadgeLeave);
+                        badge.remove();
+                    });
+                }
             }
 
             let down = null;
@@ -268,7 +356,7 @@ export default function Diagram({ svg, renderError, resources = [], onSelectReso
             hideTip();
             cleanups.forEach((fn) => fn());
         };
-    }, [svg, resources, selectedId, onSelectResource]);
+    }, [svg, resources, selectedId, onSelectResource, sigilDeployed]);
 
     const zoomIn = () => {
         const stage = stageRef.current;

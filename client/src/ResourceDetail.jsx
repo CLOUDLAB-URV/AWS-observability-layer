@@ -4,6 +4,8 @@
 // read straight from the resource record the backend keeps in state.json (id/arn/region/state/
 // connections/details), so this panel is where "all the detail" lives.
 
+import { consoleUrl } from './awsLinks.js';
+
 // Fields we promote to the Identity section, in display order.
 const TOP_FIELDS = [
     ['id', 'ID'],
@@ -15,9 +17,13 @@ const TOP_FIELDS = [
     ['subnet', 'Subnet']
 ];
 
-// Top-level keys already rendered elsewhere (header/badges/identity/sections), so the generic
-// "Attributes" catch-all skips them and shows only whatever extra fields a resource carries.
-const HANDLED = new Set([...TOP_FIELDS.map(([k]) => k), 'type', 'connections', 'details']);
+// Top-level keys already rendered elsewhere (header/badges/identity/sections/deployment), so
+// the generic "Attributes" catch-all skips them and shows only whatever extra fields a
+// resource carries.
+const HANDLED = new Set([
+    ...TOP_FIELDS.map(([k]) => k),
+    'type', 'connections', 'details', 'deployed', 'deploy_note', 'consoleUrl'
+]);
 
 // Nicely cased service name for the header, from the raw inventory `type`. Falls back to a
 // humanized version of the type so unknown services still read cleanly.
@@ -101,6 +107,8 @@ export default function ResourceDetail({ resource, onClose }) {
 
     const connections = Array.isArray(resource.connections) ? resource.connections : [];
     const details = resource.details && typeof resource.details === 'object' ? resource.details : null;
+    // The backend backfills `deployed` on read, so it's always a boolean by the time it's here.
+    const deployed = resource.deployed === true;
     const identityRows = TOP_FIELDS.filter(([key]) => resource[key] != null && resource[key] !== '');
     const extraRows = Object.entries(resource).filter(
         ([key, value]) => !HANDLED.has(key) && value != null && value !== ''
@@ -131,6 +139,33 @@ export default function ResourceDetail({ resource, onClose }) {
             )}
 
             <div className="rd-body">
+                <section className="rd-section rd-deployment">
+                    <h4 className="rd-section-title">Deployment</h4>
+                    <div className={`rd-cloud-status ${deployed ? 'is-deployed' : 'is-undeployed'}`}>
+                        <span className="rd-cloud-dot" aria-hidden="true" />
+                        {deployed ? 'In the AWS cloud' : 'Not deployed to AWS'}
+                    </div>
+                    {resource.deploy_note && (
+                        <p className="rd-deploy-note">{resource.deploy_note}</p>
+                    )}
+                    {deployed && (
+                        <a
+                            className="btn btn-primary rd-console-link"
+                            href={consoleUrl(resource)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                        >
+                            Open in AWS Console
+                            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor"
+                                strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                                <polyline points="15 3 21 3 21 9" />
+                                <line x1="10" y1="14" x2="21" y2="3" />
+                            </svg>
+                        </a>
+                    )}
+                </section>
+
                 {identityRows.length > 0 && (
                     <section className="rd-section">
                         <h4 className="rd-section-title">Identity</h4>

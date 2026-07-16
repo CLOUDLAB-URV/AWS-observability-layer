@@ -54,6 +54,42 @@ test('listChats reports each diagram mode', async () => {
     assert.equal(byId.design3, true);
 });
 
+test('upserts stamp per-resource deployed: inherited from the sigil mode by default', async () => {
+    await store.applyChanges(USER, 'perres1', [upsert('a')]);                 // Design sigil
+    await store.applyChanges(USER, 'perres2', [upsert('a')], undefined, true); // Live sigil
+    const design = await store.readState(USER, 'perres1');
+    const live = await store.readState(USER, 'perres2');
+    assert.equal(design.a.deployed, false, 'Design resource inherits deployed:false');
+    assert.equal(live.a.deployed, true, 'Live resource inherits deployed:true');
+});
+
+test('an explicit per-resource deployed divergence is stored verbatim with its note', async () => {
+    await store.applyChanges(USER, 'perres3', [
+        upsert('ok'),
+        { ...upsert('failed'), deployed: false, deploy_note: 'create failed: AccessDenied' }
+    ], undefined, true); // Live sigil with one failed resource
+    const state = await store.readState(USER, 'perres3');
+    assert.equal(state.ok.deployed, true);
+    assert.equal(state.failed.deployed, false);
+    assert.equal(state.failed.deploy_note, 'create failed: AccessDenied');
+    assert.equal((await store.readMeta(USER, 'perres3')).deployed, true, 'sigil mode untouched');
+});
+
+test('a full-replace upsert clears a stale divergence and its note', async () => {
+    await store.applyChanges(USER, 'perres4', [
+        { ...upsert('a'), deployed: true, deploy_note: 'deployed early at user request' }
+    ]); // Design sigil, one resource deployed early
+    let state = await store.readState(USER, 'perres4');
+    assert.equal(state.a.deployed, true);
+    assert.equal(state.a.deploy_note, 'deployed early at user request');
+
+    // Re-reporting the resource without the divergence fields resets it to the sigil mode.
+    await store.applyChanges(USER, 'perres4', [upsert('a')]);
+    state = await store.readState(USER, 'perres4');
+    assert.equal(state.a.deployed, false, 'inherits Design mode again');
+    assert.equal(state.a.deploy_note, undefined, 'stale note does not linger');
+});
+
 test.after(async () => {
     await fs.rm(tmp, { recursive: true, force: true });
 });

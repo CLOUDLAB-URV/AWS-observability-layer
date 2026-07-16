@@ -135,6 +135,10 @@ one entry per resource that changed:
   "type": "ec2",            // AWS service type
   "id": "i-0abc",           // stable key (InstanceId / ARN / bucket name)
   "state": "running",
+  "region": "us-east-1",    // powers the "Open in AWS Console" link
+  "arn": "arn:aws:ec2:…",   // powers the console link too — include when known
+  "deployed": false,         // ONLY when this resource diverges from the sigil mode
+  "deploy_note": "create failed: AccessDenied (missing iam:CreateRole)",
   "vpc": "vpc-9", "subnet": "subnet-1",
   "connections": [{ "to": "db-1", "protocol": "TCP", "port": 5432 }],
   "details": { /* full describe output, kept verbatim in the backend */ }
@@ -145,6 +149,11 @@ one entry per resource that changed:
   `type` + `id`.
 - Always include the **relationships** (`connections`, `vpc`, `subnet`) — the sigil
   draws those edges and containment.
+- **Per-resource divergence**: a sigil has one overall mode (Design/Live), but a single
+  resource may diverge via `deployed` + `deploy_note` — e.g. `deployed:false` on a Live
+  sigil for a resource that failed to create (say why in `deploy_note`), or
+  `deployed:true` on a Design sigil for something the user asked to deploy already. The
+  web marks divergent nodes on the diagram and shows your note on hover.
 - The backend merges each change onto the sigil's state (upsert sets the resource,
   delete removes it) and regenerates the sigil, evolving the previous one.
 

@@ -897,6 +897,13 @@ export default function DeployedState({ user, onOpenAdmin }) {
 
     const selectedChat = chats.find((c) => c.chatId === chatId) || null;
 
+    // Deployment consistency of the selected sigil: resources whose own `deployed` state
+    // (backfilled by the backend) diverges from the sigil mode — e.g. a failed create on a
+    // Live sigil, or something deployed early on a Design one. Drives the top-bar warning
+    // icon, and the Details panel shows the count.
+    const divergentCount = resources.filter((r) => (r.deployed === true) !== deployed).length;
+    const mixed = divergentCount > 0;
+
     function copy(text, key) {
         navigator.clipboard?.writeText(text).catch(() => {});
         setCopied(key);
@@ -909,7 +916,7 @@ export default function DeployedState({ user, onOpenAdmin }) {
         svg, renderError, resources, selectedResource, setSelectedResource,
         chatId, chatsCount: chats.length,
         explanation, explaining, generateExplanation,
-        selectedChat, deployed,
+        selectedChat, deployed, mixed, divergentCount,
         editingName, setEditingName, renameValue, setRenameValue,
         renameChat, cancelRename, startRename, formatDate, copy, copied,
         confirmDelete, setConfirmDelete, deleteChat, deleting,
@@ -994,6 +1001,8 @@ export default function DeployedState({ user, onOpenAdmin }) {
                         onSelect={setChatId}
                         onRefresh={loadChats}
                         chatLabel={chatLabel}
+                        mixed={mixed}
+                        deployed={deployed}
                     />
                 </div>
                 <div className="topbar-right">

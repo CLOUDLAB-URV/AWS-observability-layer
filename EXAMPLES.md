@@ -21,8 +21,10 @@ section of standalone prompts to test the remaining tools.
    provisions each one in AWS with its own tools, and reports the **real ids/ARNs** back via
    `push_sigil` (`op: "upsert"`, same `id` as in the design).
 
-> Remember: a diagram is either **Design** or **Live**, never mixed. Once it's deployed,
-> anything new you add is treated as deployed too.
+> Remember: a diagram is either **Design** or **Live** overall. A single resource may still
+> diverge (e.g. a create that failed on a Live sigil, or something deployed early on a
+> Design one): the agent reports it with the per-resource `deployed` + `deploy_note` fields
+> and the web marks the node on the diagram with the reason.
 
 Each case has two copy-paste blocks: **Prompt 1 (Design)** and **Prompt 2 (Deploy)**.
 
