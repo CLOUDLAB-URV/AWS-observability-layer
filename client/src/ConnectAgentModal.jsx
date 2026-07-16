@@ -100,8 +100,7 @@ export default function ConnectAgentModal({ onClose }) {
     const [busy, setBusy] = useState(false);
     // reveal-view state: the freshly generated token (secret, held in memory only).
     const [revealToken, setRevealToken] = useState('');
-    const [expandedToken, setExpandedToken] = useState('');   // token id whose "Disconnect" is open
-    const [confirmRevoke, setConfirmRevoke] = useState('');
+    const [confirmRevoke, setConfirmRevoke] = useState('');   // token id whose revoke confirm is open
     const [agent, setAgent] = useState(() => {
         try { return localStorage.getItem(AGENT_KEY) === 'claude' ? 'claude' : 'opencode'; }
         catch { return 'opencode'; }
@@ -177,7 +176,6 @@ export default function ConnectAgentModal({ onClose }) {
             await fetch(`/api/tokens/${encodeURIComponent(id)}`, { method: 'DELETE' });
         } catch { /* the reload reflects real state */ }
         setConfirmRevoke('');
-        setExpandedToken('');
         loadTokens();
     }
 
@@ -255,37 +253,23 @@ export default function ConnectAgentModal({ onClose }) {
                                         <div className="ca-token-row">
                                             <span className="ca-token-name">{t.label || 'Untitled token'}</span>
                                             <code className="ca-token-preview">{t.tokenPreview}</code>
-                                            <button
-                                                type="button"
-                                                className="link-btn"
-                                                onClick={() => setExpandedToken((id) => (id === t.id ? '' : t.id))}
-                                                aria-expanded={expandedToken === t.id}
-                                            >
-                                                {expandedToken === t.id ? 'Close' : 'Disconnect'}
-                                            </button>
+                                            {confirmRevoke === t.id ? (
+                                                <span className="ca-revoke-inline">
+                                                    <span className="ca-revoke-q">Revoke?</span>
+                                                    <button type="button" className="btn btn-danger" onClick={() => revoke(t.id)}>Revoke</button>
+                                                    <button type="button" className="link-btn" onClick={() => setConfirmRevoke('')}>Cancel</button>
+                                                </span>
+                                            ) : (
+                                                <button
+                                                    type="button"
+                                                    className="link-btn token-danger"
+                                                    onClick={() => setConfirmRevoke(t.id)}
+                                                    title="Revoke this token — agents using it stop working"
+                                                >
+                                                    Revoke
+                                                </button>
+                                            )}
                                         </div>
-                                        {expandedToken === t.id && (
-                                            <div className="ca-token-disconnect">
-                                                <p className="ca-hint">
-                                                    Remove the MCP from your agent, then revoke the token:
-                                                </p>
-                                                <div className="ca-field-label ca-field-label-spaced">
-                                                    <AgentToggle agent={agent} setAgent={setAgent} />
-                                                </div>
-                                                <CopyBlock text={removeCmds[agent].remove} />
-                                                {confirmRevoke === t.id ? (
-                                                    <div className="ca-revoke-confirm">
-                                                        <span>Revoke this token? Agents using it stop working.</span>
-                                                        <button type="button" className="btn btn-danger" onClick={() => revoke(t.id)}>Revoke</button>
-                                                        <button type="button" className="link-btn" onClick={() => setConfirmRevoke('')}>Cancel</button>
-                                                    </div>
-                                                ) : (
-                                                    <button type="button" className="link-btn token-danger" onClick={() => setConfirmRevoke(t.id)}>
-                                                        Revoke token
-                                                    </button>
-                                                )}
-                                            </div>
-                                        )}
                                     </li>
                                 ))}
                             </ul>
@@ -328,14 +312,21 @@ export default function ConnectAgentModal({ onClose }) {
                         {atLimit && <p className="token-hint">Limit reached ({TOKEN_LIMIT}). Revoke one to add a new token.</p>}
                         {error && <p className="token-hint token-danger">{error}</p>}
 
-                        {!dev && (
-                            <p className="ca-demo">
-                                On a lab machine without an agent yet?{' '}
-                                <a className="guide-inline-link" href="/api/opencode-vertex-demo.sh" download>
-                                    Download the opencode quick-setup script
-                                </a>.
+                        {/* Global MCP removal — always available, no token or prior setup needed.
+                            The command is idempotent: it's safe to run even if Sigilum was never
+                            configured on this machine. */}
+                        <div className="ca-remove">
+                            <div className="ca-field-label ca-field-label-spaced">
+                                Remove Sigilum from your agent
+                                <AgentToggle agent={agent} setAgent={setAgent} />
+                            </div>
+                            <p className="ca-hint">
+                                {agent === 'opencode'
+                                    ? <>Deletes the <code>sigilum</code> entry from <code>~/.config/opencode/opencode.json</code> if it's there — safe to run even if it was never set up.</>
+                                    : <>Removes the user-scope <code>sigilum</code> MCP registration — safe to run even if it isn't registered.</>}
                             </p>
-                        )}
+                            <CopyBlock text={removeCmds[agent].remove} />
+                        </div>
                     </div>
                 )}
             </div>

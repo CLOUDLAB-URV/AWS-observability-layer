@@ -1523,20 +1523,14 @@ body {
     text-overflow: ellipsis;
     white-space: nowrap;
 }
-.ca-token-disconnect {
-    padding: 0 12px 12px;
-    border-top: 1px solid var(--border-default);
-    padding-top: 12px;
-}
-.ca-revoke-confirm {
-    display: flex;
+/* Inline revoke confirm inside a token row (replaces the Revoke link in place). */
+.ca-revoke-inline {
+    display: inline-flex;
     align-items: center;
-    gap: 12px;
-    flex-wrap: wrap;
-    margin-top: 10px;
-    font-size: 12.5px;
-    color: var(--text-secondary);
+    gap: 10px;
+    flex: none;
 }
+.ca-revoke-q { font-size: 12px; color: var(--text-secondary); }
 
 /* Token name input. */
 .ca-name-input {
@@ -1554,12 +1548,11 @@ body {
 .ca-name-input::placeholder { color: var(--text-muted); }
 .ca-name-input:disabled { opacity: 0.5; cursor: not-allowed; }
 
-.ca-demo {
-    margin: 18px 0 0;
-    padding-top: 14px;
+/* Global "Remove Sigilum from your agent" section at the bottom of the list view. */
+.ca-remove {
+    margin-top: 20px;
+    padding-top: 16px;
     border-top: 1px solid var(--border-default);
-    font-size: 12.5px;
-    color: var(--text-muted);
 }
 
 .token-danger { color: var(--fn-red); }

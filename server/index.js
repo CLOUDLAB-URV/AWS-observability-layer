@@ -14,7 +14,6 @@ for (const file of ['.env.local', '.env']) {
 }
 
 import http from 'node:http';
-import { fileURLToPath } from 'node:url';
 import express from 'express';
 import { WebSocketServer } from 'ws';
 import { renderDiagramSvg } from './diagram.js';
@@ -519,16 +518,6 @@ vizWss.on('connection', (socket) => {
 
 app.get('/health', (_req, res) => {
     res.json({ ok: true });
-});
-
-// Lab-demo installer script — gated behind login so it's only reachable from inside the app
-// (Connect agent panel), never a guessable public URL. Holds a short-lived Vertex AI Express-mode
-// key baked in for the demo; not meant to stay published long-term.
-const DEMO_SCRIPT_PATH = fileURLToPath(new URL('./assets/opencode-vertex-demo.sh', import.meta.url));
-app.get('/api/opencode-vertex-demo.sh', requireSession, (_req, res) => {
-    res.setHeader('Content-Type', 'text/x-shellscript; charset=utf-8');
-    res.setHeader('Content-Disposition', 'attachment; filename="opencode-vertex-demo.sh"');
-    res.sendFile(DEMO_SCRIPT_PATH);
 });
 
 // Public runtime config: the frontend fetches this to know whether the app is available, so a
