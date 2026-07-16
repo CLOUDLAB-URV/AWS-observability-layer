@@ -1125,13 +1125,6 @@ body {
 .dv-pane > .resource-detail { flex: 1; min-height: 0; height: auto; }
 .dv-pane.explanation-panel { overflow: hidden; }
 
-/* Plain scrolling-block panels: drop the old strip chrome (bottom border, capped
-   height, slide-in) so they sit cleanly inside a pane. */
-.dv-pane.chat-details {
-    border-bottom: none;
-    max-height: none;
-    animation: none;
-}
 /* Guide: fill the pane so its dark background reaches the bottom — otherwise the lighter
    pane background shows below the content as an ugly grey cut. Match the pane bg too. */
 .dv-pane:has(> .mcp-guide) { background: var(--surface-app); }
@@ -1276,49 +1269,46 @@ body {
     border-radius: 4px;
 }
 
-/* Chat details panel (created date, id, rename) below the toolbar. */
-.chat-details {
+/* ── Sigil options modal (rename / data / delete) ─────────────────────────
+   Uses the shared modal shell (.modal-box-wide, .ca-head, .ca-body, .ca-field-label). */
+.so-body { gap: 0; }
+/* Rename row: the name input + Save. */
+.so-name {
     display: flex;
-    flex-direction: column;
-    gap: 12px;
-    padding: 16px;
-    border-bottom: 1px solid var(--border-default);
-    background: var(--surface-panel);
-    font-size: 13px;
-    animation: viz-settings-in 200ms var(--ease);
-}
-.chat-details-row {
-    display: grid;
-    grid-template-columns: 96px 1fr;
     align-items: center;
-    gap: 12px;
-    max-width: 620px;
+    gap: 8px;
 }
-.chat-details-row > label {
-    color: var(--text-secondary);
-    font-size: 12px;
-}
-.chat-details-value { color: var(--text-primary); }
+.so-name .ca-name-input { flex: 1; min-width: 0; }
+.so-name .btn { flex: none; }
 
-/* Destructive "Delete diagram" row — separated from the info rows above. */
-.chat-details-danger {
-    margin-top: 4px;
-    padding-top: 12px;
-    border-top: 1px solid var(--border-default);
+/* Read-only sigil data as a compact definition list (label left / value right). */
+.so-info {
+    margin: 0;
+    border: 1px solid var(--border-default);
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--surface-raised);
 }
-/* Plain-text rows (name + id) with an inline action to the right — no input box. */
-.chat-details-inline {
+.so-info-row {
+    display: grid;
+    grid-template-columns: 110px 1fr;
+    align-items: center;
+    gap: 12px;
+    padding: 9px 12px;
+    font-size: 13px;
+}
+.so-info-row + .so-info-row { border-top: 1px solid var(--border-default); }
+.so-info-row dt { color: var(--text-muted); font-size: 12px; }
+.so-info-row dd { margin: 0; color: var(--text-primary); min-width: 0; text-align: right; }
+.so-info-inline {
     display: flex;
     align-items: center;
-    gap: 10px;
+    justify-content: flex-end;
+    gap: 8px;
     min-width: 0;
 }
-.chat-details-name-text {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-.chat-details-id-text {
+.so-info-hint { color: var(--text-muted); font-size: 12px; }
+.so-id {
     font-family: var(--font-mono);
     font-size: 12px;
     color: var(--text-primary);
@@ -1326,16 +1316,29 @@ body {
     text-overflow: ellipsis;
     white-space: nowrap;
 }
-.chat-details-mode-hint { font-size: 12px; color: var(--text-muted); }
+/* Consistency value: amber warning + explanation, left-wrapped. */
+.so-mixed { color: var(--fn-amber); align-items: flex-start; text-align: left; justify-content: flex-start; }
+.so-mixed svg { flex: none; margin-top: 2px; }
+.so-mixed span { color: var(--text-secondary); font-size: 12.5px; }
 
-/* Consistency row: shown only when some resource diverges from the sigil mode. */
-.details-mixed {
-    color: var(--fn-amber);
-    font-size: 12.5px;
-    align-items: flex-start;
+/* Danger zone: delete, visually separated at the bottom. */
+.so-danger {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    flex-wrap: wrap;
+    margin-top: 20px;
+    padding: 14px;
+    border: 1px solid var(--fn-red-border, rgba(201, 139, 139, 0.35));
+    border-radius: 10px;
+    background: rgba(201, 139, 139, 0.06);
 }
-.details-mixed svg { flex: none; margin-top: 2px; }
-.details-mixed span { color: var(--text-secondary); }
+.so-danger-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.so-danger-title { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+.so-danger-sub { font-size: 12px; color: var(--text-muted); }
+.so-danger-confirm { display: inline-flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--text-secondary); }
+.so-title-icon { vertical-align: -3px; margin-right: 6px; }
 
 /* Subtle text/link action (Rename, Copy, Cancel) — quiet until hover. */
 .link-btn {
@@ -1352,24 +1355,6 @@ body {
 .link-btn:hover { color: var(--text-primary); text-decoration: underline; }
 .link-btn.is-copied { color: var(--conn-on); text-decoration: none; }
 
-/* Inline name editor (only while renaming). */
-.chat-details-edit {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    min-width: 0;
-}
-.chat-details-edit input {
-    flex: 1;
-    min-width: 0;
-    max-width: 360px;
-    border: 1px solid var(--border-input);
-    border-radius: 6px;
-    padding: 6px 9px;
-    background: var(--surface-app);
-    color: var(--text-primary);
-    font-size: 13px;
-}
 /* ── Connect-agent modal ──────────────────────────────────────────────── */
 .ca-head {
     display: flex;

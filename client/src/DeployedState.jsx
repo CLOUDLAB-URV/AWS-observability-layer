@@ -8,7 +8,7 @@ import Logo from './Logo.jsx';
 import DiagramPanel from './panels/DiagramPanel.jsx';
 import ResourceDetailPanel from './panels/ResourceDetailPanel.jsx';
 import ExplanationPanel from './panels/ExplanationPanel.jsx';
-import DetailsPanel from './panels/DetailsPanel.jsx';
+import SigilSettingsModal from './SigilSettingsModal.jsx';
 import GuidePanel from './panels/GuidePanel.jsx';
 import DevToolsPanel from './panels/DevToolsPanel.jsx';
 import ConnectAgentModal from './ConnectAgentModal.jsx';
@@ -23,14 +23,12 @@ const PANEL_COMPONENTS = {
     diagram: DiagramPanel,
     'resource-detail': ResourceDetailPanel,
     explanation: ExplanationPanel,
-    details: DetailsPanel,
     guide: GuidePanel,
     devtools: DevToolsPanel
 };
 // Each panel's DEFAULT zone. The user can move a panel to another zone; that choice is
 // remembered (see zone memory below) and used when the panel is reopened.
 const PANEL_META = {
-    details: { title: 'Details', zone: 'right' },
     explanation: { title: 'Explanation', zone: 'right' },
     guide: { title: 'Guide', zone: 'right' },
     'resource-detail': { title: 'Resource', zone: 'right' },
@@ -175,6 +173,8 @@ export default function DeployedState({ user, onOpenAdmin }) {
     // "Connect agent" pop-up (opened from the toolbar/Guide CTA — it lives in the profile menu
     // too). Self-contained: it fetches its own token data.
     const [connectOpen, setConnectOpen] = useState(false);
+    // "Sigil options" pop-up (rename / data / delete) — replaces the old dockable Details panel.
+    const [detailsOpen, setDetailsOpen] = useState(false);
     const [copied, setCopied] = useState('');
     const [renameValue, setRenameValue] = useState('');
     const [editingName, setEditingName] = useState(false);
@@ -366,7 +366,7 @@ export default function DeployedState({ user, onOpenAdmin }) {
         }
         setDeleting(false);
         setConfirmDelete(false);
-        closePanel('details');
+        setDetailsOpen(false);
         closePanel('explanation');
         setChatId('');
         loadChats();
@@ -1009,10 +1009,10 @@ export default function DeployedState({ user, onOpenAdmin }) {
                     <button
                         type="button"
                         className="btn btn-ghost"
-                        onClick={() => togglePanel('details')}
-                        aria-expanded={isOpen('details')}
+                        onClick={() => setDetailsOpen(true)}
+                        aria-haspopup="dialog"
                         disabled={!chatId}
-                        title="Sigil details — rename, mode and delete"
+                        title="Sigil options — rename, data and delete"
                     >
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
                             strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -1084,6 +1084,7 @@ export default function DeployedState({ user, onOpenAdmin }) {
                 </div>
             </main>
             {connectOpen && <ConnectAgentModal onClose={() => setConnectOpen(false)} />}
+            {detailsOpen && selectedChat && <SigilSettingsModal onClose={() => setDetailsOpen(false)} />}
         </DeployedContext.Provider>
     );
 }
