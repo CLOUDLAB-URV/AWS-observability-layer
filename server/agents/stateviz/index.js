@@ -67,7 +67,7 @@ export async function runStateViz(userId, chatId) {
     });
 
     const stream = getGemini().messages.stream({
-        model: MODELS.reconciler,
+        model: MODELS.stateviz,
         max_tokens: 16000,
         messages: [{ role: 'user', content: prompt }],
         user: userId // token-usage attribution
@@ -110,7 +110,7 @@ export async function suggestSessionName(resources, userId = null) {
         const stream = getGemini().messages.stream({
             // Gemini 2.5 is a thinking model: a tiny budget gets consumed before any
             // text is emitted, so leave generous headroom for the short name.
-            model: MODELS.reconciler,
+            model: MODELS.stateviz,
             max_tokens: 256,
             messages: [{ role: 'user', content: prompt }],
             user: userId

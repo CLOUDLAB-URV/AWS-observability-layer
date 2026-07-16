@@ -1,27 +1,25 @@
 # Use cases for testing the MCP (Design → Deploy flow)
 
-5 complete architectures to exercise the `diagram-state-visualizer` MCP end to end, plus a
-section of standalone prompts to test the remaining tools. These are **new** architectures,
-distinct from the demos the server already ships with (`uc1-serverless`,
-`uc2-microservices`, `uc3-datapipeline`).
+5 complete architectures to exercise the `sigilum-mcp` server end to end, plus a
+section of standalone prompts to test the remaining tools.
 
 ## How to use this doc
 
 **Requirements**
 - The web server running locally (`http://127.0.0.1:3001`).
 - The MCP connected in your coding agent with the dev token `viz_localdev`
-  (`VISUALIZER_URL=http://127.0.0.1:3001`, `VISUALIZER_TOKEN=viz_localdev`). See the README.
-- Open the web app → **Agent (MCP)** tab → pick the chat in the selector to watch the
+  (`SIGILUM_URL=http://127.0.0.1:3001`, `SIGILUM_TOKEN=viz_localdev`). See the README.
+- Open the web app → pick the sigil in the top-bar selector to watch the
   diagram update live after each push.
 
 **The two-step flow (design-first → deploy)**
-1. **Design.** Paste a case's *Prompt 1*. The agent calls `push_deployment` **without**
+1. **Design.** Paste a case's *Prompt 1*. The agent calls `push_sigil` **without**
    `deployed` → a **Design** diagram is created: the architecture is drawn but **nothing is
    created in AWS**. You can iterate (add/remove things) and it stays a Design.
-2. **Deploy.** When you're happy with it, paste *Prompt 2*. The agent calls `deploy_diagram`
+2. **Deploy.** When you're happy with it, paste *Prompt 2*. The agent calls `deploy_sigil`
    (the backend marks the diagram **Live** and returns the list of resources to create),
    provisions each one in AWS with its own tools, and reports the **real ids/ARNs** back via
-   `push_deployment` (`op: "upsert"`, same `id` as in the design).
+   `push_sigil` (`op: "upsert"`, same `id` as in the design).
 
 > Remember: a diagram is either **Design** or **Live**, never mixed. Once it's deployed,
 > anything new you add is treated as deployed too.
@@ -162,11 +160,11 @@ diagram already created with the cases above):
   ```
   Remove the ElastiCache Redis cache from the diagram, we're not going to use it anymore.
   ```
-- **List diagrams (`list_chats`):**
+- **List diagrams (`list_sigils`):**
   ```
   List my diagrams.
   ```
-- **Resume by name (`load_chat`) and continue:**
+- **Resume by name (`load_sigil`) and continue:**
   ```
   Resume the "Order processing" diagram and add a second DynamoDB table for the order
   history.

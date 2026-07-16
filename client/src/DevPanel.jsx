@@ -267,7 +267,7 @@ export default function DevPanel({ embedded = false }) {
                                                 aria-label={`${tab.label} port`}
                                             />
                                         </label>
-                                        <button type="button" className="details-save-btn" onClick={refresh}>Refresh</button>
+                                        <button type="button" className="btn btn-primary" onClick={refresh}>Refresh</button>
                                     </div>
                                 </>
                             )}

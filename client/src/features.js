@@ -13,11 +13,10 @@ export async function loadFeatures() {
         const data = await res.json();
         const f = (data && data.features) || {};
         return {
-            design: f.design !== false,
             agent: f.agent !== false
         };
     } catch {
         // Backend unreachable / unexpected response → default to everything enabled.
-        return { design: true, agent: true };
+        return { agent: true };
     }
 }

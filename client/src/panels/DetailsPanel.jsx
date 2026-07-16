@@ -31,7 +31,7 @@ export default function DetailsPanel() {
                                 if (e.key === 'Escape') cancelRename();
                             }}
                         />
-                        <button type="button" className="details-save-btn" onClick={renameChat}>Save</button>
+                        <button type="button" className="btn btn-primary" onClick={renameChat}>Save</button>
                         <button type="button" className="link-btn" onClick={cancelRename}>Cancel</button>
                     </span>
                 ) : (
@@ -92,7 +92,7 @@ export default function DetailsPanel() {
                     <span className="chat-details-value">
                         <button
                             type="button"
-                            className="details-danger-btn"
+                            className="btn btn-danger"
                             onClick={() => setConfirmDelete(true)}
                         >
                             Delete sigil

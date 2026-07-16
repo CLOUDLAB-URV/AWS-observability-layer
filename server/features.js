@@ -26,12 +26,7 @@ function envFlag(name, fallback = true) {
 }
 
 export const features = {
-    // Design & Deploy: the LangGraph orchestration flow (chat / deploy / teardown /
-    // projects). Disable with DESIGN_ENABLED=false.
-    get design() {
-        return envFlag('DESIGN_ENABLED', true);
-    },
-    // Agent (MCP): the deployed-state visualizer (/api/chats, /api/tokens, push
+    // Agent (MCP): the sigils visualizer (/api/chats, /api/tokens, push
     // deployments, /ws-visualizer). Disable with AGENT_ENABLED=false.
     get agent() {
         return envFlag('AGENT_ENABLED', true);

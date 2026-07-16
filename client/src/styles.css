@@ -157,11 +157,17 @@ body {
     height: 100vh;
 }
 
-/* ── 6. TOPBAR ────────────────────────────────────────── */
+/* ── 6. TOPBAR ────────────────────────────────────────────
+   The single application bar: brand + layout toggles on the left, the sigil selector
+   centred, panel buttons + profile on the right. A 1fr/auto/1fr grid keeps the selector
+   optically centred regardless of how wide the side groups are. */
 .topbar {
-    display: flex;
+    display: grid;
+    /* Side columns never shrink below their content; the centre column flexes between
+       220px and 420px, so the selector stays centred without ever being overlapped. */
+    grid-template-columns: minmax(max-content, 1fr) minmax(220px, 420px) minmax(max-content, 1fr);
     align-items: center;
-    gap: 10px;
+    gap: 16px;
     padding: 0 16px;
     height: var(--topbar-height);
     background: var(--surface-panel);
@@ -169,6 +175,32 @@ body {
     transition: var(--transition-theme);
     flex-shrink: 0;
     z-index: 50;
+}
+.topbar-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+.topbar-center {
+    display: flex;
+    justify-content: center;
+    min-width: 0;
+}
+.topbar-right {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    min-width: 0;
+}
+.topbar-group { display: inline-flex; align-items: center; gap: 6px; }
+.topbar-sep {
+    width: 1px;
+    height: 18px;
+    background: var(--border-default);
+    margin: 0 4px;
+    flex: none;
 }
 
 /* Brand lockup: the Sigilum mark + wordmark. The mark inherits currentColor (bone
@@ -224,393 +256,190 @@ body {
 }
 .badge-preview  { background: var(--badge-preview-bg);  color: var(--badge-preview-text); }
 .badge-deployed { background: var(--badge-deployed-bg); color: var(--badge-deployed-text); }
-.badge-partial  { background: var(--badge-partial-bg);  color: var(--badge-partial-text); }
 
-.status-text {
-    flex: 1;
-    font-size: 12px;
+/* ── 6b. SHARED BUTTONS ───────────────────────────────────
+   One button system for the whole app: `.btn` is the base (bar buttons, panel CTAs),
+   with variants for emphasis. `[aria-expanded="true"]` marks a toggle whose panel is
+   currently on screen (soft brand fill, VSCode-like). */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 30px;
+    padding: 0 11px;
+    border: 1px solid var(--border-default);
+    border-radius: 7px;
+    background: var(--surface-app);
     color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: color 120ms var(--ease), border-color 120ms var(--ease), background 120ms var(--ease);
+}
+.btn svg { width: 15px; height: 15px; flex: none; }
+.btn:hover:not(:disabled) { color: var(--text-primary); border-color: var(--border-input); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn[aria-expanded="true"] {
+    background: var(--brand-surface);
+    border-color: transparent;
+    color: var(--brand-strong);
+}
+/* Ghost: quiet until hovered — the default for bar buttons. */
+.btn-ghost { background: transparent; border-color: transparent; }
+.btn-ghost:hover:not(:disabled) { background: var(--surface-app); border-color: transparent; }
+/* Primary: the one emphasized action in a panel/form. */
+.btn-primary {
+    background: var(--btn-send-bg);
+    border-color: transparent;
+    color: var(--btn-send-text);
+    font-weight: 600;
+}
+.btn-primary:hover:not(:disabled) { color: var(--btn-send-text); border-color: rgba(255, 255, 255, 0.22); }
+/* Danger: destructive actions (delete / revoke). */
+.btn-danger {
+    background: transparent;
+    border-color: rgba(201, 139, 139, 0.35);
+    color: var(--fn-red);
+}
+.btn-danger:hover:not(:disabled) { background: rgba(201, 139, 139, 0.12); color: var(--fn-red); border-color: rgba(201, 139, 139, 0.5); }
+/* opencode: the wordmark logo carries the label, so no text. */
+.btn-opencode { padding: 0 12px; }
+.btn-opencode-logo { height: 15px; width: auto; display: block; opacity: 0.85; transition: opacity 120ms var(--ease); }
+.btn-opencode:hover .btn-opencode-logo,
+.btn-opencode[aria-expanded="true"] .btn-opencode-logo { opacity: 1; }
+
+/* ── 6c. SIGIL SELECTOR (bar centre) ──────────────────────
+   A large combobox: the trigger shows the selected sigil (status dot + name + mode);
+   the popover lists every sigil with its mode badge and last update. */
+.sigil-select {
+    position: relative;
+    width: 100%;
+}
+.sigil-select-trigger {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    width: 100%;
+    height: 34px;
+    padding: 0 12px;
+    border: 1px solid var(--border-default);
+    border-radius: 9px;
+    background: var(--surface-app);
+    color: var(--text-primary);
+    font-size: 13.5px;
+    cursor: pointer;
+    transition: border-color 120ms var(--ease), background 120ms var(--ease);
+}
+.sigil-select-trigger:hover,
+.sigil-select-trigger.is-open { border-color: var(--border-input); }
+.sigil-select-name {
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    min-width: 0;
+    font-weight: 600;
 }
+.sigil-select-placeholder {
+    flex: 1;
+    text-align: left;
+    color: var(--text-muted);
+}
+.sigil-select-caret { margin-left: auto; color: var(--text-muted); flex: none; }
 
-/* Action buttons */
-.deploy-btn, .teardown-btn {
-    border: 1px solid var(--line-strong);
+.sigil-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex: none;
+}
+.sigil-dot-live   { background: var(--badge-deployed-text); box-shadow: 0 0 6px var(--badge-deployed-text); }
+.sigil-dot-design { background: var(--badge-preview-text); }
+
+.sigil-mode-badge {
+    flex: none;
+    padding: 1px 8px;
+    border-radius: 999px;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+.sigil-mode-badge.is-live   { background: var(--badge-deployed-bg); color: var(--badge-deployed-text); }
+.sigil-mode-badge.is-design { background: var(--badge-preview-bg);  color: var(--badge-preview-text); }
+
+.sigil-select-pop {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    right: 0;
+    background: var(--surface-raised);
+    border: 1px solid var(--border-default);
+    border-radius: 10px;
+    box-shadow: var(--shadow-lg);
+    z-index: 300;
+    overflow: hidden;
+    animation: modal-in 140ms ease both;
+}
+.sigil-select-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 8px 6px 12px;
+    border-bottom: 1px solid var(--border-default);
+}
+.sigil-select-count {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.sigil-select-list {
+    list-style: none;
+    margin: 0;
+    padding: 6px;
+    max-height: 320px;
+    overflow-y: auto;
+}
+.sigil-option {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    width: 100%;
+    padding: 8px 10px;
+    border: none;
     border-radius: 7px;
-    padding: 6px 14px;
+    background: transparent;
+    color: var(--text-primary);
     font-size: 13px;
-    font-weight: 500;
     cursor: pointer;
-    transition: background 160ms var(--ease), border-color 160ms var(--ease),
-                transform 160ms var(--ease), opacity 160ms var(--ease);
-    flex-shrink: 0;
+    text-align: left;
+}
+.sigil-option.is-highlighted { background: var(--surface-app); }
+.sigil-option.is-selected .sigil-option-name { font-weight: 600; }
+.sigil-option-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
     white-space: nowrap;
 }
-.deploy-btn  { background: var(--btn-deploy-bg);   color: var(--text-on-accent); }
-.teardown-btn{ background: var(--btn-teardown-bg);  color: var(--fn-red); }
-.deploy-btn:hover:not(:disabled)   { background: var(--btn-deploy-hover);  border-color: rgba(255,255,255,0.22); transform: translateY(-1px); }
-.teardown-btn:hover:not(:disabled) { background: var(--btn-teardown-hover); border-color: rgba(201,139,139,0.4); transform: translateY(-1px); }
-.deploy-btn:disabled, .teardown-btn:disabled {
-    background: var(--btn-disabled-bg);
-    cursor: not-allowed;
-    opacity: 0.65;
+.sigil-option-time { flex: none; font-size: 11px; color: var(--text-muted); }
+.sigil-select-empty {
+    padding: 16px 14px;
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--text-secondary);
 }
 
 /* ── 7. LAYOUT ────────────────────────────────────────── */
 .layout {
-    display: grid;
-    grid-template-columns: var(--chat-width, 380px) 1fr;
+    display: flex;
+    flex-direction: column;
     flex: 1;
     min-height: 0;
     position: relative;
-    transition: grid-template-columns 220ms ease;
-}
-.layout[data-chat-collapsed="true"],
-.layout[data-chat-floating="true"] {
-    grid-template-columns: 0 1fr;
-}
-
-/* ── 8. CHAT PANEL ────────────────────────────────────── */
-.chat {
-    display: flex;
-    flex-direction: column;
-    background: var(--surface-panel);
-    border-right: 1px solid var(--border-default);
-    min-height: 0;
-    overflow: hidden;
-    position: relative;
-    transition: var(--transition-theme);
-    contain: layout style;
-}
-
-/* Float mode */
-.chat[data-floating="true"] {
-    position: fixed;
-    top: var(--chat-float-y, 20px);
-    left: var(--chat-float-x, 20px);
-    width: var(--chat-float-w, 380px) !important;
-    height: var(--chat-float-h, 520px);
-    border-radius: 14px;
-    border: 1px solid var(--border-default);
-    box-shadow: var(--shadow-lg);
-    z-index: 100;
-    overflow: hidden;
-}
-
-/* Maximized mode */
-.chat[data-maximized="true"] {
-    position: fixed;
-    inset: var(--topbar-height) 0 0 0;
-    width: 100% !important;
-    height: auto;
-    border-radius: 0;
-    box-shadow: none;
-    z-index: 200;
-    border-right: none;
-    border-top: 1px solid var(--border-default);
-}
-
-/* Chat header */
-.chat-header {
-    display: flex;
-    align-items: center;
-    gap: 2px;
-    padding: 8px 8px 8px 14px;
-    border-bottom: 1px solid var(--border-default);
-    background: var(--surface-panel);
-    flex-shrink: 0;
-    transition: var(--transition-theme);
-}
-
-.chat-title {
-    font-size: 13px;
-    font-weight: 600;
-    margin: 0;
-    flex: 1;
-    color: var(--text-primary);
-}
-
-.chat-panel-btn {
-    background: none;
-    border: none;
-    border-radius: 5px;
-    width: 26px; height: 26px;
-    display: flex; align-items: center; justify-content: center;
-    cursor: pointer;
-    color: var(--text-muted);
-    font-size: 13px;
-    transition: background 120ms, color 120ms;
-    padding: 0;
-    flex-shrink: 0;
-}
-.chat-panel-btn:hover { background: var(--surface-app); color: var(--text-primary); }
-.chat-panel-btn[aria-pressed="true"] {
-    background: var(--badge-preview-bg);
-    color: var(--badge-preview-text);
-}
-
-/* Drag resize handle */
-.chat-resize-handle {
-    position: absolute;
-    right: -4px;
-    top: 0;
-    width: 8px;
-    height: 100%;
-    cursor: col-resize;
-    z-index: 20;
-}
-.chat-resize-handle::after {
-    content: '';
-    position: absolute;
-    left: 3px;
-    top: 0; bottom: 0;
-    width: 2px;
-    border-radius: 1px;
-    background: transparent;
-    transition: background 150ms;
-}
-.chat-resize-handle:hover::after,
-.chat-resize-handle:active::after { background: var(--border-focus); opacity: 0.6; }
-
-/* Re-open tab (shown when chat is collapsed) */
-.chat-reopen-btn {
-    position: absolute;
-    left: 0;
-    top: 50%;
-    transform: translateY(-50%);
-    z-index: 20;
-    background: var(--surface-panel);
-    border: 1px solid var(--border-default);
-    border-left: none;
-    border-radius: 0 8px 8px 0;
-    padding: 12px 6px;
-    cursor: pointer;
-    color: var(--text-secondary);
-    font-size: 12px;
-    font-weight: 500;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 5px;
-    writing-mode: vertical-lr;
-    transition: var(--transition-theme), background 120ms;
-    box-shadow: var(--shadow-md);
-}
-.chat-reopen-btn:hover { background: var(--surface-app); color: var(--text-primary); }
-
-/* ── 9. CHAT LOG ──────────────────────────────────────── */
-.chat-log {
-    flex: 1;
-    overflow-y: auto;
-    padding: 14px 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    scroll-behavior: smooth;
-}
-
-.chat-message-row {
-    display: flex;
-    align-items: flex-end;
-    gap: 7px;
-}
-.chat-message-row.row-user { flex-direction: row-reverse; }
-
-.chat-avatar {
-    width: 28px; height: 28px;
-    border-radius: 50%;
-    background: var(--bubble-assistant-bg);
-    display: flex; align-items: center; justify-content: center;
-    font-size: 13px;
-    flex-shrink: 0;
-    transition: var(--transition-theme);
-}
-
-.chat-message {
-    padding: 9px 13px;
-    border-radius: 14px;
-    font-size: 14px;
-    line-height: 1.6;
-    white-space: pre-wrap;
-    word-break: break-word;
-    animation: message-in 180ms ease both;
-    transition: var(--transition-theme);
-}
-
-.chat-user {
-    background: var(--bubble-user-bg);
-    color: var(--bubble-user-text);
-    max-width: 82%;
-    border-bottom-right-radius: 4px;
-}
-
-.chat-assistant {
-    background: var(--bubble-assistant-bg);
-    color: var(--bubble-assistant-text);
-    max-width: 88%;
-    border-bottom-left-radius: 4px;
-}
-
-/* Log / deploy entries.
-   NOTE: class is `chat-log-entry`, NOT `chat-log` — the chat-log container
-   shares that name, and reusing it here made each entry inherit the
-   container's `flex: 1; overflow-y: auto`, collapsing every command into a
-   one-line scrollable sliver. */
-.chat-message.chat-log-entry {
-    align-self: stretch;
-    flex: 0 0 auto;
-    background: var(--bubble-log-bg);
-    border: 1px solid var(--bubble-log-border);
-    border-left: 3px solid var(--log-ok);
-    font-family: var(--font-mono);
-    font-size: 12px;
-    line-height: 1.5;
-    padding: 7px 11px;
-    border-radius: 6px;
-    overflow: visible;
-}
-.chat-message.chat-log-entry.log-entry-error { border-left-color: var(--log-error); }
-
-.log-ok    { color: var(--log-ok); }
-.log-error { color: var(--log-error); }
-
-/* Command text: always fully visible, wrap long CLI strings/ARNs/JSON. */
-.chat-message.chat-log-entry code {
-    font-size: 11.5px;
-    font-family: inherit;
-    white-space: pre-wrap;
-    word-break: break-word;
-    overflow-wrap: anywhere;
-}
-.chat-message code { font-size: 11px; font-family: inherit; }
-
-/* Typing / busy indicator */
-.chat-busy-wrapper {
-    display: flex;
-    align-items: flex-end;
-    gap: 7px;
-}
-.chat-busy-dots {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    padding: 11px 14px;
-    background: var(--bubble-assistant-bg);
-    border-radius: 14px;
-    border-bottom-left-radius: 4px;
-    transition: var(--transition-theme);
-}
-.chat-busy-dots span {
-    display: inline-block;
-    width: 6px; height: 6px;
-    border-radius: 50%;
-    background: var(--text-muted);
-    animation: dot-pulse 1.4s ease infinite;
-}
-.chat-busy-dots span:nth-child(2) { animation-delay: 0.2s; }
-.chat-busy-dots span:nth-child(3) { animation-delay: 0.4s; }
-
-/* Error messages */
-.chat-message.chat-error {
-    align-self: stretch;
-    background: rgba(201, 139, 139, 0.08);
-    border: 1px solid rgba(201, 139, 139, 0.22);
-    border-left: 3px solid var(--log-error);
-    color: var(--fn-red);
-    font-size: 13px;
-    border-radius: 8px;
-    display: flex;
-    align-items: flex-start;
-    gap: 8px;
-    white-space: pre-wrap;
-    animation: message-in 180ms ease both;
-}
-.chat-error-icon { flex-shrink: 0; font-size: 15px; margin-top: 1px; }
-
-/* Scroll-to-bottom button */
-.chat-scroll-btn {
-    position: absolute;
-    bottom: 74px;
-    right: 12px;
-    background: var(--surface-panel);
-    border: 1px solid var(--border-default);
-    border-radius: 20px;
-    padding: 5px 12px;
-    font-size: 12px;
-    font-weight: 500;
-    cursor: pointer;
-    color: var(--text-secondary);
-    box-shadow: var(--shadow-sm);
-    z-index: 10;
-    transition: var(--transition-theme), box-shadow 120ms, color 120ms;
-}
-.chat-scroll-btn:hover {
-    box-shadow: var(--shadow-md);
-    color: var(--text-primary);
-}
-
-/* ── 10. CHAT INPUT ───────────────────────────────────── */
-.chat-input-area {
-    border-top: 1px solid var(--border-default);
-    background: var(--surface-panel);
-    transition: var(--transition-theme);
-    flex-shrink: 0;
-}
-.chat-input {
-    display: flex;
-    align-items: flex-end;
-    gap: 8px;
-    padding: 10px 10px 6px;
-}
-.chat-input textarea {
-    flex: 1;
-    padding: 8px 10px;
-    border: 1px solid var(--border-input);
-    border-radius: 8px;
-    font-size: 13px;
-    font-family: inherit;
-    line-height: 1.5;
-    resize: none;
-    overflow-y: auto;
-    max-height: 160px;
-    background: var(--surface-app);
-    color: var(--text-primary);
-    transition: var(--transition-theme), border-color 150ms, box-shadow 150ms;
-}
-.chat-input textarea:focus {
-    border-color: var(--border-focus);
-    outline: none;
-    box-shadow: var(--focus-ring);
-}
-.chat-input textarea::placeholder { color: var(--text-muted); }
-.chat-input button {
-    background: var(--btn-send-bg);
-    color: var(--btn-send-text);
-    border: none;
-    border-radius: 8px;
-    padding: 8px 14px;
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-    flex-shrink: 0;
-    transition: opacity 150ms, var(--transition-theme);
-}
-.chat-input button:disabled {
-    background: var(--btn-disabled-bg);
-    color: var(--text-on-accent);
-    cursor: not-allowed;
-    opacity: 0.65;
-}
-.chat-hint {
-    font-size: 11px;
-    color: var(--text-muted);
-    padding: 0 10px 8px;
-    text-align: right;
-    user-select: none;
-    line-height: 1;
 }
 
 /* ── 11. DIAGRAM / STAGE ──────────────────────────────── */
@@ -990,33 +819,7 @@ body {
     box-shadow: var(--shadow-md);
 }
 
-/* ── 14. MARKDOWN IN CHAT ─────────────────────────────── */
-.chat-assistant .md-list {
-    margin: 4px 0 0;
-    padding-left: 18px;
-    font-size: 14px;
-    line-height: 1.6;
-}
-.chat-assistant .md-list li { margin: 2px 0; }
-.chat-assistant .md-code {
-    font-family: var(--font-mono);
-    font-size: 12px;
-    background: rgba(255, 255, 255, 0.08);
-    padding: 1px 5px;
-    border-radius: 4px;
-}
-
 /* ── 15. ANIMATIONS ───────────────────────────────────── */
-@keyframes message-in {
-    from { opacity: 0; transform: translateY(6px); }
-    to   { opacity: 1; transform: translateY(0); }
-}
-
-@keyframes dot-pulse {
-    0%, 80%, 100% { opacity: 0.25; transform: scale(0.75); }
-    40%            { opacity: 1;    transform: scale(1); }
-}
-
 @keyframes modal-in {
     from { opacity: 0; transform: scale(0.95) translateY(8px); }
     to   { opacity: 1; transform: scale(1) translateY(0); }
@@ -1024,17 +827,13 @@ body {
 
 /* ── 16. REDUCED MOTION ───────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
-    .chat-message,
-    .chat-message.chat-log-entry { animation: none; }
-    .chat-busy-dots span   { animation: none; }
     .modal-box             { animation: none; }
+    .sigil-select-pop      { animation: none; }
     .viz-settings          { animation: none; }
     .layout                { transition: none; }
-    body, .topbar, .chat, .chat-header, .chat-input-area, .stage { transition: none; }
+    body, .topbar, .stage  { transition: none; }
     .stage-kb-hint         { transition: none; }
     /* Neutralize the subtle hover micro-lifts */
-    .deploy-btn:hover:not(:disabled),
-    .teardown-btn:hover:not(:disabled),
     .auth-submit:hover:not(:disabled) { transform: none; }
 }
 
@@ -1057,46 +856,6 @@ body {
 /* ---------------------------------------------------------------------------
    Deployed-state view (MCP-push visualizer)
    --------------------------------------------------------------------------- */
-.view-tabs {
-    display: flex;
-    gap: 4px;
-    margin-left: 8px;
-}
-.view-tab {
-    border: 1px solid var(--border-default);
-    background: transparent;
-    color: var(--text-secondary);
-    padding: 4px 12px;
-    border-radius: 6px;
-    cursor: pointer;
-    font-size: 13px;
-    transition: var(--transition-theme);
-}
-.view-tab:hover { color: var(--text-primary); }
-.view-tab-active {
-    background: var(--brand-surface);
-    color: var(--text-primary);
-    border-color: var(--brand);
-}
-/* Standby/WIP: visible pero deshabilitada y no clicable. */
-.view-tab:disabled,
-.view-tab-wip {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-.view-tab-wip:hover { color: var(--text-secondary); }
-.wip-tag {
-    margin-left: 6px;
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    padding: 1px 5px;
-    border-radius: 4px;
-    background: var(--border-default);
-    color: var(--text-secondary);
-}
-
 .layout-deployed {
     display: flex;
     flex-direction: column;
@@ -1108,59 +867,6 @@ body {
     flex: 1;
     min-height: 0;
 }
-.deployed-toolbar {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 14px;
-    border-bottom: 1px solid var(--border-default);
-    background: var(--surface-panel);
-    flex-wrap: wrap;
-}
-/* Toolbar structure: related controls sit in a .tbar-group (tight gap); a .tbar-spacer pushes
-   the layout + panel groups to the right; a hairline .tbar-sep separates the two right groups. */
-.tbar-group { display: inline-flex; align-items: center; gap: 6px; }
-.tbar-spacer { flex: 1 1 auto; }
-.tbar-sep {
-    width: 1px;
-    height: 18px;
-    background: var(--border-default);
-    margin: 0 2px;
-    flex: none;
-}
-
-/* One unified toolbar button (Details / Explain / Guide / Connect agent / opencode). Same height
-   and radius as the icon buttons so the whole bar sits on one rhythm. */
-.tbar-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    height: 30px;
-    padding: 0 11px;
-    border: 1px solid var(--border-default);
-    border-radius: 7px;
-    background: var(--surface-app);
-    color: var(--text-secondary);
-    font-size: 13px;
-    font-weight: 500;
-    line-height: 1;
-    white-space: nowrap;
-    cursor: pointer;
-    transition: color 120ms var(--ease), border-color 120ms var(--ease), background 120ms var(--ease);
-}
-.tbar-btn svg { width: 15px; height: 15px; flex: none; }
-.tbar-btn:hover { color: var(--text-primary); border-color: var(--border-input); }
-/* Active = the panel this button opens is currently on screen — a soft brand fill, VSCode-like. */
-.tbar-btn[aria-expanded="true"] {
-    background: var(--brand-surface);
-    border-color: transparent;
-    color: var(--brand-strong);
-}
-/* opencode: the wordmark logo carries the label, so no text — just give it a touch more breathing room. */
-.tbar-opencode { padding: 0 12px; }
-.tbar-opencode-logo { height: 15px; width: auto; display: block; opacity: 0.85; transition: opacity 120ms var(--ease); }
-.tbar-opencode:hover .tbar-opencode-logo,
-.tbar-opencode[aria-expanded="true"] .tbar-opencode-logo { opacity: 1; }
 
 /* ── dockview (VSCode-like docking) — Agent (MCP) view ─────────────────────
    The diagram + every side panel live in a dockview layout the user can drag,
@@ -1312,16 +1018,6 @@ body {
     border-top: none;
     background: var(--surface-app);
 }
-.project-form {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-/* Compact variant for the design topbar project selector. */
-.topbar-projects { gap: 6px; }
-.topbar-projects select { max-width: 200px; }
-.topbar-projects button { padding: 4px 10px; }
-
 /* Square icon button (e.g. refresh) — matches the toolbar control height. */
 .icon-btn {
     display: inline-flex;
@@ -1358,7 +1054,7 @@ body {
     background: var(--surface-app);
 }
 
-/* "Explain" toolbar button keeps the shared .tbar-btn look; it just needs a positioning context
+/* "Explain" bar button keeps the shared .btn look; it just needs a positioning context
    for the stale-explanation dot. */
 .explain-btn { position: relative; }
 /* Stale-explanation indicator: a small dot pinned to the button's top-right corner, ringed by the
@@ -1411,19 +1107,6 @@ body {
     font-size: 12px;
     color: var(--text-muted);
 }
-.explain-cta {
-    flex-shrink: 0;
-    border: 1px solid var(--border-focus);
-    background: var(--surface-app);
-    color: var(--text-primary);
-    padding: 5px 12px;
-    border-radius: 6px;
-    cursor: pointer;
-    font-size: 13px;
-}
-.explain-cta:hover:not(:disabled) { background: var(--surface-panel); }
-.explain-cta:disabled { opacity: 0.6; cursor: default; }
-
 /* Markdown rendered inside the explanation panel. */
 .md-body { font-size: 14px; line-height: 1.65; color: var(--text-primary); white-space: pre-wrap; }
 .md-body .md-heading {
@@ -1475,18 +1158,6 @@ body {
     padding-top: 12px;
     border-top: 1px solid var(--border-default);
 }
-.details-danger-btn {
-    border: 1px solid var(--fn-red);
-    background: transparent;
-    color: var(--fn-red);
-    padding: 4px 12px;
-    border-radius: 6px;
-    cursor: pointer;
-    font-size: 13px;
-    transition: background 120ms var(--ease), color 120ms var(--ease);
-}
-.details-danger-btn:hover { background: var(--fn-red); color: var(--surface-panel); }
-
 /* Plain-text rows (name + id) with an inline action to the right — no input box. */
 .chat-details-inline {
     display: flex;
@@ -1542,50 +1213,6 @@ body {
     color: var(--text-primary);
     font-size: 13px;
 }
-.details-save-btn {
-    flex: none;
-    border: 1px solid var(--border-input);
-    background: var(--surface-app);
-    color: var(--text-primary);
-    padding: 6px 14px;
-    border-radius: 6px;
-    cursor: pointer;
-    font-size: 13px;
-    transition: border-color 120ms var(--ease), background 120ms var(--ease);
-}
-.details-save-btn:hover { border-color: var(--border-focus); background: var(--surface-raised); }
-.project-form label { font-size: 13px; color: var(--text-secondary); }
-.project-form input {
-    border: 1px solid var(--border-input);
-    border-radius: 6px;
-    padding: 5px 9px;
-    background: var(--surface-app);
-    color: var(--text-primary);
-    font-size: 13px;
-}
-.project-form button {
-    border: 1px solid var(--border-default);
-    background: var(--surface-app);
-    color: var(--text-primary);
-    padding: 5px 12px;
-    border-radius: 6px;
-    cursor: pointer;
-    font-size: 13px;
-    transition: border-color 120ms ease, color 120ms ease;
-}
-.project-form button:hover { border-color: var(--border-focus); }
-.project-form select {
-    border: 1px solid var(--border-input);
-    border-radius: 7px;
-    padding: 0 9px;
-    height: 30px;
-    background: var(--surface-app);
-    color: var(--text-primary);
-    font-size: 13px;
-    cursor: pointer;
-    max-width: 340px;
-}
-
 /* ── Connect-agent panel ──────────────────────────────────────────────── */
 .viz-settings {
     padding: 24px 24px 28px;
@@ -1684,21 +1311,6 @@ body {
     font-size: 12px;
     color: var(--text-primary);
 }
-
-.viz-primary-btn {
-    border: 1px solid var(--border-focus);
-    background: var(--btn-deploy-bg);
-    color: var(--text-on-accent);
-    padding: 7px 16px;
-    border-radius: 7px;
-    cursor: pointer;
-    font-size: 13px;
-    font-weight: 550;
-    transition: background-color 150ms ease, transform 80ms ease;
-}
-.viz-primary-btn:hover:not(:disabled) { background: var(--btn-deploy-hover); }
-.viz-primary-btn:active:not(:disabled) { transform: translateY(1px); }
-.viz-primary-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* Token manager (step 1) */
 .token-count {
@@ -2346,7 +1958,7 @@ body {
    Full-page read-only console (profile menu → Admin view, admins only). Reuses the app's
    tokens end to end: panel surfaces, hairline borders, badge pills, mono numerals. */
 .admin-panel {
-    grid-column: 1 / -1;
+    flex: 1;
     min-height: 0;
     overflow-y: auto;
     background: var(--surface-app);

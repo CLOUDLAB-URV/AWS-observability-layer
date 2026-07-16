@@ -18,8 +18,6 @@ import { fileURLToPath } from 'node:url';
 import express from 'express';
 import { WebSocketServer } from 'ws';
 import { renderDiagramSvg } from './diagram.js';
-import { runFlow, resetConversation } from './graph.js';
-import * as store from './projectStore.js';
 import * as visualizerStore from './visualizerStore.js';
 import * as tokenStore from './tokenStore.js';
 import { features } from './features.js';
@@ -34,11 +32,6 @@ import { runExplainDiagram } from './agents/explain/index.js';
 
 const PORT = Number(process.env.PORT || 3001);
 
-// Feature flags are driven by the environment (.env). Design & Deploy (the LangGraph
-// orchestration flow: chat/deploy/teardown/projects) stays in STANDBY while
-// features.design is off — the code is untouched but the server refuses to run runFlow,
-// so no design request is ever processed. Set DESIGN_ENABLED=true in .env to reactivate.
-
 const app = express();
 app.use(express.json({ limit: '5mb' }));
 // Internal login + session endpoints (/api/auth/*, /api/me). Auth is off in local dev: requests
@@ -47,19 +40,13 @@ auth.registerRoutes(app);
 // Read-only admin API (/api/admin/*), gated on role 'admin' (granted via scripts/admin-cli.js).
 admin.registerAdminRoutes(app);
 const server = http.createServer(app);
-// Two WebSocket endpoints on one HTTP server: '/ws' (legacy design flow) and
-// '/ws-visualizer' (deployed-state feature). They MUST use noServer + manual
-// upgrade routing — two `WebSocketServer({ server, path })` on the same server
-// conflict (the first aborts non-matching upgrades with 400 before the second
-// can handle them).
-const wss = new WebSocketServer({ noServer: true });
+// Single WebSocket endpoint: '/ws-visualizer' (live sigil updates). noServer + manual
+// upgrade routing so unknown paths are refused cleanly.
 const vizWss = new WebSocketServer({ noServer: true });
 
 server.on('upgrade', (req, socket, head) => {
     const { pathname } = new URL(req.url, 'http://localhost');
-    if (pathname === '/ws') {
-        wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
-    } else if (pathname === '/ws-visualizer') {
+    if (pathname === '/ws-visualizer') {
         // Agent (MCP) in standby: refuse the visualizer socket entirely.
         if (!features.agent) {
             socket.destroy();
@@ -82,125 +69,8 @@ server.on('upgrade', (req, socket, head) => {
     }
 });
 
-// Single shared session (demo scope): one diagram, one mode.
-let busy = false;
-
-function broadcast(message) {
-    const payload = JSON.stringify(message);
-    for (const socket of wss.clients) {
-        if (socket.readyState === socket.OPEN) {
-            socket.send(payload);
-        }
-    }
-}
-
-// Build the design-flow init payload (active project + its mode + rendered svg).
-async function buildInit() {
-    const mode = await store.getMode();
-    const d2 = await store.readDiagram();
-    const { svg, error } = await renderDiagramSvg(d2);
-    return { type: 'init', project: store.getCurrentProjectId(), mode, svg, renderError: error };
-}
-
-async function pushState(socket) {
-    socket.send(JSON.stringify(await buildInit()));
-}
-
-// Switch the active design project and re-init every connected design client so the
-// whole UI follows (single active project, demo scope). Clears the architect thread.
-async function handleSelectProject(projectId) {
-    const ok = await store.setCurrentProject(projectId);
-    if (!ok) {
-        broadcast({ type: 'error', message: 'Unknown project.' });
-        return;
-    }
-    resetConversation();
-    broadcast(await buildInit());
-}
-
-// Transport-level guards, then hand the turn to the orchestration graph.
-async function handleChat(text) {
-    const mode = await store.getMode();
-    await runFlow({ trigger: 'chat', mode, text }, broadcast);
-}
-
-async function handleDeploy() {
-    const mode = await store.getMode();
-    // Allow deploy from preview (first deploy) and partial (retry). Block only a
-    // fully-deployed architecture.
-    if (mode === 'deployed') {
-        broadcast({ type: 'status', text: 'Already fully deployed.' });
-        return;
-    }
-
-    const d2 = await store.readDiagram();
-    if (!d2.trim()) {
-        broadcast({ type: 'error', message: 'Nothing to deploy: the diagram is empty.' });
-        return;
-    }
-
-    await runFlow({ trigger: 'deploy', mode }, broadcast);
-}
-
-async function handleTeardown() {
-    const mode = await store.getMode();
-    // Allow teardown from deployed and partial (remove whatever was created).
-    if (mode === 'preview') {
-        broadcast({ type: 'status', text: 'Nothing to tear down — not deployed.' });
-        return;
-    }
-    await runFlow({ trigger: 'teardown', mode }, broadcast);
-}
-
-wss.on('connection', (socket) => {
-    pushState(socket).catch((error) => {
-        socket.send(JSON.stringify({ type: 'error', message: String(error?.message || error) }));
-    });
-
-    socket.on('message', async (data) => {
-        let message;
-        try {
-            message = JSON.parse(data.toString());
-        } catch {
-            return;
-        }
-
-        // Design & Deploy is in standby: never invoke the LangGraph flow.
-        const DESIGN_MESSAGES = ['chat', 'deploy', 'teardown', 'select-project'];
-        if (!features.design && DESIGN_MESSAGES.includes(message.type)) {
-            socket.send(JSON.stringify({ type: 'status', text: 'Design & Deploy is in development (standby).' }));
-            return;
-        }
-
-        if (busy) {
-            socket.send(JSON.stringify({ type: 'error', message: 'An operation is already running — wait for it to finish.' }));
-            return;
-        }
-
-        busy = true;
-        try {
-            if (message.type === 'chat' && typeof message.text === 'string' && message.text.trim()) {
-                await handleChat(message.text.trim());
-            } else if (message.type === 'deploy') {
-                await handleDeploy();
-            } else if (message.type === 'teardown') {
-                await handleTeardown();
-            } else if (message.type === 'select-project' && typeof message.projectId === 'string') {
-                await handleSelectProject(message.projectId);
-            }
-        } catch (error) {
-            const text = error instanceof Error ? error.message : String(error);
-            console.error('[operation failed]', error);
-            broadcast({ type: 'chat-done' });
-            broadcast({ type: 'error', message: text });
-        } finally {
-            busy = false;
-        }
-    });
-});
-
 // ---------------------------------------------------------------------------
-// "Deployed state" feature (MCP-push visualizer)
+// Sigils (MCP-push visualizer)
 // ---------------------------------------------------------------------------
 
 // Send a message to every visualizer client subscribed to a given (user, chat).
@@ -251,7 +121,6 @@ function requireFeature(isOn, label) {
     };
 }
 const agentGate = requireFeature(() => features.agent, 'Agent (MCP)');
-const designGate = requireFeature(() => features.design, 'Design & Deploy');
 
 // Bearer-token auth → resolves req.userId, or 401. Banned accounts are rejected
 // here too — a ban must cut off MCP pushes, not just the web session.
@@ -561,22 +430,6 @@ app.post('/api/chats/:chatId/explanation', agentGate, requireSession, async (req
     }
 });
 
-// Design projects: list (newest activity first) and create. The active project is
-// switched over the /ws socket (select-project), which re-inits all design clients.
-app.get('/api/projects', designGate, async (_req, res) => {
-    res.json({ projects: await store.listProjects(), current: store.getCurrentProjectId() });
-});
-
-app.post('/api/projects', designGate, async (req, res) => {
-    const name = String(req.body?.name || '').trim();
-    if (!name) {
-        res.status(400).json({ error: 'A project name is required.' });
-        return;
-    }
-    const project = await store.createProject(name);
-    res.json(project);
-});
-
 // Token management for the web UI, scoped to the logged-in user (the MCP uses these tokens to
 // push deployments into that user's space).
 app.get('/api/tokens', agentGate, requireSession, async (req, res) => {
@@ -658,15 +511,14 @@ app.get('/api/opencode-vertex-demo.sh', requireSession, (_req, res) => {
     res.sendFile(DEMO_SCRIPT_PATH);
 });
 
-// Public runtime config: the frontend fetches this to know which modes are available, so a
+// Public runtime config: the frontend fetches this to know whether the app is available, so a
 // single environment (the deploy's .env) drives both the UI and the API. Never gated.
 app.get('/api/config', (_req, res) => {
-    res.json({ features: { design: features.design, agent: features.agent } });
+    res.json({ features: { agent: features.agent } });
 });
 
-await store.initProject();
 server.listen(PORT, () => {
-    console.log(`sigilum server listening on http://127.0.0.1:${PORT} (ws path /ws)`);
+    console.log(`sigilum server listening on http://127.0.0.1:${PORT} (ws path /ws-visualizer)`);
     if (DEV && !auth.authEnabled()) {
         console.log(`[dev] login disabled — fixed local user ${DEV_USER_ID}; data persists in ${persistRoot()} (durable)`);
         console.log(`[dev] MCP token: set SIGILUM_TOKEN=${DEV_TOKEN} SIGILUM_URL=http://localhost:${PORT}`);

@@ -113,7 +113,13 @@ export default function ResourceDetail({ resource, onClose }) {
                     <span className="rd-type">{serviceLabel(resource.type)}</span>
                     <span className="rd-name">{resource.name || resource.id || '—'}</span>
                 </div>
-                <button type="button" className="rd-close" onClick={onClose} aria-label="Close details">✕</button>
+                <button type="button" className="rd-close" onClick={onClose} aria-label="Close details">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+                        strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                        <line x1="6" y1="6" x2="18" y2="18" />
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                    </svg>
+                </button>
             </header>
 
             {(resource.region || resource.state || resource.type) && (

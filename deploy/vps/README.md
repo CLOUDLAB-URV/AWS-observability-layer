@@ -51,21 +51,17 @@ gets every key via `env_file: .env`:**
 - `DOMAIN` / `ACME_EMAIL` → the HTTPS domain Caddy serves and the Let's Encrypt account email.
 - `APP_URL` → public base URL (used to mark session cookies `Secure` under https).
 - `MAX_USERS` → how many accounts may register before new logins are blocked.
-- `AGENT_ENABLED` / `DESIGN_ENABLED` → which modes are available. **A mode is enabled unless
-  set to `false`.** These control **both the UI and the API** (the frontend reads them at
-  runtime from `GET /api/config`), so flipping one then re-applying changes both sides with no
-  image rebuild.
+- `AGENT_ENABLED` → whether the app is available. **Enabled unless set to `false`.** Controls
+  **both the UI and the API** (the frontend reads it at runtime from `GET /api/config`), so
+  flipping it then re-applying changes both sides with no image rebuild.
 - **Secrets:** `SESSION_SECRET` (signs session cookies), `SMTP_HOST/PORT/USER/PASS` + `MAIL_FROM`
-  (email verification codes), `GCP_PROJECT_ID` / `CLOUD_ML_REGION` (only for Design). There is
-  **no MCP token here** — each user generates their own from the UI (Agent → Deployed state).
+  (email verification codes), `GCP_PROJECT_ID` / `CLOUD_ML_REGION` (Vertex AI for sigil
+  rendering, naming and explanations). There is **no MCP token here** — each user generates
+  their own from the UI (Sigils → Connect agent).
 - `LLM_MAX_CONCURRENT` → cap on simultaneous Gemini calls (default 16 — sustains ~20 users
   pushing sigils every 30s). Bursts beyond the cap queue FIFO instead of hammering Vertex's
   shared quota; transient 429s retry with backoff. Load-test with `node loadtest/run.js`
   (see `loadtest/README.md`).
-
-> **Design & Deploy** is `false` by default: enabling it needs `uv`/python + AWS credentials
-> that aren't in the image (the Design tab would appear but its AWS deploy would fail). Set
-> `DESIGN_ENABLED=true` only once the image is made Design-capable.
 
 ## Login (internal: email + username + password)
 
@@ -96,8 +92,8 @@ and **account deletion** (removes the account with all its sigils, tokens and se
   bootstrap defaults used while no panel override exists.
 - **AI spend is tracked per user** (Gemini tokens, calendar-month buckets in
   `persistence/llm-usage.json`) and shown in the panel; `MAX_LLM_TOKENS_PER_MONTH` caps each
-  user's monthly spend (403 once exhausted, resets on the 1st). Design-mode calls have no
-  per-user identity and accrue under `_design` (counted in the total, never capped).
+  user's monthly spend (403 once exhausted, resets on the 1st). Calls with no per-user
+  identity accrue under the `_design` pseudo-user (counted in the total, never capped).
 - **Admins are exempt from every limit** and cannot be banned or deleted from the panel (revoke
   the role via the CLI first). Panel mutations are appended to the same audit log as the CLI.
 

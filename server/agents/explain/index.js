@@ -37,7 +37,7 @@ export async function runExplainDiagram(userId, chatId) {
     });
 
     const stream = getGemini().messages.stream({
-        model: MODELS.reconciler,
+        model: MODELS.stateviz,
         max_tokens: 16000,
         messages: [{ role: 'user', content: prompt }],
         user: userId // token-usage attribution

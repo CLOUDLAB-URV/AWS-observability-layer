@@ -2,6 +2,9 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { DockviewReact, themeAbyss } from 'dockview-react';
 import { createSocket } from './ws.js';
 import { DeployedContext } from './DeployedContext.js';
+import SigilSelect from './SigilSelect.jsx';
+import UserMenu from './UserMenu.jsx';
+import Logo from './Logo.jsx';
 import DiagramPanel from './panels/DiagramPanel.jsx';
 import ResourceDetailPanel from './panels/ResourceDetailPanel.jsx';
 import ExplanationPanel from './panels/ExplanationPanel.jsx';
@@ -162,13 +165,14 @@ function findZoneGroup(api, zone, diagramGroup) {
     return null;
 }
 
-// "Deployed state" view: subscribes to one chat on the visualizer socket and
-// renders a live diagram of what is actually deployed in AWS (pushed from the
-// user's agent via the MCP tool). Each chat has its own isolated diagram. The
-// diagram + all side panels live in a VSCode-like dockview layout the user can
-// rearrange into the four zones (drag to stack / dock at an edge / resize); the
-// arrangement and per-zone sizes are persisted to localStorage.
-export default function DeployedState() {
+// The Sigils view — the whole screen: the single top bar (brand · layout toggles · sigil
+// selector · panel buttons · profile) plus the dockview workspace. Subscribes to one chat on
+// the visualizer socket and renders a live diagram of what is actually deployed in AWS
+// (pushed from the user's agent via the MCP tool). Each chat has its own isolated diagram.
+// The diagram + all side panels live in a VSCode-like dockview layout the user can rearrange
+// into the four zones (drag to stack / dock at an edge / resize); the arrangement and
+// per-zone sizes are persisted to localStorage.
+export default function DeployedState({ user, onOpenAdmin }) {
     const [connected, setConnected] = useState(false);
     const [chats, setChats] = useState([]);
     const [chatId, setChatId] = useState(() => {
@@ -1026,84 +1030,14 @@ export default function DeployedState() {
 
     return (
         <DeployedContext.Provider value={ctx}>
-            <div className="deployed-state">
-                <div className="deployed-toolbar">
-                    <div className="tbar-group project-form">
-                        <label htmlFor="viz-chat">Sigil</label>
-                        <select
-                            id="viz-chat"
-                            value={chatId}
-                            onChange={(e) => setChatId(e.target.value)}
-                        >
-                            <option value="">{chats.length ? 'Select a sigil…' : 'No sigils yet'}</option>
-                            {chats.map((c) => (
-                                <option key={c.chatId} value={c.chatId}>
-                                    {`${c.deployed ? '● ' : '○ '}${chatLabel(c)}`}
-                                </option>
-                            ))}
-                        </select>
-                        <button
-                            type="button"
-                            className="icon-btn"
-                            onClick={loadChats}
-                            title="Refresh sigils"
-                            aria-label="Refresh sigils"
-                        >
-                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none"
-                                stroke="currentColor" strokeWidth="2" strokeLinecap="round"
-                                strokeLinejoin="round" aria-hidden="true">
-                                <polyline points="23 4 23 10 17 10" />
-                                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-                            </svg>
-                        </button>
+            <header className="topbar" role="banner">
+                <div className="topbar-left">
+                    <div className="brand">
+                        <Logo size={22} className="brand-mark" />
+                        <h1>Sigilum</h1>
                     </div>
-                    {chatId && (
-                        <span
-                            className={`badge ${deployed ? 'badge-deployed' : 'badge-preview'}`}
-                            title={deployed
-                                ? 'Live — these resources are deployed in AWS'
-                                : 'Design — a sketch; nothing is deployed to AWS yet'}
-                            aria-label={`Sigil mode: ${deployed ? 'Live, deployed to AWS' : 'Design, not deployed'}`}
-                        >
-                            {deployed ? 'Live' : 'Design'}
-                        </span>
-                    )}
-                    {chatId && (
-                        <div className="tbar-group">
-                            <button
-                                type="button"
-                                className="tbar-btn"
-                                onClick={() => togglePanel('details')}
-                                aria-expanded={isOpen('details')}
-                                title="Sigil details — rename, mode and delete"
-                            >
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                    <circle cx="12" cy="12" r="9" />
-                                    <line x1="12" y1="11" x2="12" y2="16" />
-                                    <line x1="12" y1="8" x2="12.01" y2="8" />
-                                </svg>
-                                Details
-                            </button>
-                            <button
-                                type="button"
-                                className="tbar-btn explain-btn"
-                                onClick={() => togglePanel('explanation')}
-                                aria-expanded={isOpen('explanation')}
-                                title="Explain this sigil component by component"
-                            >
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                    <path d="M2 4h6a3 3 0 0 1 3 3v13a2.5 2.5 0 0 0-2.5-2.5H2z" />
-                                    <path d="M22 4h-6a3 3 0 0 0-3 3v13a2.5 2.5 0 0 1 2.5-2.5H22z" />
-                                </svg>
-                                Explain
-                                {explanation?.outdated && <span className="explain-dot" aria-hidden="true" />}
-                            </button>
-                        </div>
-                    )}
-                    <div className="tbar-spacer" />
-                    <div className="tbar-group" role="group" aria-label="Panel layout">
+                    <span className="topbar-sep" aria-hidden="true" />
+                    <div className="topbar-group" role="group" aria-label="Panel layout">
                         <button
                             type="button"
                             className="icon-btn"
@@ -1162,64 +1096,109 @@ export default function DeployedState() {
                             </button>
                         </div>
                     </div>
-                    <span className="tbar-sep" aria-hidden="true" />
-                    <div className="tbar-group">
-                        <button
-                            type="button"
-                            className="tbar-btn tbar-opencode"
-                            onClick={() => togglePanel('devtools')}
-                            aria-expanded={isOpen('devtools')}
-                            title="Show the opencode panel"
-                        >
-                            <img className="tbar-opencode-logo" src="/opencode.png" alt="opencode" />
-                        </button>
-                        <button
-                            type="button"
-                            className="tbar-btn"
-                            onClick={() => togglePanel('guide')}
-                            aria-expanded={isOpen('guide')}
-                            title="Show the Sigilum guide"
-                        >
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                <circle cx="12" cy="12" r="9" />
-                                <polygon points="15.6 8.4 13.6 13.6 8.4 15.6 10.4 10.4 15.6 8.4" />
-                            </svg>
-                            Guide
-                        </button>
-                        <button
-                            type="button"
-                            className="tbar-btn"
-                            onClick={() => togglePanel('connect-agent')}
-                            aria-expanded={isOpen('connect-agent')}
-                            title="Connect your agent via the MCP server"
-                        >
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                <path d="M9 17H7A5 5 0 0 1 7 7h2" />
-                                <path d="M15 7h2a5 5 0 0 1 0 10h-2" />
-                                <line x1="8" y1="12" x2="16" y2="12" />
-                            </svg>
-                            Connect agent
-                        </button>
-                    </div>
                 </div>
-
-                <div className="viz-dock" ref={dockRef}>
-                    <DockviewReact
-                        components={PANEL_COMPONENTS}
-                        tabComponents={TAB_COMPONENTS}
-                        theme={themeAbyss}
-                        disableFloatingGroups
-                        // Root-edge drop zones. The default 10px activation band made the bottom
-                        // edge nearly impossible to hit; widen it so "drag towards the bottom"
-                        // naturally shows the full-width bottom-strip preview (25% tall).
-                        dndEdges={DND_EDGES}
-                        dropOverlayModel={DROP_OVERLAY_MODEL}
-                        onReady={onReady}
+                <div className="topbar-center">
+                    <SigilSelect
+                        chats={chats}
+                        chatId={chatId}
+                        onSelect={setChatId}
+                        onRefresh={loadChats}
+                        chatLabel={chatLabel}
                     />
                 </div>
-            </div>
+                <div className="topbar-right">
+                    <button
+                        type="button"
+                        className="btn btn-ghost"
+                        onClick={() => togglePanel('details')}
+                        aria-expanded={isOpen('details')}
+                        disabled={!chatId}
+                        title="Sigil details — rename, mode and delete"
+                    >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <circle cx="12" cy="12" r="9" />
+                            <line x1="12" y1="11" x2="12" y2="16" />
+                            <line x1="12" y1="8" x2="12.01" y2="8" />
+                        </svg>
+                        Details
+                    </button>
+                    <button
+                        type="button"
+                        className="btn btn-ghost explain-btn"
+                        onClick={() => togglePanel('explanation')}
+                        aria-expanded={isOpen('explanation')}
+                        disabled={!chatId}
+                        title="Explain this sigil component by component"
+                    >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <path d="M2 4h6a3 3 0 0 1 3 3v13a2.5 2.5 0 0 0-2.5-2.5H2z" />
+                            <path d="M22 4h-6a3 3 0 0 0-3 3v13a2.5 2.5 0 0 1 2.5-2.5H22z" />
+                        </svg>
+                        Explain
+                        {chatId && explanation?.outdated && <span className="explain-dot" aria-hidden="true" />}
+                    </button>
+                    <button
+                        type="button"
+                        className="btn btn-ghost btn-opencode"
+                        onClick={() => togglePanel('devtools')}
+                        aria-expanded={isOpen('devtools')}
+                        title="Show the opencode panel"
+                    >
+                        <img className="btn-opencode-logo" src="/opencode.png" alt="opencode" />
+                    </button>
+                    <button
+                        type="button"
+                        className="btn btn-ghost"
+                        onClick={() => togglePanel('guide')}
+                        aria-expanded={isOpen('guide')}
+                        title="Show the Sigilum guide"
+                    >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <circle cx="12" cy="12" r="9" />
+                            <polygon points="15.6 8.4 13.6 13.6 8.4 15.6 10.4 10.4 15.6 8.4" />
+                        </svg>
+                        Guide
+                    </button>
+                    <button
+                        type="button"
+                        className="btn btn-ghost"
+                        onClick={() => togglePanel('connect-agent')}
+                        aria-expanded={isOpen('connect-agent')}
+                        title="Connect your agent via the MCP server"
+                    >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <path d="M9 17H7A5 5 0 0 1 7 7h2" />
+                            <path d="M15 7h2a5 5 0 0 1 0 10h-2" />
+                            <line x1="8" y1="12" x2="16" y2="12" />
+                        </svg>
+                        Connect agent
+                    </button>
+                    <span className="topbar-sep" aria-hidden="true" />
+                    {user && <UserMenu user={user} onOpenAdmin={onOpenAdmin} />}
+                </div>
+            </header>
+            <main id="main-content" className="layout layout-deployed" role="main">
+                <div className="deployed-state">
+                    <div className="viz-dock" ref={dockRef}>
+                        <DockviewReact
+                            components={PANEL_COMPONENTS}
+                            tabComponents={TAB_COMPONENTS}
+                            theme={themeAbyss}
+                            disableFloatingGroups
+                            // Root-edge drop zones. The default 10px activation band made the bottom
+                            // edge nearly impossible to hit; widen it so "drag towards the bottom"
+                            // naturally shows the full-width bottom-strip preview (25% tall).
+                            dndEdges={DND_EDGES}
+                            dropOverlayModel={DROP_OVERLAY_MODEL}
+                            onReady={onReady}
+                        />
+                    </div>
+                </div>
+            </main>
         </DeployedContext.Provider>
     );
 }

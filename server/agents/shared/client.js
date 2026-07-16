@@ -1,9 +1,8 @@
 'use strict';
 
 // Gemini (Google Vertex AI) client via the Google Gen AI SDK (@google/genai),
-// exposed through a thin Anthropic-Messages-compatible adapter so the rest of the
-// codebase (toolLoop.js, architect, reconciler) keeps calling
-// `getGemini().messages.stream({...})` unchanged:
+// exposed through a thin Anthropic-Messages-compatible adapter so the agents
+// (stateviz, explain) keep calling `getGemini().messages.stream({...})` unchanged:
 //   - stream.on('text', delta)         → streamed text chunks
 //   - await stream.finalMessage()      → { content: [...blocks], stop_reason }
 // where blocks are Anthropic-shaped { type:'text', text } / { type:'tool_use',
@@ -16,13 +15,10 @@ import { GoogleGenAI } from '@google/genai';
 import { withLimit, withRetry } from './limiter.js';
 import * as usageStore from '../../usageStore.js';
 
-// Per-agent model routing (cost control): cheap Flash for diagram design and
-// state reconciliation, Pro for the agentic AWS tool loop.
+// Per-agent model routing (cost control): cheap Flash for D2 generation,
+// session naming and explanations.
 export const MODELS = {
-    architect: 'gemini-2.5-flash',
-    reconciler: 'gemini-2.5-flash',
-    aws: 'gemini-2.5-pro',
-    teardown: 'gemini-2.5-pro'
+    stateviz: 'gemini-2.5-flash'
 };
 
 // Permissive safety thresholds: this is an autonomous infra/DevOps agent that

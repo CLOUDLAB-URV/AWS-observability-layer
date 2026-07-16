@@ -55,7 +55,7 @@ async function resolveTarget(req, res) {
 export function registerAdminRoutes(app) {
     // Every account with its usage: role, verification, ban state, last login, sigil counts,
     // and this month's LLM-token spend. llmMonthTotal aggregates everyone, including the
-    // "_design" pseudo-user (Design-mode calls, which have no per-user identity).
+    // "_design" pseudo-user (legacy bucket for calls with no per-user identity).
     app.get('/api/admin/users', requireSession, requireAdmin, async (req, res, next) => {
         try {
             const [users, stats, llm, llmMonthCap] = await Promise.all([

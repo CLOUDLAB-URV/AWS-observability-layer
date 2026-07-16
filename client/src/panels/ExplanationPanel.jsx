@@ -17,7 +17,11 @@ export default function ExplanationPanel(props) {
                     onClick={() => props.api.close()}
                     aria-label="Close explanation"
                 >
-                    ✕
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+                        strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                        <line x1="6" y1="6" x2="18" y2="18" />
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                    </svg>
                 </button>
             </div>
             <div className="explanation-body">
@@ -30,7 +34,7 @@ export default function ExplanationPanel(props) {
                                 <span>The sigil changed since this was written.</span>
                                 <button
                                     type="button"
-                                    className="explain-cta"
+                                    className="btn btn-primary"
                                     onClick={generateExplanation}
                                     disabled={explaining}
                                 >
@@ -45,7 +49,7 @@ export default function ExplanationPanel(props) {
                         <p>No explanation yet for this sigil.</p>
                         <button
                             type="button"
-                            className="explain-cta"
+                            className="btn btn-primary"
                             onClick={generateExplanation}
                             disabled={explaining}
                         >

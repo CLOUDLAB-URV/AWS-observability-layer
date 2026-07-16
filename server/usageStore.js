@@ -6,8 +6,8 @@
 // monthly per-user cap (settingsStore: maxLlmTokensPerUserPerMonth) is enforced against it.
 //
 // Buckets are calendar months (YYYY-MM), so the cap resets on the 1st. Calls with no user
-// identity (Design mode's shared session) accrue under the "_design" pseudo-user — visible
-// in totals, never capped.
+// identity accrue under the "_design" pseudo-user (a legacy key kept for data continuity) —
+// visible in totals, never capped.
 //
 // Shape: { [userId | "_design"]: { [YYYY-MM]: { input, output, total, calls } } }
 

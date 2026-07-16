@@ -1,6 +1,5 @@
 // Thin WebSocket client with auto-reconnect (mirrors the proxy's backoff pattern).
-// `path` selects the endpoint: '/ws' (design) or '/ws-visualizer' (deployed state).
-export function createSocket(onMessage, onStatusChange, path = '/ws') {
+export function createSocket(onMessage, onStatusChange, path = '/ws-visualizer') {
     let socket = null;
     let retryDelay = 1000;
     let closedByUser = false;

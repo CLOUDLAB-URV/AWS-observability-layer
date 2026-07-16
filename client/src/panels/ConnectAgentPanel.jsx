@@ -80,7 +80,7 @@ export default function ConnectAgentPanel() {
                         )}
 
                         <button
-                            className="viz-primary-btn"
+                            className="btn btn-primary"
                             onClick={generateToken}
                             disabled={tokens.length >= TOKEN_LIMIT}
                         >
