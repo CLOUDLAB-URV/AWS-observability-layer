@@ -739,6 +739,15 @@ body {
     transition: var(--transition-theme);
     animation: modal-in 160ms ease both;
 }
+/* Wider variant for the Connect-agent flow (token + command blocks). */
+.modal-box-wide {
+    max-width: 580px;
+    max-height: min(86vh, 720px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 20px 24px 24px;
+}
 
 .modal-title {
     font-size: 16px;
@@ -823,6 +832,11 @@ body {
 @keyframes modal-in {
     from { opacity: 0; transform: scale(0.95) translateY(8px); }
     to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+/* Soft slide-in for dockable content panels (chat details, MCP guide). */
+@keyframes viz-settings-in {
+    from { opacity: 0; transform: translateY(-6px); }
+    to   { opacity: 1; transform: translateY(0); }
 }
 
 /* ── 16. REDUCED MOTION ───────────────────────────────── */
@@ -977,13 +991,11 @@ body {
 
 /* Plain scrolling-block panels: drop the old strip chrome (bottom border, capped
    height, slide-in) so they sit cleanly inside a pane. */
-.dv-pane.chat-details,
-.dv-pane.viz-settings {
+.dv-pane.chat-details {
     border-bottom: none;
     max-height: none;
     animation: none;
 }
-.dv-pane.viz-settings { overflow: auto; }
 /* Guide: fill the pane so its dark background reaches the bottom — otherwise the lighter
    pane background shows below the content as an ugly grey cut. Match the pane bg too. */
 .dv-pane:has(> .mcp-guide) { background: var(--surface-app); }
@@ -1213,193 +1225,207 @@ body {
     color: var(--text-primary);
     font-size: 13px;
 }
-/* ── Connect-agent panel ──────────────────────────────────────────────── */
-.viz-settings {
-    padding: 24px 24px 28px;
-    border-bottom: 1px solid var(--border-default);
-    background:
-        radial-gradient(140% 120% at 100% 0%, rgba(255, 255, 255, 0.04), transparent 55%),
-        var(--surface-app);
-    font-size: 13px;
-    color: var(--text-secondary);
-    max-height: 62vh;
-    overflow-y: auto;
-    animation: viz-settings-in 220ms ease;
-}
-@keyframes viz-settings-in {
-    from { opacity: 0; transform: translateY(-6px); }
-    to   { opacity: 1; transform: translateY(0); }
-}
-.viz-settings-head { max-width: 760px; margin: 0 auto 20px; }
-.viz-settings-head h3 {
-    margin: 0 0 6px;
-    font-size: 16px;
-    font-weight: 650;
-    letter-spacing: -0.012em;
-    color: var(--text-primary);
-}
-.viz-settings-sub { margin: 0; line-height: 1.55; max-width: 680px; }
-
-.viz-steps {
-    list-style: none;
-    margin: 0 auto;
-    padding: 0;
-    max-width: 760px;
-}
-.viz-step {
-    position: relative;
-    display: grid;
-    grid-template-columns: 28px 1fr;
-    column-gap: 16px;
-    padding-bottom: 20px;
-}
-.viz-step:not(:last-child)::before {
-    content: '';
-    position: absolute;
-    left: 13.5px;
-    top: 30px;
-    bottom: 0;
-    width: 1px;
-    background: var(--border-default);
-}
-.viz-step-num {
-    width: 28px;
-    height: 28px;
-    border-radius: 50%;
-    display: grid;
-    place-items: center;
-    font-size: 13px;
-    font-weight: 650;
-    color: var(--text-primary);
-    background: var(--surface-raised);
-    border: 1px solid var(--line-strong);
-    box-shadow: 0 0 0 4px var(--surface-app);
-    z-index: 1;
-}
-.viz-step-body { min-width: 0; padding-top: 3px; }
-.viz-step-title {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text-primary);
-    margin-bottom: 4px;
-}
-.viz-step-title-row {
+/* ── Connect-agent modal ──────────────────────────────────────────────── */
+.ca-head {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: space-between;
-    flex-wrap: wrap;
-    gap: 8px 12px;
-}
-.agent-select {
+    gap: 12px;
     flex: none;
-    border: 1px solid var(--border-input);
-    border-radius: 6px;
-    padding: 4px 8px;
-    background: var(--surface-app);
-    color: var(--text-primary);
-    font-size: 12px;
-    font-weight: 500;
-    cursor: pointer;
 }
-.viz-step-hint { margin: 0 0 12px; line-height: 1.55; max-width: 620px; }
-.viz-step-body code,
-.viz-settings-sub code {
+.ca-head .modal-title { margin: 0; }
+.ca-body {
+    margin-top: 14px;
+    overflow-y: auto;
+    padding-right: 2px;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+.ca-intro {
+    margin: 0 0 16px;
+    font-size: 13.5px;
+    line-height: 1.55;
+    color: var(--text-secondary);
+}
+.ca-hint {
+    margin: 0 0 10px;
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--text-muted);
+}
+.ca-hint code {
     background: var(--surface-stage);
     border: 1px solid var(--border-default);
     border-radius: 4px;
     padding: 1px 5px;
-    font-size: 12px;
+    font-size: 11.5px;
     color: var(--text-primary);
 }
 
-/* Token manager (step 1) */
-.token-count {
-    margin-left: 8px;
+/* One-time reveal warning banner. */
+.ca-warning {
+    margin: 0 0 16px;
+    padding: 11px 13px;
+    border: 1px solid rgba(217, 174, 107, 0.4);
+    border-left: 3px solid var(--fn-amber);
+    border-radius: 8px;
+    background: rgba(217, 174, 107, 0.08);
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text-secondary);
+}
+.ca-warning strong { color: var(--fn-amber); }
+
+.ca-field-label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
     font-size: 11px;
     font-weight: 600;
-    color: var(--text-secondary);
-    background: var(--surface-stage);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    margin: 0 0 8px;
+}
+.ca-field-label-spaced { margin-top: 18px; }
+
+/* The revealed token — monospace, selectable, not a copy CTA. */
+.ca-token {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--text-primary);
+    background: var(--surface-app);
+    border: 1px dashed var(--border-input);
+    border-radius: 8px;
+    padding: 10px 12px;
+    word-break: break-all;
+    user-select: all;
+}
+
+/* Segmented agent picker (opencode | Claude Code). */
+.ca-segment {
+    display: inline-flex;
+    padding: 2px;
+    gap: 2px;
+    background: var(--surface-app);
     border: 1px solid var(--border-default);
-    border-radius: 999px;
-    padding: 1px 8px;
-    vertical-align: middle;
+    border-radius: 8px;
 }
-.token-list {
-    list-style: none;
-    margin: 12px 0;
-    padding: 0;
-    max-width: 620px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
+.ca-segment-btn {
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 550;
+    padding: 4px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: color 120ms var(--ease), background 120ms var(--ease);
 }
-.token-row {
+.ca-segment-btn:hover { color: var(--text-primary); }
+.ca-segment-btn.is-active {
+    background: var(--surface-panel);
+    color: var(--text-primary);
+    box-shadow: var(--shadow-sm);
+}
+
+.ca-actions {
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 8px 12px;
+    margin-top: 16px;
+}
+.ca-count { font-size: 12px; color: var(--text-muted); }
+
+/* Existing-token list (prod). */
+.ca-token-list {
+    list-style: none;
+    margin: 0 0 16px;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.ca-token-item {
     border: 1px solid var(--border-default);
-    border-radius: 8px;
+    border-radius: 9px;
     background: var(--surface-raised);
+    overflow: hidden;
 }
-.token-row-preview {
-    font-family: var(--font-mono);
-    font-size: 12px;
+.ca-token-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+}
+.ca-token-name {
+    font-weight: 600;
+    font-size: 13px;
     color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
-.token-row-date {
+.ca-token-preview {
     flex: 1;
     min-width: 0;
-    font-size: 12px;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
     color: var(--text-muted);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
-.token-row-confirm { display: inline-flex; align-items: center; gap: 10px; font-size: 12px; color: var(--text-secondary); }
+.ca-token-disconnect {
+    padding: 0 12px 12px;
+    border-top: 1px solid var(--border-default);
+    padding-top: 12px;
+}
+.ca-revoke-confirm {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 10px;
+    font-size: 12.5px;
+    color: var(--text-secondary);
+}
+
+/* Token name input. */
+.ca-name-input {
+    width: 100%;
+    box-sizing: border-box;
+    border: 1px solid var(--border-input);
+    border-radius: 8px;
+    padding: 9px 11px;
+    background: var(--surface-app);
+    color: var(--text-primary);
+    font-size: 13px;
+    transition: border-color 120ms var(--ease), box-shadow 120ms var(--ease);
+}
+.ca-name-input:focus { outline: none; border-color: var(--border-focus); box-shadow: var(--focus-ring); }
+.ca-name-input::placeholder { color: var(--text-muted); }
+.ca-name-input:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.ca-demo {
+    margin: 18px 0 0;
+    padding-top: 14px;
+    border-top: 1px solid var(--border-default);
+    font-size: 12.5px;
+    color: var(--text-muted);
+}
+
 .token-danger { color: var(--fn-red); }
 .token-danger:hover { color: #e0a3a3; }
 .token-hint { margin: 8px 0 0; font-size: 12px; color: var(--text-muted); }
 
-.token-new {
-    margin-top: 14px;
-    max-width: 620px;
-    padding: 12px;
-    border: 1px solid var(--line-strong);
-    border-radius: 9px;
-    background: var(--surface-panel);
-    box-shadow: var(--shadow-sm);
-}
-.token-new-title { font-size: 12px; font-weight: 600; color: var(--fn-amber); margin-bottom: 8px; }
-.token-new .token-chip { margin-top: 0; }
-
-.token-chip {
-    margin-top: 12px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 7px 7px 7px 12px;
-    background: var(--surface-panel);
-    border: 1px solid var(--border-default);
-    border-radius: 8px;
-    max-width: 620px;
-}
-.token-chip code {
-    flex: 1;
-    min-width: 0;
-    overflow-x: auto;
-    white-space: nowrap;
-    color: var(--text-primary);
-    font-size: 12px;
-    border: 0;
-    background: none;
-    padding: 0;
-}
-
+/* Ready-to-paste command block (shared by reveal + disconnect). */
 .mcp-snippet {
     margin: 0;
-    padding: 14px 78px 14px 14px;
-    background: var(--surface-panel);
+    padding: 13px 74px 13px 13px;
+    background: var(--surface-app);
     border: 1px solid var(--border-default);
     border-radius: 9px;
     font-size: 12px;
@@ -1409,23 +1435,14 @@ body {
     color: var(--text-primary);
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
-.cmd-block { position: relative; max-width: 620px; }
-/* Label above each command block when dev shows both configs at once. */
-.cmd-label {
-    margin: 12px 0 4px;
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--text-primary);
-}
-.cmd-label:first-of-type { margin-top: 0; }
-.cmd-label-sub { font-weight: 400; color: var(--text-muted); }
+.cmd-block { position: relative; }
 .copy-btn {
     position: absolute;
     top: 8px;
     right: 8px;
     z-index: 1;
     border: 1px solid var(--border-input);
-    background: var(--surface-app);
+    background: var(--surface-panel);
     color: var(--text-secondary);
     padding: 4px 11px;
     border-radius: 6px;
@@ -1434,33 +1451,9 @@ body {
     cursor: pointer;
     transition: color 120ms ease, border-color 120ms ease, background-color 120ms ease;
 }
-.token-chip .copy-btn { position: static; }
 .copy-btn:hover { color: var(--text-primary); border-color: var(--border-focus); }
 .copy-btn:active { transform: translateY(1px); }
-.copy-btn.is-copied {
-    color: var(--conn-on);
-    border-color: var(--conn-on);
-}
-
-.viz-remove {
-    max-width: 760px;
-    margin: 4px auto 0;
-    border-top: 1px solid var(--border-default);
-    padding-top: 16px;
-}
-.viz-remove summary {
-    cursor: pointer;
-    color: var(--text-secondary);
-    font-size: 13px;
-    font-weight: 550;
-    user-select: none;
-    list-style: none;
-}
-.viz-remove summary::-webkit-details-marker { display: none; }
-.viz-remove summary::before { content: '▸ '; color: var(--text-muted); }
-.viz-remove[open] summary::before { content: '▾ '; }
-.viz-remove summary:hover { color: var(--text-primary); }
-.viz-remove .cmd-block { margin-top: 12px; }
+.copy-btn.is-copied { color: var(--conn-on); border-color: var(--conn-on); }
 
 /* ----- Auth: login screen + header user menu ----- */
 /* ── Auth screen (sign in / create account / verify) ─── */

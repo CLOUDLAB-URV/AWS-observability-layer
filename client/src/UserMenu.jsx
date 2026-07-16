@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { changePassword, deleteAccount, logout } from './auth.js';
+import ConnectAgentModal from './ConnectAgentModal.jsx';
 
 // Profile menu in the top bar: the avatar + name is a trigger that opens a dropdown with the
 // account actions (Change password, Delete account, Log out). The old always-visible Logout
@@ -7,7 +8,7 @@ import { changePassword, deleteAccount, logout } from './auth.js';
 // Admins additionally get an "Admin view" entry (server-enforced — the menu gating is only UX).
 export default function UserMenu({ user, onOpenAdmin }) {
     const [open, setOpen] = useState(false);
-    const [modal, setModal] = useState(null); // null | 'password' | 'delete'
+    const [modal, setModal] = useState(null); // null | 'connect' | 'password' | 'delete'
     const wrapRef = useRef(null);
 
     useEffect(() => {
@@ -49,6 +50,11 @@ export default function UserMenu({ user, onOpenAdmin }) {
                         <div className="user-menu-head-name">{label}</div>
                         {user.email && <div className="user-menu-head-email">{user.email}</div>}
                     </div>
+                    <button type="button" className="user-menu-item" role="menuitem"
+                        onClick={() => { setOpen(false); setModal('connect'); }}>
+                        Connect agent
+                    </button>
+                    <div className="user-menu-sep" />
                     {user.role === 'admin' && onOpenAdmin && (
                         <>
                             <button type="button" className="user-menu-item" role="menuitem"
@@ -73,6 +79,7 @@ export default function UserMenu({ user, onOpenAdmin }) {
                 </div>
             )}
 
+            {modal === 'connect' && <ConnectAgentModal onClose={() => setModal(null)} />}
             {modal === 'password' && <ChangePasswordModal onClose={() => setModal(null)} />}
             {modal === 'delete' && <DeleteAccountModal user={user} onClose={() => setModal(null)} />}
         </div>

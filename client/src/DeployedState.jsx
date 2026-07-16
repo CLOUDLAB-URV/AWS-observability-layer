@@ -9,12 +9,9 @@ import DiagramPanel from './panels/DiagramPanel.jsx';
 import ResourceDetailPanel from './panels/ResourceDetailPanel.jsx';
 import ExplanationPanel from './panels/ExplanationPanel.jsx';
 import DetailsPanel from './panels/DetailsPanel.jsx';
-import ConnectAgentPanel from './panels/ConnectAgentPanel.jsx';
 import GuidePanel from './panels/GuidePanel.jsx';
 import DevToolsPanel from './panels/DevToolsPanel.jsx';
-
-const TOKEN_LIMIT = 3;
-const TOKEN_PLACEHOLDER = 'viz_your_token_here';
+import ConnectAgentModal from './ConnectAgentModal.jsx';
 
 // dockview panel registry (id → component). The layout is a rigid VSCode-like model: the
 // diagram is the fixed, locked centre anchor (like the editor) and every other panel lives in
@@ -27,14 +24,12 @@ const PANEL_COMPONENTS = {
     'resource-detail': ResourceDetailPanel,
     explanation: ExplanationPanel,
     details: DetailsPanel,
-    'connect-agent': ConnectAgentPanel,
     guide: GuidePanel,
     devtools: DevToolsPanel
 };
 // Each panel's DEFAULT zone. The user can move a panel to another zone; that choice is
 // remembered (see zone memory below) and used when the panel is reopened.
 const PANEL_META = {
-    'connect-agent': { title: 'Connect agent', zone: 'right' },
     details: { title: 'Details', zone: 'right' },
     explanation: { title: 'Explanation', zone: 'right' },
     guide: { title: 'Guide', zone: 'right' },
@@ -91,9 +86,6 @@ const SIZES_KEY = 'viz-dock-sizes-v7';
 const HIDDEN_KEY = 'viz-dock-hidden-v7';
 // The sigil (chat) the user last had selected, so it reopens on reload / revisit.
 const CHAT_KEY = 'viz-current-chat';
-// The agent chosen in the Connect Agent panel (opencode | claude). Persisted independently of the
-// dock layout, so Reset panels never touches it and the last choice sticks across reloads.
-const AGENT_KEY = 'viz-connect-agent';
 
 // Per-panel remembered zone, persisted so reopening a panel returns it to where the user
 // last left it. Seeded from the defaults above.
@@ -178,23 +170,11 @@ export default function DeployedState({ user, onOpenAdmin }) {
     const [chatId, setChatId] = useState(() => {
         try { return localStorage.getItem(CHAT_KEY) || ''; } catch { return ''; }
     });
-    // Which agent the Connect Agent panel targets (opencode | claude). Restored from localStorage so
-    // the last choice sticks across reloads; unaffected by Reset panels (separate key).
-    const [agent, setAgent] = useState(() => {
-        try { return localStorage.getItem(AGENT_KEY) === 'claude' ? 'claude' : 'opencode'; }
-        catch { return 'opencode'; }
-    });
     const [svg, setSvg] = useState('');
     const [renderError, setRenderError] = useState(null);
-    const [newToken, setNewToken] = useState('');
-    const [tokens, setTokens] = useState([]);
-    const [tokenError, setTokenError] = useState('');
-    // Local dev: the backend reports a fixed env token + local URL instead of a generated-token
-    // store. When `dev` is true the panel shows that token read-only (no generate/revoke).
-    const [dev, setDev] = useState(false);
-    const [devToken, setDevToken] = useState('');
-    const [visualizerUrl, setVisualizerUrl] = useState('');
-    const [confirmRevoke, setConfirmRevoke] = useState('');
+    // "Connect agent" pop-up (opened from the toolbar/Guide CTA — it lives in the profile menu
+    // too). Self-contained: it fetches its own token data.
+    const [connectOpen, setConnectOpen] = useState(false);
     const [copied, setCopied] = useState('');
     const [renameValue, setRenameValue] = useState('');
     const [editingName, setEditingName] = useState(false);
@@ -250,7 +230,6 @@ export default function DeployedState({ user, onOpenAdmin }) {
         const socket = createSocket(handleMessage, setConnected, '/ws-visualizer');
         socketRef.current = socket;
         loadChats();
-        loadTokens();
         return () => socket.close();
     }, []);
 
@@ -312,11 +291,6 @@ export default function DeployedState({ user, onOpenAdmin }) {
         } catch { /* quota / disabled storage */ }
     }, [chatId]);
 
-    // Persist the Connect Agent tool choice (independent of the dock layout / Reset panels).
-    useEffect(() => {
-        try { localStorage.setItem(AGENT_KEY, agent); } catch { /* quota / disabled storage */ }
-    }, [agent]);
-
     // Keep the rename field in sync with the selected chat's current name, and leave
     // edit mode whenever the selected chat changes.
     useEffect(() => {
@@ -355,50 +329,6 @@ export default function DeployedState({ user, onOpenAdmin }) {
         } catch {
             setChats([]);
         }
-    }
-
-    async function loadTokens() {
-        try {
-            const res = await fetch('/api/tokens');
-            const data = await res.json();
-            setTokens(Array.isArray(data.tokens) ? data.tokens : []);
-            setDev(Boolean(data.dev));
-            setDevToken(data.devToken || '');
-            setVisualizerUrl(data.visualizerUrl || '');
-        } catch {
-            setTokens([]);
-        }
-    }
-
-    async function generateToken() {
-        setTokenError('');
-        try {
-            const res = await fetch('/api/tokens', {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ label: 'web' })
-            });
-            if (res.status === 409) {
-                setTokenError(`Limit reached (${TOKEN_LIMIT}) — revoke one to add a new token.`);
-                return;
-            }
-            const data = await res.json();
-            setNewToken(data.token || '');
-            loadTokens();
-        } catch {
-            setTokenError('Could not generate a token. Try again.');
-        }
-    }
-
-    async function revokeToken(id) {
-        try {
-            await fetch(`/api/tokens/${encodeURIComponent(id)}`, { method: 'DELETE' });
-        } catch {
-            // ignore — the list refresh below reflects the real state
-        }
-        setConfirmRevoke('');
-        setTokenError('');
-        loadTokens();
     }
 
     // Override the auto-assigned session name for the selected chat.
@@ -724,7 +654,7 @@ export default function DeployedState({ user, onOpenAdmin }) {
         }
     }, [ensurePanel]);
 
-    const openConnectAgent = useCallback(() => ensurePanel('connect-agent'), [ensurePanel]);
+    const openConnectAgent = useCallback(() => setConnectOpen(true), []);
 
     // Reset the layout WITHOUT opening or closing anything: reset the cached zones/sizes to their
     // defaults and reflow ONLY the currently-open panels back into their default zone at the default
@@ -775,6 +705,12 @@ export default function DeployedState({ user, onOpenAdmin }) {
             if (raw) { api.fromJSON(JSON.parse(raw)); restored = true; }
         } catch { restored = false; }
         if (!restored || !api.getPanel('diagram')) buildDefault(api);
+        // A layout saved before a panel was removed (e.g. the old "connect-agent" panel, now a
+        // modal) may carry an id with no registered component — close any such orphan so the
+        // restore doesn't render a blank/broken pane.
+        for (const p of [...api.panels]) {
+            if (!PANEL_COMPONENTS[p.id]) p.api.close();
+        }
         const rd = api.getPanel('resource-detail');
         if (rd && !selectedResourceRef.current) rd.api.close();
         // A layout saved before the rebrand carries the old "Diagram" tab title — retitle it.
@@ -961,47 +897,6 @@ export default function DeployedState({ user, onOpenAdmin }) {
 
     const selectedChat = chats.find((c) => c.chatId === chatId) || null;
 
-    // In dev the token is the fixed env one (always known). Otherwise use the freshly generated
-    // token if we have one; the secret of an existing token is never returned to the UI, so a
-    // ready-to-paste command is only possible right after generating it.
-    const tokenForCmd = dev ? devToken : (newToken || TOKEN_PLACEHOLDER);
-    // In dev, point the MCP at the local server; in prod it defaults to the hosted deployment.
-    const urlEnv = dev && visualizerUrl ? ` SIGILUM_URL=${visualizerUrl}` : '';
-    // Claude Code path (registered/removed straight from the user's terminal — no iframe). In dev use
-    // the "-local" server name + SIGILUM_URL so it targets the local backend and coexists with a hosted
-    // entry; in prod it's a unique-per-OS-user name ($USER expands when pasted into a shell).
-    const SERVER_NAME = dev ? 'sigilum-local' : 'sigilum-$USER';
-    const claudeUrlFlag = dev && visualizerUrl ? `\n    --env SIGILUM_URL=${visualizerUrl} \\` : '';
-    // Ready-to-paste Claude Code CLI command: registers the published MCP at user scope (loaded in
-    // every session on this machine) with the token baked in.
-    const claudeAddCommand = `claude mcp add --scope user ${SERVER_NAME} \\
-    --env SIGILUM_TOKEN=${tokenForCmd} \\${claudeUrlFlag}
-    -- npx -y sigilum-mcp@latest`;
-    const claudeRemoveCommand = `claude mcp remove --scope user ${SERVER_NAME}`;
-    // opencode in production: one command that installs opencode if needed and writes the MCP entry
-    // into ~/.config/opencode/opencode.json (idempotent — re-running only refreshes the token). The
-    // token goes via env var (same name the MCP reads), so it's not stored as a CLI flag.
-    // In dev we can't use that helper: it owns the single `sigilum` key, so it
-    // would clobber a user's hosted entry. Show a manual `-local` entry instead, which coexists.
-    const opencodeDevSnippet = `"sigilum-local": {
-  "type": "local",
-  "command": ["npx", "-y", "sigilum-mcp@latest"],
-  "enabled": true,
-  "environment": {
-    "SIGILUM_TOKEN": "${tokenForCmd}",
-    "SIGILUM_URL": "${visualizerUrl}"
-  }
-}`;
-    const opencodeAddCommand = dev
-        ? opencodeDevSnippet
-        : `SIGILUM_TOKEN=${tokenForCmd}${urlEnv} npx -y sigilum-opencode-setup`;
-    // The step-2 block follows the agent picker in the Connect Agent panel.
-    const addCommand = agent === 'claude' ? claudeAddCommand : opencodeAddCommand;
-    // Ready-to-paste removal: the setup helper's --uninstall flag idempotently checks opencode's
-    // config and removes the "sigilum" entry if present — no token needed. Only meaningful in prod
-    // (the "-local" dev entry isn't managed by this helper, so dev keeps the manual instruction).
-    const opencodeRemoveCommand = 'npx -y sigilum-opencode-setup --uninstall';
-
     function copy(text, key) {
         navigator.clipboard?.writeText(text).catch(() => {});
         setCopied(key);
@@ -1018,11 +913,6 @@ export default function DeployedState({ user, onOpenAdmin }) {
         editingName, setEditingName, renameValue, setRenameValue,
         renameChat, cancelRename, startRename, formatDate, copy, copied,
         confirmDelete, setConfirmDelete, deleteChat, deleting,
-        dev, devToken, visualizerUrl, tokens, tokenError, newToken,
-        TOKEN_LIMIT, TOKEN_PLACEHOLDER,
-        generateToken, revokeToken, confirmRevoke, setConfirmRevoke,
-        agent, setAgent,
-        opencodeDevSnippet, addCommand, claudeAddCommand, claudeRemoveCommand, opencodeRemoveCommand,
         openConnectAgent
     };
 
@@ -1162,21 +1052,6 @@ export default function DeployedState({ user, onOpenAdmin }) {
                         </svg>
                         Guide
                     </button>
-                    <button
-                        type="button"
-                        className="btn btn-ghost"
-                        onClick={() => togglePanel('connect-agent')}
-                        aria-expanded={isOpen('connect-agent')}
-                        title="Connect your agent via the MCP server"
-                    >
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                            <path d="M9 17H7A5 5 0 0 1 7 7h2" />
-                            <path d="M15 7h2a5 5 0 0 1 0 10h-2" />
-                            <line x1="8" y1="12" x2="16" y2="12" />
-                        </svg>
-                        Connect agent
-                    </button>
                     <span className="topbar-sep" aria-hidden="true" />
                     {user && <UserMenu user={user} onOpenAdmin={onOpenAdmin} />}
                 </div>
@@ -1199,6 +1074,7 @@ export default function DeployedState({ user, onOpenAdmin }) {
                     </div>
                 </div>
             </main>
+            {connectOpen && <ConnectAgentModal onClose={() => setConnectOpen(false)} />}
         </DeployedContext.Provider>
     );
 }

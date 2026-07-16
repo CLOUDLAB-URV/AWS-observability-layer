@@ -1,5 +1,5 @@
 // Usage guide for the Sigilum MCP, shown in the Sigils view. Written for users (how to
-// use it), not as an API reference. `onOpenConnect` opens the "Connect agent" panel so
+// use it), not as an API reference. `onOpenConnect` opens the "Connect agent" modal so
 // the token reference is one click away.
 
 export default function McpGuide({ onOpenConnect }) {
