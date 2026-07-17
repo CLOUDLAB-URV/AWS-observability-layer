@@ -121,6 +121,29 @@ test('ask chat: history is capped to the most recent 50 messages', async () => {
     assert.equal(saved[49].text, 'msg 119');
 });
 
+test('deploy_note is sticky while a resource stays divergent, and clears when it converges', async () => {
+    const gw = (extra) => ({ op: 'upsert', type: 'api-gateway', id: 'gw', name: 'gw', ...extra });
+    // Live sigil: the API Gateway failed to create → deployed:false + a reason.
+    await store.applyChanges(USER, 'note-life', [gw({ deployed: false, deploy_note: 'create failed: AccessDenied' })], undefined, true);
+    assert.equal((await store.readState(USER, 'note-life')).gw.deploy_note, 'create failed: AccessDenied');
+
+    // A later enrichment re-push keeps it undeployed but omits the note → the reason must persist.
+    await store.applyChanges(USER, 'note-life', [gw({ deployed: false, region: 'eu-west-1' })], undefined, true);
+    const stillFailed = (await store.readState(USER, 'note-life')).gw;
+    assert.equal(stillFailed.deploy_note, 'create failed: AccessDenied', 'reason kept while still failed');
+    assert.equal(stillFailed.region, 'eu-west-1', 'the new field applied');
+
+    // The create finally succeeds → deployed:true (converges to the Live sigil) → the stale note clears.
+    await store.applyChanges(USER, 'note-life', [gw({ deployed: true, arn: 'arn:aws:apigateway:eu-west-1::/restapis/gw' })], undefined, true);
+    const succeeded = (await store.readState(USER, 'note-life')).gw;
+    assert.equal(succeeded.deployed, true);
+    assert.equal(succeeded.deploy_note, undefined, 'note cleared once deployed');
+
+    // A brand-new note always replaces the old one.
+    await store.applyChanges(USER, 'note-life', [gw({ deployed: false, deploy_note: 'torn down at user request' })], undefined, true);
+    assert.equal((await store.readState(USER, 'note-life')).gw.deploy_note, 'torn down at user request');
+});
+
 test('code survives a codeless re-push (the deploy→Live re-report), and a new code replaces it', async () => {
     const code = [{ name: 'handler.py', language: 'python', content: 'def handler(e, c):\n    return 200\n' }];
     // Design push carries the code.

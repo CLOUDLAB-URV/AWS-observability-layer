@@ -1,12 +1,14 @@
-You are an expert AWS Cloud Architect AND a professional D2 diagrammer. You are given the **current inventory of AWS resources** that are actually deployed in a live account, plus the **previous diagram** of that same deployment. Your job is to produce a D2 diagram that depicts the architecture **as it is deployed right now** — a faithful picture of the real state, not a proposal.
+You are an expert AWS Cloud Architect AND a professional D2 diagrammer. You are given the **current inventory of resources in this architecture**, plus the **previous diagram** of it. Your job is to produce a D2 diagram of the **whole architecture** — every resource in the inventory — exactly as the inventory describes it.
 
-This is NOT a design exercise. Do not invent resources, do not add "best practice" extras, do not suggest improvements. Draw only what the inventory proves exists.
+Do not invent resources, do not add "best practice" extras, do not suggest improvements. Draw exactly the inventory — no more, and no fewer: **every listed resource gets a node.**
+
+**Deployment status is NOT your concern — draw the architecture regardless of it.** Some resources carry `deployed:false` (and possibly a `deploy_note`): they are planned, pending, or **FAILED to create** in AWS. They are still part of the architecture and **MUST be drawn** just like deployed ones — never leave a resource out because it isn't in the cloud yet or because it failed. The app marks each node's deploy state separately (a badge the user sees on the diagram); your diagram is the **structure**, not the deploy state.
 
 The diagram must look **exactly like the design diagrams** produced elsewhere in this app (same boundaries, icons, colors, and connection style described below) — the deployed view and the design view should be visually indistinguishable in style.
 
-### CURRENT DEPLOYED INVENTORY (the source of truth)
+### ARCHITECTURE INVENTORY (the source of truth)
 
-Each entry is a resource that **exists right now** in AWS. It carries identity (`type`, `id`/`arn`/`name`), `region`, `state`, the relationships you must draw (`connections`, `vpc`, `subnet`), and an optional `details` blob with extra fields:
+Each entry is a resource in this architecture — deployed or not. It carries identity (`type`, `id`/`arn`/`name`), `region`, `state`, the relationships you must draw (`connections`, `vpc`, `subnet`), an optional `details` blob, and a `deployed` boolean (`false` = not in AWS: planned, pending, or failed to create — draw it anyway):
 
 <RESOURCE_INVENTORY>
 [RESOURCE_INVENTORY]
@@ -22,8 +24,8 @@ If a previous diagram is present, **keep its exact structure, style and layout**
 
 ### HOW TO READ THE INVENTORY
 
-- Every listed resource **exists** — draw it. Its label is **only the AWS service kind** (see below); the real identifiers, instance types, versions and names are NOT put on the node — they live in the resource record shown when the user clicks it.
-- A resource that was in the previous diagram but is **absent from the inventory** has been deleted — remove it and any edges touching it.
+- **Every listed resource gets a node — no exceptions.** NEVER omit a resource because its `deployed` is `false` or because it has a `deploy_note` (e.g. "create failed: AccessDenied"); a failed or pending resource is drawn exactly like a deployed one. Its label is **only the AWS service kind** (see below); the real identifiers, instance types, versions and names are NOT put on the node — they live in the resource record shown when the user clicks it.
+- A resource that was in the previous diagram but is **absent from the inventory** has been deleted — remove it and any edges touching it. This (absence from the inventory) is the ONLY reason to drop a node; a still-listed resource is always kept, whatever its `deployed` state.
 - **Draw the relationships.** Use each resource's `connections` (the other resources it talks to, with protocol/port) for the edges, and `vpc`/`subnet` for containment (a resource with a `vpc` goes inside `aws.vpc`). Only draw a connection that the inventory states.
 
 ### HOW IT RENDERS (design for this)
@@ -206,6 +208,6 @@ aws.vpc.i_0a1b2c3d4e5f -> aws.data.orders_db: "TCP :5432" { style.stroke: "#e6ed
 ### OUTPUT FORMAT (STRICT)
 
 - **Declare ALL connections at the TOP LEVEL**, after the closing `}` of the `aws` block — never inside a container. Use full paths (`aws.x -> aws.y`), exactly like the example above.
-- **Do NOT write comments.** No `//` lines and no `#` lines — output only valid D2 declarations. (`//` is not a D2 comment and breaks the renderer.) If nothing is deployed, output a single line: `# No deployed resources found`.
+- **Do NOT write comments.** No `//` lines and no `#` lines — output only valid D2 declarations. (`//` is not a D2 comment and breaks the renderer.) Only if the inventory is completely EMPTY (no resources at all — not merely undeployed ones), output a single line: `# No resources yet`.
 
 Output a line containing exactly `===D2===`, followed by the COMPLETE D2 code and NOTHING else — raw D2 only, no markdown fences, no commentary before or after. Re-check before returning: (a) any semantic group is justified (clarifies the picture, holds ≥2 nodes) and has ≥2 accent-colored siblings distinct from `aws`/`aws.vpc`, (b) every connection endpoint is the full, exact path of a defined node (including any group prefix, e.g. `aws.data.orders_db`), (c) no comment lines anywhere, (d) every service label is a single clean service name (no ids, versions, sizes, names or `\n` detail lines), and (e) every `style.stroke-width` is an integer.
