@@ -121,6 +121,34 @@ test('ask chat: history is capped to the most recent 50 messages', async () => {
     assert.equal(saved[49].text, 'msg 119');
 });
 
+test('code survives a codeless re-push (the deploy→Live re-report), and a new code replaces it', async () => {
+    const code = [{ name: 'handler.py', language: 'python', content: 'def handler(e, c):\n    return 200\n' }];
+    // Design push carries the code.
+    await store.applyChanges(USER, 'code-life', [{ ...upsert('fn'), type: 'lambda', code }]);
+    assert.deepEqual((await store.readState(USER, 'code-life')).fn.code, code);
+
+    // Deploy re-report: same id, real arn, NO code → the design code must be preserved.
+    await store.applyChanges(USER, 'code-life', [
+        { ...upsert('fn'), type: 'lambda', arn: 'arn:aws:lambda:eu-west-1:1:function:fn', state: 'active' }
+    ], undefined, true);
+    const afterDeploy = (await store.readState(USER, 'code-life')).fn;
+    assert.deepEqual(afterDeploy.code, code, 'code carried into the Live re-report');
+    assert.equal(afterDeploy.arn, 'arn:aws:lambda:eu-west-1:1:function:fn', 'the new fields still applied');
+
+    // Sending a new code array replaces it.
+    const code2 = [{ name: 'handler.py', language: 'python', content: 'def handler(e, c):\n    return 201\n' }];
+    await store.applyChanges(USER, 'code-life', [{ ...upsert('fn'), type: 'lambda', code: code2 }], undefined, true);
+    assert.deepEqual((await store.readState(USER, 'code-life')).fn.code, code2, 'explicit new code replaces');
+});
+
+test('code preservation does not resurrect code after the resource is deleted and re-created', async () => {
+    const code = [{ name: 'a.sh', content: 'echo hi\n' }];
+    await store.applyChanges(USER, 'code-del', [{ ...upsert('r'), code }]);
+    await store.applyChanges(USER, 'code-del', [{ op: 'delete', type: 's3', id: 'r' }]);
+    await store.applyChanges(USER, 'code-del', [upsert('r')]); // fresh resource, no prior code
+    assert.equal('code' in (await store.readState(USER, 'code-del')).r, false, 'starts with no code');
+});
+
 test('nameConflict: detects a duplicate case/space-insensitively, ignoring the excepted chat', async () => {
     await store.applyChanges(USER, 'name-a', [upsert('a')]);
     await store.renameSession(USER, 'name-a', 'Order Pipeline');

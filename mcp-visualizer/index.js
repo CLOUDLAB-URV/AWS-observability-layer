@@ -123,7 +123,7 @@ const changeSchema = z
                 })
             )
             .optional()
-            .describe('Source code THIS resource runs — the Lambda handler body, the EC2 user-data / bootstrap script, a Step Functions state machine definition, etc. Include the entry source you authored so the user can read it in the web (NOT vendored dependencies or build artifacts). The backend caps each file and the number of files.'),
+            .describe('Source code THIS resource runs — the Lambda handler body, the EC2 user-data / bootstrap script, a Step Functions state machine definition, etc. Include the entry source you authored so the user can read it in the web (NOT vendored dependencies or build artifacts). Attach it in the DESIGN phase too — draft the code together with the architecture so the user reviews it before deploying. The backend caps each file and the number of files, and keeps the code you sent earlier if a later push omits it (so it survives the deploy into the Live sigil).'),
         source_command: z.string().optional().describe('Optional: the aws CLI command that produced this change (audit only).')
     })
     .passthrough();
@@ -157,9 +157,15 @@ server.registerTool(
             'note). The web marks divergent resources on the diagram and shows your note. ' +
             'After `deploy_sigil`, a sigil is Live, so keep the SAME resource ids and upsert ' +
             'them with the real ARNs/ids (`arn`, `region`) and `state`.\n\n' +
-            'When a resource runs code you wrote — a Lambda handler, an EC2 user-data / bootstrap ' +
-            'script, a Step Functions definition — attach it in the per-resource `code` array so ' +
-            'the user can read it in the web (the diagram box otherwise only shows the service kind).\n\n' +
+            'CODE — plan it in the DESIGN phase. When a resource runs code you wrote (a Lambda ' +
+            'handler, an EC2 user-data / bootstrap script, a Step Functions definition, a Glue ' +
+            'job, …), attach it in the per-resource `code` array on the SAME design push that ' +
+            'creates the resource — do NOT wait until it is live. This lets the user review ' +
+            'exactly what will run (via "View code" in the web) BEFORE approving the deploy; the ' +
+            'diagram box otherwise only shows the service kind. Send it on every sigil, Design or ' +
+            'Live. The backend keeps code you sent earlier if a later push omits it, so once the ' +
+            'code is in the design it persists through the deploy into the Live sigil unchanged — ' +
+            're-send `code` only when the source itself actually changed.\n\n' +
             'The session is auto-named from the architecture (the user can rename it). By default ' +
             'changes go to THIS session\'s sigil; if you called load_sigil, they merge onto that one.',
         inputSchema: {
@@ -229,7 +235,10 @@ server.registerTool(
             'stores → wiring). As you create each one, call push_sigil (op:"upsert") with the ' +
             'SAME resource id it has in the design, filling in the real `arn`/InstanceId, the ' +
             '`region`, and the live `state` — keep the id stable so the node is enriched, not ' +
-            'duplicated. If a resource FAILS to create (permissions, quotas, conflicts), still ' +
+            'duplicated. The returned spec includes each resource\'s `code` (the source planned in ' +
+            'the design); it carries into the Live sigil automatically, so re-send `code` on the ' +
+            'upsert only if you changed the source before deploying. ' +
+            'If a resource FAILS to create (permissions, quotas, conflicts), still ' +
             'push it with `deployed:false` and a `deploy_note` explaining the error, so the user ' +
             'sees exactly what is pending and why on the diagram. Resources you have not ' +
             're-reported yet show as "not deployed" in the web until you push them. Do not add ' +
@@ -279,7 +288,9 @@ server.registerTool(
                     text: `Sigil "${name}" is now marked LIVE. NOTHING has been created in AWS yet — ` +
                         `that is YOUR job now. Create the ${resources.length} resource(s) below in AWS with your own tools, ` +
                         `in dependency order, then call push_sigil (op:"upsert") for each with the SAME id, adding the ` +
-                        `real ARN/id in \`arn\`/\`details\` and the live \`state\`. Do not add resources that are not in this spec.\n\n` +
+                        `real ARN/id in \`arn\`/\`details\` and the live \`state\`. Each resource's \`code\` below carries into the Live ` +
+                        `sigil automatically — you only need to re-send \`code\` if you changed the source before deploying. ` +
+                        `Do not add resources that are not in this spec.\n\n` +
                         `Spec to deploy:\n${JSON.stringify(resources, null, 2)}`
                 }
             ]
@@ -316,10 +327,11 @@ server.registerTool(
             'semantically to what the user is asking for, and pass that name here. If none of ' +
             'the existing names is a reasonable semantic match, do NOT call this with a made-up ' +
             'name — tell the user there is no similar sigil. On a match this switches the ' +
-            'active sigil and returns its FULL current deployed state (every live resource, ' +
-            'real IDs/ARNs, relationships) — that becomes the one and only architecture in ' +
-            'context, and every later push_sigil merges onto it. Use this when the user ' +
-            'wants to keep working on infrastructure deployed earlier.',
+            'active sigil and returns its FULL current state — every resource with its real ' +
+            'IDs/ARNs, relationships, details AND the `code` each one runs — so you resume with ' +
+            'the complete diagram, nothing omitted. That becomes the one and only architecture in ' +
+            'context, and every later push_sigil merges onto it (code you don\'t re-send is kept). ' +
+            'Use this when the user wants to keep working on infrastructure designed or deployed earlier.',
         inputSchema: {
             name: z
                 .string()
