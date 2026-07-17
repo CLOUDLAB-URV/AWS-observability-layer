@@ -11,7 +11,7 @@
 // Tools:
 //   - push_sigil   : report the delta of changes (the only push tool).
 //   - deploy_sigil : mark a design sigil Live and get the spec to actually build.
-//   - list_sigils  : discover previous sigils (id + name).
+//   - list_sigils  : discover previous sigils by name.
 //   - load_sigil   : resume a previous sigil BY NAME (resolved by proximity)
 //                    and load its full current deployed state into context.
 //
@@ -114,6 +114,16 @@ const changeSchema = z
         subnet: z.string().optional().describe('Subnet id this resource lives in.'),
         connections: z.array(connectionSchema).optional().describe('Relationships to OTHER resources (who it talks to, protocol, port). Always include these so the diagram draws the edges.'),
         details: z.record(z.any()).optional().describe('Full describe/create output for this resource (kept verbatim in the backend state JSON).'),
+        code: z
+            .array(
+                z.object({
+                    name: z.string().describe('File name, e.g. "handler.py", "user-data.sh", "workflow.asl.json".'),
+                    language: z.string().optional().describe('Language hint for syntax highlighting: "python", "javascript", "typescript", "bash", "json", "yaml". Omit for plain text.'),
+                    content: z.string().describe('The actual source code, verbatim.')
+                })
+            )
+            .optional()
+            .describe('Source code THIS resource runs — the Lambda handler body, the EC2 user-data / bootstrap script, a Step Functions state machine definition, etc. Include the entry source you authored so the user can read it in the web (NOT vendored dependencies or build artifacts). The backend caps each file and the number of files.'),
         source_command: z.string().optional().describe('Optional: the aws CLI command that produced this change (audit only).')
     })
     .passthrough();
@@ -147,6 +157,9 @@ server.registerTool(
             'note). The web marks divergent resources on the diagram and shows your note. ' +
             'After `deploy_sigil`, a sigil is Live, so keep the SAME resource ids and upsert ' +
             'them with the real ARNs/ids (`arn`, `region`) and `state`.\n\n' +
+            'When a resource runs code you wrote — a Lambda handler, an EC2 user-data / bootstrap ' +
+            'script, a Step Functions definition — attach it in the per-resource `code` array so ' +
+            'the user can read it in the web (the diagram box otherwise only shows the service kind).\n\n' +
             'The session is auto-named from the architecture (the user can rename it). By default ' +
             'changes go to THIS session\'s sigil; if you called load_sigil, they merge onto that one.',
         inputSchema: {
@@ -162,7 +175,7 @@ server.registerTool(
             chat: z
                 .string()
                 .optional()
-                .describe('Optional: target an explicit sigil id (e.g. one from load_sigil). Defaults to this session\'s sigil — leave unset for normal use.')
+                .describe('Optional internal targeting override — leave unset for normal use. Changes go to the active sigil automatically: this session\'s sigil, or the one you resumed with load_sigil.')
         }
     },
     async ({ project, changes, chat, deployed }) => {
@@ -194,9 +207,9 @@ server.registerTool(
             content: [
                 {
                     type: 'text',
-                    text: `Reported ${changes.length} change(s) for "${name}" (sigil ${chatId}) — mode: ${mode}: ${upserts} upsert, ${deletes} delete.\n\n` +
+                    text: `Reported ${changes.length} change(s) for "${name}" — mode: ${mode}: ${upserts} upsert, ${deletes} delete.\n\n` +
                         `${lines.join('\n')}\n\n` +
-                        `Sigil updated at ${WEB_URL} (Sigils → ${chatId.slice(0, 8)} · ${name}).${nextHint}`
+                        `Sigil updated at ${WEB_URL} (Sigils → ${name}).${nextHint}`
                 }
             ]
         };
@@ -226,7 +239,7 @@ server.registerTool(
             chat: z
                 .string()
                 .optional()
-                .describe('Optional sigil id to deploy. Defaults to this session\'s active sigil.'),
+                .describe('Optional internal targeting override — leave unset. Defaults to this session\'s active sigil (this session\'s, or the one you resumed with load_sigil).'),
             resources: z
                 .array(z.record(z.any()))
                 .optional()
@@ -263,7 +276,7 @@ server.registerTool(
             content: [
                 {
                     type: 'text',
-                    text: `Sigil "${name}" (id ${chatId}) is now marked LIVE. NOTHING has been created in AWS yet — ` +
+                    text: `Sigil "${name}" is now marked LIVE. NOTHING has been created in AWS yet — ` +
                         `that is YOUR job now. Create the ${resources.length} resource(s) below in AWS with your own tools, ` +
                         `in dependency order, then call push_sigil (op:"upsert") for each with the SAME id, adding the ` +
                         `real ARN/id in \`arn\`/\`details\` and the live \`state\`. Do not add resources that are not in this spec.\n\n` +
@@ -366,7 +379,7 @@ server.registerTool(
             content: [
                 {
                     type: 'text',
-                    text: `Loaded the sigil "${resolvedName}" (id ${match.chatId}). ` +
+                    text: `Loaded the sigil "${resolvedName}". ` +
                         `THIS is now the ONLY active architecture and the only valid context. ${modeLine} ` +
                         `From now on, EVERYTHING the user asks refers EXCLUSIVELY to this architecture; any ` +
                         `architecture worked on earlier in this session belongs to a different sigil and must be ignored.\n\n` +
@@ -383,7 +396,7 @@ server.registerTool(
         title: 'List previous sigils',
         description:
             'List the sigils available for your account (newest first), each with ' +
-            'its name, id, and last-updated time. This is the FIRST step when the user wants to ' +
+            'its name and last-updated time. This is the FIRST step when the user wants to ' +
             'resume earlier work: look at the names, pick the one closest semantically to what ' +
             'the user means, then pass that NAME to load_sigil (load_sigil resolves it by ' +
             'proximity). If no name is a reasonable match, tell the user there is no similar sigil.',
@@ -401,7 +414,7 @@ server.registerTool(
             return { content: [{ type: 'text', text: 'No previous sigils yet.' }] };
         }
         const lines = listed.chats.map(
-            (c) => `• ${c.name || '(unnamed)'} [${c.deployed ? 'LIVE' : 'DESIGN'}]${c.updatedAt ? ` (updated ${c.updatedAt})` : ''} — id ${c.chatId}`
+            (c) => `• ${c.name || '(unnamed)'} [${c.deployed ? 'LIVE' : 'DESIGN'}]${c.updatedAt ? ` (updated ${c.updatedAt})` : ''}`
         );
         return {
             content: [

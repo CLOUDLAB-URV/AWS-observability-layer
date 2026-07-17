@@ -121,6 +121,31 @@ test('ask chat: history is capped to the most recent 50 messages', async () => {
     assert.equal(saved[49].text, 'msg 119');
 });
 
+test('nameConflict: detects a duplicate case/space-insensitively, ignoring the excepted chat', async () => {
+    await store.applyChanges(USER, 'name-a', [upsert('a')]);
+    await store.renameSession(USER, 'name-a', 'Order Pipeline');
+
+    assert.equal(await store.nameConflict(USER, 'order   pipeline'), true, 'case/space-insensitive match');
+    assert.equal(await store.nameConflict(USER, 'Something else'), false);
+    // The diagram itself doesn't count as a conflict when it's excepted (renaming to same name).
+    assert.equal(await store.nameConflict(USER, 'Order Pipeline', 'name-a'), false);
+    // A DIFFERENT chat with that name does conflict.
+    assert.equal(await store.nameConflict(USER, 'Order Pipeline', 'other-chat'), true);
+});
+
+test('uniqueName: returns the base when free, else appends the first free numeric suffix', async () => {
+    await store.applyChanges(USER, 'uniq-1', [upsert('a')]);
+    await store.renameSession(USER, 'uniq-1', 'Pipeline');
+    await store.applyChanges(USER, 'uniq-2', [upsert('a')]);
+    await store.renameSession(USER, 'uniq-2', 'Pipeline 2');
+
+    assert.equal(await store.uniqueName(USER, 'Fresh name'), 'Fresh name', 'free name kept as-is');
+    // "Pipeline" and "Pipeline 2" are taken → next free is "Pipeline 3".
+    assert.equal(await store.uniqueName(USER, 'Pipeline'), 'Pipeline 3');
+    // Excepting the holder lets it keep its own name.
+    assert.equal(await store.uniqueName(USER, 'Pipeline', 'uniq-1'), 'Pipeline');
+});
+
 test.after(async () => {
     await fs.rm(tmp, { recursive: true, force: true });
 });

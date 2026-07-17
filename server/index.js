@@ -28,6 +28,7 @@ import * as usageStore from './usageStore.js';
 import { DEV, persistRoot, DEV_USER_ID, DEV_TOKEN } from './persistence.js';
 import { runStateViz, suggestSessionName } from './agents/stateviz/index.js';
 import { runAskDiagram } from './agents/ask/index.js';
+import { normalizeChanges } from './normalizeChanges.js';
 
 const PORT = Number(process.env.PORT || 3001);
 
@@ -80,45 +81,6 @@ function broadcastToChat(userId, chatId, message) {
             socket.send(payload);
         }
     }
-}
-
-// Normalize the incremental changes the MCP tool uploaded into the canonical shape
-// the state-merge pipeline expects: `{ op, type, id, ...resourceFields }`. Each
-// change must carry a `type` and a stable `id` (the key it merges under); `op`
-// defaults to 'upsert'. Entries missing type+id, or with an unknown op, are dropped.
-function normalizeChanges(body) {
-    if (!Array.isArray(body?.changes)) {
-        return [];
-    }
-    return body.changes
-        .map((change) => {
-            if (!change || typeof change !== 'object') {
-                return null;
-            }
-            const type = String(change.type ?? '').trim();
-            const id = String(change.id ?? '').trim();
-            if (!type || !id) {
-                return null;
-            }
-            const op = change.op === 'delete' ? 'delete' : 'upsert';
-            // Carry the whole detailed record through; only normalize the controls.
-            const normalized = { ...change, op, type, id };
-            // Per-resource deployment divergence: `deployed` must be a strict boolean (anything
-            // else is dropped → inherits the sigil mode), `deploy_note` a short trimmed string.
-            if (typeof change.deployed === 'boolean') {
-                normalized.deployed = change.deployed;
-            } else {
-                delete normalized.deployed;
-            }
-            const note = typeof change.deploy_note === 'string' ? change.deploy_note.trim() : '';
-            if (note) {
-                normalized.deploy_note = note.slice(0, 300);
-            } else {
-                delete normalized.deploy_note;
-            }
-            return normalized;
-        })
-        .filter(Boolean);
 }
 
 // Feature gate: short-circuits a route with 503 when its mode is disabled by config, so
@@ -269,14 +231,30 @@ app.post('/api/chats/:chatId/deployments', agentGate, requireToken, async (req, 
 
         const resources = await visualizerStore.applyChanges(req.userId, chatId, changes, nameHint, deployed);
 
-        // Auto-name a new session from its architecture when no hint was provided.
-        let name = nameHint || priorMeta.name || priorMeta.project || '';
-        if (isNewSession && !nameHint) {
-            const suggested = await suggestSessionName(resources, req.userId);
-            if (suggested) {
-                await visualizerStore.renameSession(req.userId, chatId, suggested);
-                name = suggested;
+        // Name the new diagram. Diagrams are identified by their NAME (not the id), so a name is
+        // unique per user: an explicit hint is de-duplicated, and the AI auto-namer is asked to
+        // retry when it proposes a name that's already taken, with a numeric-suffix fallback so a
+        // push never fails just because a good name collided.
+        let name = priorMeta.name || priorMeta.project || '';
+        if (isNewSession) {
+            if (nameHint) {
+                name = await visualizerStore.uniqueName(req.userId, nameHint, chatId);
+            } else {
+                const avoid = [];
+                let picked = '';
+                for (let attempt = 0; attempt < 3; attempt += 1) {
+                    const suggested = await suggestSessionName(resources, req.userId, avoid);
+                    if (!suggested) break;
+                    if (!(await visualizerStore.nameConflict(req.userId, suggested, chatId))) {
+                        picked = suggested;
+                        break;
+                    }
+                    avoid.push(suggested); // tell the next attempt this one is taken
+                }
+                name = picked
+                    || await visualizerStore.uniqueName(req.userId, avoid[avoid.length - 1] || 'Untitled sigil', chatId);
             }
+            await visualizerStore.renameSession(req.userId, chatId, name);
         }
 
         const d2 = await runStateViz(req.userId, chatId);
@@ -359,6 +337,13 @@ app.patch('/api/chats/:chatId', agentGate, requireSession, async (req, res) => {
     const name = visualizerStore.sanitizeName(req.body?.name);
     if (!name) {
         res.status(400).json({ error: 'A non-empty name is required.' });
+        return;
+    }
+    // Names identify diagrams, so they're unique per user. A manual rename to a name another
+    // diagram already uses is refused (the web surfaces this to the user) — it is not silently
+    // disambiguated the way the AI auto-namer is.
+    if (await visualizerStore.nameConflict(req.userId, name, chatId)) {
+        res.status(409).json({ error: `You already have a diagram named "${name}". Pick a different name.` });
         return;
     }
     const meta = await visualizerStore.renameSession(req.userId, chatId, name);

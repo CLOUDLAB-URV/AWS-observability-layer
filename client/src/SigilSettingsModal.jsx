@@ -8,7 +8,7 @@ import { useDeployed } from './DeployedContext.js';
 export default function SigilSettingsModal({ onClose }) {
     const {
         selectedChat, deployed, mixed, divergentCount, resources,
-        renameValue, setRenameValue, renameChat, formatDate, copy, copied,
+        renameValue, setRenameValue, renameChat, renameError, setRenameError, formatDate,
         confirmDelete, setConfirmDelete, deleteChat, deleting
     } = useDeployed();
 
@@ -65,7 +65,7 @@ export default function SigilSettingsModal({ onClose }) {
                             className="ca-name-input"
                             placeholder="Sigil name"
                             value={renameValue}
-                            onChange={(e) => setRenameValue(e.target.value)}
+                            onChange={(e) => { setRenameValue(e.target.value); if (renameError) setRenameError(''); }}
                             onKeyDown={(e) => { if (e.key === 'Enter') save(); }}
                             aria-label="Sigil name"
                             maxLength={80}
@@ -75,6 +75,7 @@ export default function SigilSettingsModal({ onClose }) {
                             Save
                         </button>
                     </div>
+                    {renameError && <p className="so-name-error" role="alert">{renameError}</p>}
 
                     {/* Read-only — the sigil's own data */}
                     <div className="ca-field-label ca-field-label-spaced">Details</div>
@@ -114,19 +115,6 @@ export default function SigilSettingsModal({ onClose }) {
                         <div className="so-info-row">
                             <dt>Last update</dt>
                             <dd>{formatDate(selectedChat.updatedAt)}</dd>
-                        </div>
-                        <div className="so-info-row">
-                            <dt>Sigil ID</dt>
-                            <dd className="so-info-inline">
-                                <code className="so-id">{selectedChat.chatId}</code>
-                                <button
-                                    type="button"
-                                    className={`link-btn ${copied === 'cid' ? 'is-copied' : ''}`}
-                                    onClick={() => copy(selectedChat.chatId, 'cid')}
-                                >
-                                    {copied === 'cid' ? 'Copied' : 'Copy'}
-                                </button>
-                            </dd>
                         </div>
                     </dl>
 

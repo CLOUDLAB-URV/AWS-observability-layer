@@ -7,6 +7,7 @@ import UserMenu from './UserMenu.jsx';
 import Logo from './Logo.jsx';
 import DiagramPanel from './panels/DiagramPanel.jsx';
 import ResourceDetailPanel from './panels/ResourceDetailPanel.jsx';
+import CodePanel from './panels/CodePanel.jsx';
 import AskPanel from './panels/AskPanel.jsx';
 import SigilSettingsModal from './SigilSettingsModal.jsx';
 import GuidePanel from './panels/GuidePanel.jsx';
@@ -22,6 +23,7 @@ import ConnectAgentModal from './ConnectAgentModal.jsx';
 const PANEL_COMPONENTS = {
     diagram: DiagramPanel,
     'resource-detail': ResourceDetailPanel,
+    code: CodePanel,
     ask: AskPanel,
     guide: GuidePanel,
     devtools: DevToolsPanel
@@ -32,6 +34,7 @@ const PANEL_META = {
     ask: { title: 'Ask', zone: 'right' },
     guide: { title: 'Guide', zone: 'right' },
     'resource-detail': { title: 'Resource', zone: 'right' },
+    code: { title: 'Code', zone: 'right' },
     devtools: { title: 'opencode', zone: 'left' }
 };
 // Zone → the dockview direction used to create that zone's group next to the diagram.
@@ -77,11 +80,11 @@ function zoneCreateSize(zone, dockEl, sizes) {
 }
 
 // Bump the suffixes when panel ids / defaults change so stale saved state is ignored.
-// (v7 = rigid 4-zone VSCode model, superseding the v6 free-tiling layout.)
-const LAYOUT_KEY = 'viz-dock-layout-v7';
-const ZONES_KEY = 'viz-dock-zones-v7';
-const SIZES_KEY = 'viz-dock-sizes-v7';
-const HIDDEN_KEY = 'viz-dock-hidden-v7';
+// (v8 = added the Code window panel; v7 = rigid 4-zone VSCode model.)
+const LAYOUT_KEY = 'viz-dock-layout-v8';
+const ZONES_KEY = 'viz-dock-zones-v8';
+const SIZES_KEY = 'viz-dock-sizes-v8';
+const HIDDEN_KEY = 'viz-dock-hidden-v8';
 // The sigil (chat) the user last had selected, so it reopens on reload / revisit.
 const CHAT_KEY = 'viz-current-chat';
 
@@ -178,6 +181,8 @@ export default function DeployedState({ user, onOpenAdmin }) {
     const [copied, setCopied] = useState('');
     const [renameValue, setRenameValue] = useState('');
     const [editingName, setEditingName] = useState(false);
+    // Surfaced when a rename is refused because the name is already taken (names are unique).
+    const [renameError, setRenameError] = useState('');
     // Inline two-step confirm for the destructive "Delete diagram" action in the Details panel.
     const [confirmDelete, setConfirmDelete] = useState(false);
     const [deleting, setDeleting] = useState(false);
@@ -185,6 +190,9 @@ export default function DeployedState({ user, onOpenAdmin }) {
     // panel), and the resource the user clicked in the diagram.
     const [resources, setResources] = useState([]);
     const [selectedResource, setSelectedResource] = useState(null);
+    // The Code window's target: { resourceId, fileName } or null. Set by "View code" in the
+    // resource detail panel; drives opening/closing the dedicated `code` panel.
+    const [codeView, setCodeView] = useState(null);
     // Mode of the selected diagram: true = "Live" (deployed to AWS), false = "Design" (a sketch).
     const [deployed, setDeployed] = useState(false);
     const socketRef = useRef(null);
@@ -196,6 +204,8 @@ export default function DeployedState({ user, onOpenAdmin }) {
     const dockRef = useRef(null);           // the .viz-dock container (for width/animation)
     const saveTimer = useRef(null);
     const selectedResourceRef = useRef(null);
+    const codeViewRef = useRef(null);       // mirror of codeView, read inside layout-change callback
+    const lastSelectedIdRef = useRef(null); // last selected resource id (to close Code on a real change)
     const zonesRef = useRef(loadZones());   // per-panel remembered zone (persisted)
     // Intended pixel size of each zone (left/right width, bottom height). Captured whenever the
     // layout settles at a STABLE container width (a user sash drag or a panel open) and restored
@@ -219,7 +229,18 @@ export default function DeployedState({ user, onOpenAdmin }) {
 
     useEffect(() => {
         selectedResourceRef.current = selectedResource;
+        // Close the Code window when the selection moves to a DIFFERENT resource (or clears) —
+        // but not on a mere data refresh that keeps the same id (a push updates the object).
+        const id = selectedResource?.id ?? null;
+        if (id !== lastSelectedIdRef.current) {
+            lastSelectedIdRef.current = id;
+            setCodeView(null);
+        }
     }, [selectedResource]);
+
+    useEffect(() => {
+        codeViewRef.current = codeView;
+    }, [codeView]);
 
     useEffect(() => {
         const socket = createSocket(handleMessage, setConnected, '/ws-visualizer');
@@ -317,21 +338,30 @@ export default function DeployedState({ user, onOpenAdmin }) {
     async function renameChat() {
         const name = renameValue.trim();
         if (!chatId || !name) return;
+        setRenameError('');
         try {
-            await fetch(`/api/chats/${encodeURIComponent(chatId)}`, {
+            const res = await fetch(`/api/chats/${encodeURIComponent(chatId)}`, {
                 method: 'PATCH',
                 headers: { 'content-type': 'application/json' },
                 body: JSON.stringify({ name })
             });
+            if (!res.ok) {
+                // 409 = duplicate name; surface the server's message and keep editing.
+                let message = 'Could not rename the diagram. Try again.';
+                try { const data = await res.json(); if (data?.error) message = data.error; } catch { /* keep default */ }
+                setRenameError(message);
+                return;
+            }
             setEditingName(false);
             loadChats();
         } catch {
-            // ignore — the list simply won't update
+            setRenameError('Could not rename the diagram. Try again.');
         }
     }
 
     function startRename() {
         setRenameValue(selectedChat?.name || '');
+        setRenameError('');
         setEditingName(true);
     }
 
@@ -356,6 +386,7 @@ export default function DeployedState({ user, onOpenAdmin }) {
 
     function cancelRename() {
         setRenameValue(selectedChat?.name || '');
+        setRenameError('');
         setEditingName(false);
     }
 
@@ -620,6 +651,12 @@ export default function DeployedState({ user, onOpenAdmin }) {
 
     const openConnectAgent = useCallback(() => setConnectOpen(true), []);
 
+    // "View code" on a resource → point the Code window at that file (an effect opens the panel).
+    const openCode = useCallback((resource, file) => {
+        if (!resource?.id || !file?.name) return;
+        setCodeView({ resourceId: resource.id, fileName: file.name });
+    }, []);
+
     // Reset the layout WITHOUT opening or closing anything: reset the cached zones/sizes to their
     // defaults and reflow ONLY the currently-open panels back into their default zone at the default
     // size. Panels that are closed stay closed — the cache reset just means they'll open in their
@@ -677,6 +714,10 @@ export default function DeployedState({ user, onOpenAdmin }) {
         }
         const rd = api.getPanel('resource-detail');
         if (rd && !selectedResourceRef.current) rd.api.close();
+        // The Code window is transient (no target until "View code" is clicked) — close any
+        // restored instance so a stale layout doesn't reopen an empty pane.
+        const cp = api.getPanel('code');
+        if (cp && !codeViewRef.current) cp.api.close();
         // A layout saved before the rebrand carries the old "Diagram" tab title — retitle it.
         const dp = api.getPanel('diagram');
         if (dp && dp.title !== 'Sigil') dp.api.setTitle('Sigil');
@@ -765,6 +806,10 @@ export default function DeployedState({ user, onOpenAdmin }) {
             if (!api.getPanel('resource-detail') && selectedResourceRef.current) {
                 setSelectedResource(null);
             }
+            // Likewise, closing the Code tab clears its target so it can be reopened cleanly.
+            if (!api.getPanel('code') && codeViewRef.current) {
+                setCodeView(null);
+            }
             // Keep the 4-zone invariant (merge accidental duplicate-zone groups, re-anchor a
             // full-width bottom under the diagram). Guarded so it doesn't recurse on its own moves.
             reconcileZones();
@@ -802,6 +847,15 @@ export default function DeployedState({ user, onOpenAdmin }) {
         if (selectedResource && !existing) ensurePanel('resource-detail');
         else if (!selectedResource && existing) existing.api.close();
     }, [selectedResource, ensurePanel]);
+
+    // Data-driven: open/close the Code window following the "View code" target.
+    useEffect(() => {
+        const api = apiRef.current;
+        if (!api) return;
+        const existing = api.getPanel('code');
+        if (codeView && !existing) ensurePanel('code');
+        else if (!codeView && existing) existing.api.close();
+    }, [codeView, ensurePanel]);
 
     // Keep the side columns at a FIXED pixel width when the whole window (dock container) is
     // resized, so ONLY the diagram grows/shrinks — like VSCode. dockview lays the grid out
@@ -848,9 +902,10 @@ export default function DeployedState({ user, onOpenAdmin }) {
     }, []);
 
     // The dropdown shows only the human name (fall back to a short id for unnamed
-    // sigils). Dates / full id / rename live in the Details panel.
+    // sigils). A diagram is identified by its name, so the id is never shown; an unnamed
+    // diagram (the auto-namer failed) falls back to a neutral placeholder, not the id.
     function chatLabel(c) {
-        return c.name || `Sigil ${c.chatId.slice(0, 8)}`;
+        return c.name || 'Untitled sigil';
     }
 
     function formatDate(iso) {
@@ -878,9 +933,11 @@ export default function DeployedState({ user, onOpenAdmin }) {
     // pull only what they need via useDeployed().
     const ctx = {
         svg, renderError, resources, selectedResource, setSelectedResource,
+        codeView, setCodeView, openCode,
         chatId, chatsCount: chats.length,
         selectedChat, deployed, mixed, divergentCount,
         editingName, setEditingName, renameValue, setRenameValue,
+        renameError, setRenameError,
         renameChat, cancelRename, startRename, formatDate, copy, copied,
         confirmDelete, setConfirmDelete, deleteChat, deleting,
         openConnectAgent

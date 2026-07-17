@@ -16,11 +16,12 @@ const D2_MARKER = '===D2===';
 
 // Compact the resource inventory for the prompt: keep identity, state and ALL the
 // relationship fields (connections / vpc / subnet — the diagram needs them to draw
-// edges and containment), and only truncate the verbose `details` blob, whose full
-// form is preserved in state.json regardless.
+// edges and containment), truncate the verbose `details` blob, and replace the `code`
+// bodies with a tiny per-file summary. Both full forms are preserved in state.json; the
+// model only needs to KNOW code exists (so it can mention it), not read every byte.
 export function compactResources(resources) {
     return resources.map((resource) => {
-        const { details, ...rest } = resource;
+        const { details, code, ...rest } = resource;
         const entry = { ...rest };
         if (details && typeof details === 'object') {
             let blob = JSON.stringify(details);
@@ -28,6 +29,13 @@ export function compactResources(resources) {
                 blob = `${blob.slice(0, 1500)}…(truncated)`;
             }
             entry.details = blob;
+        }
+        if (Array.isArray(code) && code.length) {
+            entry.code = code.map((file) => ({
+                name: file?.name,
+                language: file?.language,
+                bytes: typeof file?.content === 'string' ? file.content.length : 0
+            }));
         }
         return entry;
     });
@@ -91,20 +99,27 @@ export async function runStateViz(userId, chatId) {
 // Suggest a short, human-readable session name describing the deployed architecture
 // (e.g. "S3 + SQS pipeline"). Used to auto-name a brand-new session on its first
 // deploy; the user can rename it later from the web. Takes the current resource
-// inventory (Object.values of the state map). Returns '' on any failure so the
-// caller can fall back gracefully. Cheap model, no tools. `userId` is only for
-// token-usage attribution.
-export async function suggestSessionName(resources, userId = null) {
+// inventory (Object.values of the state map). `avoid` lists names already taken by
+// the user's other diagrams — the model is told not to reuse them (names are unique),
+// so a retry after a collision picks a genuinely different name. Returns '' on any
+// failure so the caller can fall back gracefully. Cheap model, no tools. `userId` is
+// only for token-usage attribution.
+export async function suggestSessionName(resources, userId = null, avoid = []) {
     if (!Array.isArray(resources) || resources.length === 0) {
         return '';
     }
 
+    const avoidLine = Array.isArray(avoid) && avoid.length
+        ? `\n\nThese names are already taken by other diagrams — do NOT reuse any of them, ` +
+          `pick a clearly different name: ${avoid.map((n) => `"${n}"`).join(', ')}.`
+        : '';
     const prompt =
         'You are naming an AWS architecture for a UI list. Given the deployed AWS ' +
         'resources below, reply with ONLY a short descriptive name of at most 5 ' +
         'words (no quotes, no punctuation at the ends, no trailing period). ' +
-        'Examples: "S3 static site", "SQS order pipeline", "VPC with RDS".\n\n' +
-        `Resources:\n${JSON.stringify(compactResources(resources), null, 2)}`;
+        'Examples: "S3 static site", "SQS order pipeline", "VPC with RDS".' +
+        avoidLine +
+        `\n\nResources:\n${JSON.stringify(compactResources(resources), null, 2)}`;
 
     try {
         const stream = getGemini().messages.stream({

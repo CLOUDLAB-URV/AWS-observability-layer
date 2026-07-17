@@ -138,11 +138,6 @@ export default function ConnectAgentModal({ onClose }) {
 
     async function generate() {
         setError('');
-        // Dev has no token store: reveal the fixed env token directly.
-        if (dev) {
-            setRevealToken(devToken);
-            return;
-        }
         if (atLimit) return;
         setBusy(true);
         try {
@@ -185,7 +180,10 @@ export default function ConnectAgentModal({ onClose }) {
     }
 
     const inReveal = Boolean(revealToken);
-    const cmds = inReveal ? buildCommands({ token: revealToken, dev, visualizerUrl }) : null;
+    // Local dev has a single fixed token that's always present — build its commands up front so the
+    // modal can show the token + ready-to-paste config directly, with nothing to generate.
+    const cmdToken = dev ? devToken : revealToken;
+    const cmds = (dev || inReveal) ? buildCommands({ token: cmdToken, dev, visualizerUrl }) : null;
     const active = cmds ? cmds[agent] : null;
     // Removal commands for the list-view "Disconnect" (token value not needed to remove).
     const removeCmds = buildCommands({ token: '', dev, visualizerUrl });
@@ -212,11 +210,49 @@ export default function ConnectAgentModal({ onClose }) {
 
                 {loading ? (
                     <p className="modal-message">Loading…</p>
+                ) : dev ? (
+                    <div className="ca-body">
+                        <p className="ca-intro">
+                            Local dev uses a single fixed token — no login, nothing to generate. Paste
+                            one command into your agent and it connects to this local Sigilum. After each
+                            change your agent reports what it deployed and the sigil updates live here.
+                        </p>
+
+                        <div className="ca-field-label">Your token</div>
+                        <div className="ca-token">{devToken}</div>
+
+                        <div className="ca-field-label ca-field-label-spaced">
+                            Configure your agent
+                            <AgentToggle agent={agent} setAgent={setAgent} />
+                        </div>
+                        <p className="ca-hint">
+                            {agent === 'opencode'
+                                ? (active.addIsSnippet
+                                    ? <>Add this under <code>mcp</code> in <code>~/.config/opencode/opencode.json</code>. The token is already included.</>
+                                    : <>Paste this in your terminal — it installs opencode if needed and writes the MCP config. The token is already included.</>)
+                                : <>Paste this in your terminal. User scope = loaded in every session on this machine. The token is already included.</>}
+                        </p>
+                        <CopyBlock text={active.add} snippet={active.addIsSnippet} />
+
+                        {/* Global MCP removal — idempotent, safe even if Sigilum was never configured. */}
+                        <div className="ca-remove">
+                            <div className="ca-field-label ca-field-label-spaced">
+                                Remove Sigilum from your agent
+                                <AgentToggle agent={agent} setAgent={setAgent} />
+                            </div>
+                            <p className="ca-hint">
+                                {agent === 'opencode'
+                                    ? <>Deletes the <code>sigilum</code> entry from <code>~/.config/opencode/opencode.json</code> if it's there — safe to run even if it was never set up.</>
+                                    : <>Removes the user-scope <code>sigilum</code> MCP registration — safe to run even if it isn't registered.</>}
+                            </p>
+                            <CopyBlock text={removeCmds[agent].remove} />
+                        </div>
+                    </div>
                 ) : inReveal ? (
                     <div className="ca-body">
                         <div className="ca-warning" role="alert">
                             <strong>Save this now.</strong> This token is shown only once — once you
-                            close this window it can't be seen again{dev ? '' : ' (generate a new one if you lose it)'}.
+                            close this window it can't be seen again (generate a new one if you lose it).
                         </div>
 
                         <div className="ca-field-label">Your token</div>
@@ -246,7 +282,7 @@ export default function ConnectAgentModal({ onClose }) {
                             your agent reports what it deployed and the sigil updates live here.
                         </p>
 
-                        {!dev && tokens.length > 0 && (
+                        {tokens.length > 0 && (
                             <ul className="ca-token-list">
                                 {tokens.map((t) => (
                                     <li key={t.id} className="ca-token-item">
@@ -275,26 +311,19 @@ export default function ConnectAgentModal({ onClose }) {
                             </ul>
                         )}
 
-                        {dev ? (
-                            <p className="ca-hint">
-                                Local dev uses a fixed token (no login). Click generate to reveal it and
-                                get the ready-to-paste config for your agent.
-                            </p>
-                        ) : (
-                            <div className="ca-generate">
-                                <input
-                                    type="text"
-                                    className="ca-name-input"
-                                    placeholder={nextDefaultName(tokens)}
-                                    value={name}
-                                    onChange={(e) => setName(e.target.value)}
-                                    onKeyDown={(e) => { if (e.key === 'Enter' && !atLimit) generate(); }}
-                                    disabled={atLimit}
-                                    aria-label="Token name"
-                                    maxLength={40}
-                                />
-                            </div>
-                        )}
+                        <div className="ca-generate">
+                            <input
+                                type="text"
+                                className="ca-name-input"
+                                placeholder={nextDefaultName(tokens)}
+                                value={name}
+                                onChange={(e) => setName(e.target.value)}
+                                onKeyDown={(e) => { if (e.key === 'Enter' && !atLimit) generate(); }}
+                                disabled={atLimit}
+                                aria-label="Token name"
+                                maxLength={40}
+                            />
+                        </div>
 
                         <div className="ca-actions">
                             <button
@@ -305,9 +334,7 @@ export default function ConnectAgentModal({ onClose }) {
                             >
                                 {busy ? 'Generating…' : 'Generate token'}
                             </button>
-                            {!dev && (
-                                <span className="ca-count">{tokens.length}/{TOKEN_LIMIT} tokens</span>
-                            )}
+                            <span className="ca-count">{tokens.length}/{TOKEN_LIMIT} tokens</span>
                         </div>
                         {atLimit && <p className="token-hint">Limit reached ({TOKEN_LIMIT}). Revoke one to add a new token.</p>}
                         {error && <p className="token-hint token-danger">{error}</p>}

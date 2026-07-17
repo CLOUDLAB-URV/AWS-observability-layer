@@ -24,7 +24,7 @@ const TOP_FIELDS = [
 // resource carries.
 const HANDLED = new Set([
     ...TOP_FIELDS.map(([k]) => k),
-    'type', 'connections', 'details', 'deployed', 'deploy_note', 'consoleUrl'
+    'type', 'connections', 'details', 'code', 'deployed', 'deploy_note', 'consoleUrl'
 ]);
 
 // Nicely cased service name for the header, from the raw inventory `type`. Falls back to a
@@ -104,7 +104,7 @@ function KVRow({ label, value }) {
     );
 }
 
-export default function ResourceDetail({ resource, onClose }) {
+export default function ResourceDetail({ resource, onClose, onViewCode }) {
     // "Copied" feedback for the ARN copy button (auto-clears).
     const [copied, setCopied] = useState(false);
     const copiedTimer = useRef(null);
@@ -114,6 +114,11 @@ export default function ResourceDetail({ resource, onClose }) {
 
     const connections = Array.isArray(resource.connections) ? resource.connections : [];
     const details = resource.details && typeof resource.details === 'object' ? resource.details : null;
+    // Source files this resource runs (Lambda handler, EC2 user-data, …). Each opens in the
+    // dedicated Code window via onViewCode; keep only well-formed entries.
+    const codeFiles = (Array.isArray(resource.code) ? resource.code : []).filter(
+        (file) => file && typeof file === 'object' && file.name && typeof file.content === 'string'
+    );
     // The backend backfills `deployed` on read, so it's always a boolean by the time it's here.
     const deployed = resource.deployed === true;
     // Deployed only: the resource exists in AWS — derive its ARN (explicit field, ARN-shaped id,
@@ -249,6 +254,33 @@ export default function ResourceDetail({ resource, onClose }) {
                                             .join(' · ')}
                                     </span>
                                 )}
+                            </div>
+                        ))}
+                    </section>
+                )}
+
+                {codeFiles.length > 0 && (
+                    <section className="rd-section">
+                        <h4 className="rd-section-title">Code ({codeFiles.length})</h4>
+                        {codeFiles.map((file, i) => (
+                            <div key={`${file.name}-${i}`} className="rd-code-row">
+                                <span className="rd-code-file">
+                                    <span className="rd-code-name">{file.name}</span>
+                                    {file.language && <span className="rd-code-lang">{file.language}</span>}
+                                </span>
+                                <button
+                                    type="button"
+                                    className="rd-code-view"
+                                    onClick={() => onViewCode?.(file)}
+                                    title={`View ${file.name}`}
+                                >
+                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                        <polyline points="16 18 22 12 16 6" />
+                                        <polyline points="8 6 2 12 8 18" />
+                                    </svg>
+                                    View code
+                                </button>
                             </div>
                         ))}
                     </section>

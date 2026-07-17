@@ -13,6 +13,7 @@
     "@fontsource-variable/geist-mono": "^5.2.8",
     "dockview-core": "^7.0.2",
     "dockview-react": "^7.0.2",
+    "highlight.js": "^11.11.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

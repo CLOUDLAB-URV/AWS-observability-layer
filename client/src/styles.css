@@ -778,6 +778,149 @@ body {
     white-space: pre-wrap;
     word-break: break-word;
 }
+/* Code section in the resource detail panel: one row per source file with a "View code" button
+   that opens the dedicated Code window. */
+.rd-code-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border-default);
+}
+.rd-code-row:last-child { border-bottom: none; }
+.rd-code-file {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+}
+.rd-code-name {
+    font-family: var(--font-mono, monospace);
+    font-size: 12px;
+    color: var(--text-secondary);
+    word-break: break-all;
+}
+.rd-code-lang {
+    flex: none;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+}
+.rd-code-view {
+    flex: none;
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 9px;
+    font-size: 11px;
+    color: var(--text-muted);
+    background: var(--surface-app);
+    border: 1px solid var(--border-default);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 120ms ease, color 120ms ease;
+}
+.rd-code-view:hover { color: var(--text-primary); background: var(--surface-raised); }
+
+/* The Code window (dockview panel): header + optional file tabs + toolbar + scrollable source. */
+.code-pane {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background: var(--surface-panel);
+}
+.code-tabs {
+    display: flex;
+    gap: 2px;
+    overflow-x: auto;
+    padding: 6px 10px 0;
+    border-bottom: 1px solid var(--border-default);
+}
+.code-tab {
+    flex: none;
+    padding: 5px 10px;
+    font-family: var(--font-mono, monospace);
+    font-size: 11px;
+    color: var(--text-muted);
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.code-tab:hover { color: var(--text-secondary); }
+.code-tab.is-active { color: var(--text-primary); border-bottom-color: var(--brand); }
+.code-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border-default);
+}
+.code-filename {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+    font-family: var(--font-mono, monospace);
+    font-size: 12px;
+    color: var(--text-secondary);
+    word-break: break-all;
+}
+.code-lang {
+    flex: none;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+}
+.code-copy {
+    flex: none;
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    font-size: 11px;
+    color: var(--text-muted);
+    background: var(--surface-app);
+    border: 1px solid var(--border-default);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 120ms ease, color 120ms ease;
+}
+.code-copy:hover { color: var(--text-primary); background: var(--surface-raised); }
+.code-window {
+    flex: 1;
+    min-height: 0;
+    margin: 0;
+    padding: 12px 14px;
+    overflow: auto;
+    background: var(--surface-stage);
+    font-family: var(--font-mono, monospace);
+    font-size: 12px;
+    line-height: 1.55;
+    color: var(--text-secondary);
+    tab-size: 4;
+    white-space: pre;
+}
+.code-window code.hljs { font: inherit; color: inherit; background: none; }
+
+/* highlight.js token colors, tuned to the app's desaturated dark palette (no external theme). */
+.hljs-comment, .hljs-quote { color: var(--gray-600); font-style: italic; }
+.hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-doctag { color: var(--brand-strong); }
+.hljs-string, .hljs-regexp, .hljs-addition { color: var(--fn-green); }
+.hljs-number, .hljs-symbol, .hljs-bullet { color: var(--fn-amber); }
+.hljs-title, .hljs-name, .hljs-section, .hljs-title.function_ { color: var(--brand); }
+.hljs-built_in, .hljs-type, .hljs-class .hljs-title { color: #cbb9d6; }
+.hljs-attr, .hljs-attribute, .hljs-variable, .hljs-template-variable { color: var(--gray-300); }
+.hljs-meta { color: var(--text-muted); }
+.hljs-deletion { color: var(--fn-red); }
+.hljs-emphasis { font-style: italic; }
+.hljs-strong { font-weight: 600; }
+
 .diagram-canvas svg { max-width: none; }
 
 .diagram-error-overlay {
@@ -1374,6 +1517,11 @@ body {
 }
 .so-name .ca-name-input { flex: 1; min-width: 0; }
 .so-name .btn { flex: none; }
+.so-name-error {
+    margin: 8px 0 0;
+    font-size: 12px;
+    color: var(--fn-red);
+}
 
 /* Read-only sigil data as a compact definition list (label left / value right). */
 .so-info {
