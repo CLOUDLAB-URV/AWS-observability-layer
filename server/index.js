@@ -27,7 +27,7 @@ import { getSetting } from './settingsStore.js';
 import * as usageStore from './usageStore.js';
 import { DEV, persistRoot, DEV_USER_ID, DEV_TOKEN } from './persistence.js';
 import { runStateViz, suggestSessionName } from './agents/stateviz/index.js';
-import { runExplainDiagram } from './agents/explain/index.js';
+import { runAskDiagram } from './agents/ask/index.js';
 
 const PORT = Number(process.env.PORT || 3001);
 
@@ -180,7 +180,7 @@ async function requireSessionOrToken(req, res, next) {
 }
 
 // Monthly LLM-token quota gate for the user-attributed AI routes (deployments ingest and
-// explanation). Gate-at-entry: an in-flight call may finish past the cap, which is fine —
+// the diagram Ask chat). Gate-at-entry: an in-flight call may finish past the cap, which is fine —
 // the overshoot counts against next requests. Admins are exempt; skipped in local dev.
 // Returns the 403 payload when over quota, or null to proceed.
 async function llmQuotaBlock(userId) {
@@ -366,7 +366,7 @@ app.patch('/api/chats/:chatId', agentGate, requireSession, async (req, res) => {
 });
 
 // Permanently delete a diagram. Web-only (owner via session cookie); the MCP token cannot
-// delete diagrams. The whole chat folder (state/diagram/meta/explanation) is removed.
+// delete diagrams. The whole chat folder (state/diagram/meta/ask chat) is removed.
 app.delete('/api/chats/:chatId', agentGate, requireSession, async (req, res) => {
     const chatId = visualizerStore.sanitizeChatId(req.params.chatId);
     if (!chatId) {
@@ -389,38 +389,46 @@ app.get('/api/chats/:chatId/diagram', agentGate, requireSession, async (req, res
     res.json({ chat: chatId, svg, renderError: error });
 });
 
-// Read the saved component-by-component explanation for a chat (no LLM call). Reports
-// `outdated: true` when the diagram changed since the explanation was generated so the
-// web can prompt the user to update it. Dual auth to mirror GET /api/chats/:chatId.
-app.get('/api/chats/:chatId/explanation', agentGate, requireSessionOrToken, async (req, res) => {
+// The persisted diagram Q&A ("Ask") history for a chat. Web-only — the chat is a UI
+// feature; the MCP token has no business reading it.
+app.get('/api/chats/:chatId/ask', agentGate, requireSession, async (req, res) => {
     const chatId = visualizerStore.sanitizeChatId(req.params.chatId);
     if (!chatId) {
         res.status(400).json({ error: 'Invalid chat id.' });
         return;
     }
-    const [explanation, meta] = await Promise.all([
-        visualizerStore.readExplanation(req.userId, chatId),
-        visualizerStore.readMeta(req.userId, chatId)
-    ]);
-    if (!explanation) {
-        res.json({ chat: chatId, markdown: '', generatedAt: null, outdated: false });
-        return;
-    }
-    res.json({
-        chat: chatId,
-        markdown: explanation.markdown,
-        generatedAt: explanation.generatedAt || null,
-        outdated: explanation.basedOnUpdatedAt !== (meta.updatedAt || null)
-    });
+    const messages = await visualizerStore.readAskChat(req.userId, chatId);
+    res.json({ chat: chatId, messages });
 });
 
-// (Re)generate the explanation for a chat. Evolves the previous explanation (feeding
-// it back in) so a diagram change yields a minimal edit rather than a brand-new text.
-// Web-only (session cookie); the user triggers it explicitly from the UI.
-app.post('/api/chats/:chatId/explanation', agentGate, requireSession, async (req, res) => {
+// Clear the Ask conversation for a chat (the panel's "Clear" button).
+app.delete('/api/chats/:chatId/ask', agentGate, requireSession, async (req, res) => {
     const chatId = visualizerStore.sanitizeChatId(req.params.chatId);
     if (!chatId) {
         res.status(400).json({ error: 'Invalid chat id.' });
+        return;
+    }
+    await visualizerStore.writeAskChat(req.userId, chatId, []);
+    res.json({ ok: true, chat: chatId });
+});
+
+// Ask a question about the diagram. Strictly informative: this route reads the sigil's
+// CURRENT state (fresh on every question) and streams the model's answer back as plain
+// text chunks; it never mutates the sigil. The conversation history is server-side
+// (chat.json) — any history in the request body is ignored, so it can't be forged.
+app.post('/api/chats/:chatId/ask', agentGate, requireSession, async (req, res) => {
+    const chatId = visualizerStore.sanitizeChatId(req.params.chatId);
+    if (!chatId) {
+        res.status(400).json({ error: 'Invalid chat id.' });
+        return;
+    }
+    const question = typeof req.body?.question === 'string' ? req.body.question.trim() : '';
+    if (!question) {
+        res.status(400).json({ error: 'A non-empty question is required.' });
+        return;
+    }
+    if (question.length > 2000) {
+        res.status(400).json({ error: 'Question too long (max 2000 characters).' });
         return;
     }
     const [meta, state] = await Promise.all([
@@ -428,7 +436,7 @@ app.post('/api/chats/:chatId/explanation', agentGate, requireSession, async (req
         visualizerStore.readState(req.userId, chatId)
     ]);
     if (!meta.createdAt || Object.keys(state).length === 0) {
-        res.status(404).json({ error: 'No such diagram (or it is empty) — nothing to explain.' });
+        res.status(404).json({ error: 'No such diagram (or it is empty) — nothing to ask about.' });
         return;
     }
     const quota = await llmQuotaBlock(req.userId);
@@ -436,17 +444,38 @@ app.post('/api/chats/:chatId/explanation', agentGate, requireSession, async (req
         res.status(403).json(quota);
         return;
     }
+
+    const history = await visualizerStore.readAskChat(req.userId, chatId);
+    // Stream the answer as chunked plain text. Headers are only committed on the first
+    // delta (res.write), so a failure BEFORE any output can still return a JSON error.
+    res.setHeader('content-type', 'text/plain; charset=utf-8');
+    res.setHeader('cache-control', 'no-cache');
+    res.setHeader('x-accel-buffering', 'no'); // don't let a proxy buffer the stream
     try {
-        const payload = await runExplainDiagram(req.userId, chatId);
-        if (!payload) {
-            res.status(502).json({ error: 'Could not generate an explanation. Please try again.' });
+        const answer = await runAskDiagram(req.userId, chatId, question, history, {
+            onText: (delta) => res.write(delta)
+        });
+        if (!answer) {
+            if (!res.headersSent) {
+                res.status(502).json({ error: 'Could not answer that. Please try again.' });
+            }
+            res.end();
             return;
         }
-        res.json({ chat: chatId, markdown: payload.markdown, generatedAt: payload.generatedAt, outdated: false });
+        const at = new Date().toISOString();
+        await visualizerStore.writeAskChat(req.userId, chatId, [
+            ...history,
+            { role: 'user', text: question, at },
+            { role: 'assistant', text: answer, at }
+        ]);
     } catch (err) {
-        console.error('[explain] generation failed', err);
-        res.status(502).json({ error: 'Could not generate an explanation. Please try again.' });
+        console.error('[ask] failed', err);
+        if (!res.headersSent) {
+            res.status(502).json({ error: 'Could not answer that. Please try again.' });
+            return;
+        }
     }
+    res.end();
 });
 
 // Token management for the web UI, scoped to the logged-in user (the MCP uses these tokens to

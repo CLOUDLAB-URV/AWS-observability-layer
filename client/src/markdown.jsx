@@ -1,5 +1,5 @@
-// Tiny shared Markdown renderer used by the chat bubbles and the diagram-explanation
-// panel. Deliberately minimal (no dependency): supports `##`/`###` headings, `-`/`*`/`•`
+// Tiny shared Markdown renderer used by the Ask chat's assistant bubbles.
+// Deliberately minimal (no dependency): supports `##`/`###` headings, `-`/`*`/`•`
 // bullet lists, `1.` numbered lists, blank-line spacing, plus inline `**bold**` and
 // `` `code` ``. Anything else renders as plain text.
 

@@ -7,7 +7,7 @@ import UserMenu from './UserMenu.jsx';
 import Logo from './Logo.jsx';
 import DiagramPanel from './panels/DiagramPanel.jsx';
 import ResourceDetailPanel from './panels/ResourceDetailPanel.jsx';
-import ExplanationPanel from './panels/ExplanationPanel.jsx';
+import AskPanel from './panels/AskPanel.jsx';
 import SigilSettingsModal from './SigilSettingsModal.jsx';
 import GuidePanel from './panels/GuidePanel.jsx';
 import DevToolsPanel from './panels/DevToolsPanel.jsx';
@@ -22,14 +22,14 @@ import ConnectAgentModal from './ConnectAgentModal.jsx';
 const PANEL_COMPONENTS = {
     diagram: DiagramPanel,
     'resource-detail': ResourceDetailPanel,
-    explanation: ExplanationPanel,
+    ask: AskPanel,
     guide: GuidePanel,
     devtools: DevToolsPanel
 };
 // Each panel's DEFAULT zone. The user can move a panel to another zone; that choice is
 // remembered (see zone memory below) and used when the panel is reopened.
 const PANEL_META = {
-    explanation: { title: 'Explanation', zone: 'right' },
+    ask: { title: 'Ask', zone: 'right' },
     guide: { title: 'Guide', zone: 'right' },
     'resource-detail': { title: 'Resource', zone: 'right' },
     devtools: { title: 'opencode', zone: 'left' }
@@ -187,11 +187,6 @@ export default function DeployedState({ user, onOpenAdmin }) {
     const [selectedResource, setSelectedResource] = useState(null);
     // Mode of the selected diagram: true = "Live" (deployed to AWS), false = "Design" (a sketch).
     const [deployed, setDeployed] = useState(false);
-    // On-demand Markdown explanation of the whole diagram: the saved payload (or null),
-    // whether it is stale (diagram changed since it was generated), and whether a
-    // (re)generation request is in flight. Shown in the dockable "explanation" panel.
-    const [explanation, setExplanation] = useState(null); // { markdown, outdated } | null
-    const [explaining, setExplaining] = useState(false);
     const socketRef = useRef(null);
 
     // dockview plumbing: the layout api, a debounce timer for persistence, the set of
@@ -251,7 +246,6 @@ export default function DeployedState({ user, onOpenAdmin }) {
         if (!chatId) {
             setResources([]);
             setDeployed(false);
-            setExplanation(null);
             return;
         }
         let cancelled = false;
@@ -266,18 +260,6 @@ export default function DeployedState({ user, onOpenAdmin }) {
                 setSelectedResource((cur) => (cur ? list.find((r) => r.id === cur.id) || null : null));
             } catch {
                 if (!cancelled) setResources([]);
-            }
-        })();
-        // Load the saved explanation (if any). Re-runs on [chatId, svg], so when a push
-        // changes the diagram the `outdated` flag refreshes without calling the LLM.
-        (async () => {
-            try {
-                const res = await fetch(`/api/chats/${encodeURIComponent(chatId)}/explanation`);
-                const data = await res.json();
-                if (cancelled) return;
-                setExplanation(data.markdown ? { markdown: data.markdown, outdated: data.outdated === true } : null);
-            } catch {
-                if (!cancelled) setExplanation(null);
             }
         })();
         return () => { cancelled = true; };
@@ -354,7 +336,7 @@ export default function DeployedState({ user, onOpenAdmin }) {
     }
 
     // Permanently delete the selected diagram, then deselect it (the subscribe/load effects
-    // clear svg/resources/explanation for an empty chatId) and refresh the selector. Close the
+    // clear svg/resources for an empty chatId) and refresh the selector. Close the
     // per-chat panels since there's no chat to show anymore.
     async function deleteChat() {
         if (!chatId || deleting) return;
@@ -367,27 +349,9 @@ export default function DeployedState({ user, onOpenAdmin }) {
         setDeleting(false);
         setConfirmDelete(false);
         setDetailsOpen(false);
-        closePanel('explanation');
+        closePanel('ask');
         setChatId('');
         loadChats();
-    }
-
-    // (Re)generate the diagram explanation. The backend evolves the previous one, so an
-    // update after a diagram change is incremental (adds only what changed).
-    async function generateExplanation() {
-        if (!chatId || explaining) return;
-        setExplaining(true);
-        try {
-            const res = await fetch(`/api/chats/${encodeURIComponent(chatId)}/explanation`, { method: 'POST' });
-            const data = await res.json();
-            if (res.ok && data.markdown) {
-                setExplanation({ markdown: data.markdown, outdated: false });
-            }
-        } catch {
-            // ignore — the panel keeps showing the previous explanation (if any)
-        } finally {
-            setExplaining(false);
-        }
     }
 
     function cancelRename() {
@@ -915,7 +879,6 @@ export default function DeployedState({ user, onOpenAdmin }) {
     const ctx = {
         svg, renderError, resources, selectedResource, setSelectedResource,
         chatId, chatsCount: chats.length,
-        explanation, explaining, generateExplanation,
         selectedChat, deployed, mixed, divergentCount,
         editingName, setEditingName, renameValue, setRenameValue,
         renameChat, cancelRename, startRename, formatDate, copy, copied,
@@ -1023,19 +986,17 @@ export default function DeployedState({ user, onOpenAdmin }) {
                     </button>
                     <button
                         type="button"
-                        className="btn btn-ghost explain-btn"
-                        onClick={() => togglePanel('explanation')}
-                        aria-expanded={isOpen('explanation')}
+                        className="btn btn-ghost"
+                        onClick={() => togglePanel('ask')}
+                        aria-expanded={isOpen('ask')}
                         disabled={!chatId}
-                        title="Explain this sigil component by component"
+                        title="Ask anything about this diagram"
                     >
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
                             strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                            <path d="M2 4h6a3 3 0 0 1 3 3v13a2.5 2.5 0 0 0-2.5-2.5H2z" />
-                            <path d="M22 4h-6a3 3 0 0 0-3 3v13a2.5 2.5 0 0 1 2.5-2.5H22z" />
+                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
                         </svg>
-                        Explain
-                        {chatId && explanation?.outdated && <span className="explain-dot" aria-hidden="true" />}
+                        Ask
                     </button>
                     <button
                         type="button"

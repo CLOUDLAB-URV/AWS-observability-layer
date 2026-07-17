@@ -90,6 +90,37 @@ test('a full-replace upsert clears a stale divergence and its note', async () =>
     assert.equal(state.a.deploy_note, undefined, 'stale note does not linger');
 });
 
+test('ask chat: empty by default, round-trips messages, clears with the sigil', async () => {
+    assert.deepEqual(await store.readAskChat(USER, 'ask1'), []);
+
+    const at = new Date().toISOString();
+    const messages = [
+        { role: 'user', text: 'What is this?', at },
+        { role: 'assistant', text: 'An S3 bucket.', at }
+    ];
+    await store.writeAskChat(USER, 'ask1', messages);
+    assert.deepEqual(await store.readAskChat(USER, 'ask1'), messages);
+
+    await store.writeAskChat(USER, 'ask1', []); // the panel's Clear button
+    assert.deepEqual(await store.readAskChat(USER, 'ask1'), []);
+
+    await store.deleteChat(USER, 'ask1');
+    assert.deepEqual(await store.readAskChat(USER, 'ask1'), []);
+});
+
+test('ask chat: history is capped to the most recent 50 messages', async () => {
+    const many = Array.from({ length: 120 }, (_, i) => ({
+        role: i % 2 === 0 ? 'user' : 'assistant',
+        text: `msg ${i}`,
+        at: new Date().toISOString()
+    }));
+    await store.writeAskChat(USER, 'ask2', many);
+    const saved = await store.readAskChat(USER, 'ask2');
+    assert.equal(saved.length, 50);
+    assert.equal(saved[0].text, 'msg 70', 'keeps the newest, drops the oldest');
+    assert.equal(saved[49].text, 'msg 119');
+});
+
 test.after(async () => {
     await fs.rm(tmp, { recursive: true, force: true });
 });

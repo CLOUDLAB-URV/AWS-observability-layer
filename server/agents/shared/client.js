@@ -2,7 +2,7 @@
 
 // Gemini (Google Vertex AI) client via the Google Gen AI SDK (@google/genai),
 // exposed through a thin Anthropic-Messages-compatible adapter so the agents
-// (stateviz, explain) keep calling `getGemini().messages.stream({...})` unchanged:
+// (stateviz, ask) keep calling `getGemini().messages.stream({...})` unchanged:
 //   - stream.on('text', delta)         → streamed text chunks
 //   - await stream.finalMessage()      → { content: [...blocks], stop_reason }
 // where blocks are Anthropic-shaped { type:'text', text } / { type:'tool_use',
@@ -16,7 +16,7 @@ import { withLimit, withRetry } from './limiter.js';
 import * as usageStore from '../../usageStore.js';
 
 // Per-agent model routing (cost control): cheap Flash for D2 generation,
-// session naming and explanations.
+// session naming and the diagram Ask chat.
 export const MODELS = {
     stateviz: 'gemini-2.5-flash'
 };

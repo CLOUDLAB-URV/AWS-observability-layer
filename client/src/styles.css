@@ -1111,19 +1111,16 @@ body {
     display: flex;
     flex-direction: column;
 }
-.dv-pane > .resource-detail,
-.dv-pane.explanation-panel {
+.dv-pane > .resource-detail {
     position: static;
     inset: auto;
     width: auto;
     max-width: none;
-    height: 100%;
     border-left: none;
     box-shadow: none;
     animation: none;
 }
 .dv-pane > .resource-detail { flex: 1; min-height: 0; height: auto; }
-.dv-pane.explanation-panel { overflow: hidden; }
 
 /* Guide: fill the pane so its dark background reaches the bottom — otherwise the lighter
    pane background shows below the content as an ugly grey cut. Match the pane bg too. */
@@ -1195,60 +1192,157 @@ body {
     background: var(--surface-app);
 }
 
-/* "Explain" bar button keeps the shared .btn look; it just needs a positioning context
-   for the stale-explanation dot. */
-.explain-btn { position: relative; }
-/* Stale-explanation indicator: a small dot pinned to the button's top-right corner, ringed by the
-   toolbar background so it reads as a notification badge rather than part of the label. */
-.explain-dot {
-    position: absolute;
-    top: -3px;
-    right: -3px;
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--fn-amber);
-    box-shadow: 0 0 0 2px var(--surface-panel);
-}
-
-/* Explanation side panel — mirrors .resource-detail (slides in from the right). */
-.explanation-panel {
-    position: absolute;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    width: 420px;
-    max-width: 92%;
-    z-index: 26;
+/* ── Ask panel — diagram-scoped Q&A chat (dockview pane) ─────────────────── */
+.ask-panel {
     display: flex;
     flex-direction: column;
+    height: 100%;
+    overflow: hidden;
     background: var(--surface-panel);
-    border-left: 1px solid var(--border-default);
-    box-shadow: -12px 0 32px rgba(0, 0, 0, 0.35);
-    animation: rd-slide-in 160ms ease;
 }
-.explanation-panel .rd-header h2 {
+.ask-panel .rd-header h2 {
     margin: 0;
     font-size: 15px;
     font-weight: 600;
     color: var(--text-primary);
 }
-.explanation-body { flex: 1; overflow-y: auto; padding: 14px 18px 24px; }
-.explain-empty { display: flex; flex-direction: column; gap: 12px; color: var(--text-muted); font-size: 14px; }
-.explain-stale {
-    display: flex;
+.ask-header-actions { display: inline-flex; align-items: center; gap: 10px; }
+.ask-clear-confirm {
+    display: inline-flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    margin-bottom: 14px;
-    padding: 8px 12px;
-    border: 1px solid var(--border-default);
-    border-radius: 8px;
-    background: var(--surface-app);
+    gap: 8px;
     font-size: 12px;
     color: var(--text-muted);
 }
-/* Markdown rendered inside the explanation panel. */
+
+/* Message list. */
+.ask-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 14px 14px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.ask-empty {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    color: var(--text-muted);
+    font-size: 13.5px;
+    line-height: 1.55;
+}
+.ask-empty p { margin: 0; }
+/* Suggested-question chips: clicking one sends it. */
+.ask-suggestions { display: flex; flex-direction: column; gap: 8px; }
+.ask-chip {
+    text-align: left;
+    padding: 9px 12px;
+    border: 1px solid var(--border-default);
+    border-radius: 10px;
+    background: var(--surface-raised);
+    color: var(--text-primary);
+    font-size: 13px;
+    cursor: pointer;
+    transition: border-color 120ms var(--ease), background 120ms var(--ease);
+}
+.ask-chip:hover { border-color: var(--border-input); background: var(--ink-750); }
+
+/* Bubbles: user = light on dark, right; assistant = raised gray, left. */
+.ask-msg {
+    max-width: 92%;
+    padding: 8px 12px;
+    border-radius: 12px;
+    font-size: 13.5px;
+    line-height: 1.55;
+    overflow-wrap: break-word;
+}
+.ask-msg-user {
+    align-self: flex-end;
+    background: var(--bubble-user-bg);
+    color: var(--bubble-user-text);
+    border-bottom-right-radius: 4px;
+    white-space: pre-wrap;
+}
+.ask-msg-assistant {
+    align-self: flex-start;
+    background: var(--bubble-assistant-bg);
+    color: var(--bubble-assistant-text);
+    border-bottom-left-radius: 4px;
+}
+.ask-msg-assistant .md-body { font-size: 13.5px; }
+.ask-msg-error {
+    align-self: flex-start;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border: 1px solid rgba(201, 139, 139, 0.4);
+    background: var(--fn-red-surface);
+    color: var(--fn-red);
+    font-size: 12.5px;
+}
+
+/* Thinking indicator: three pulsing dots inside the pending assistant bubble. */
+.ask-typing { display: inline-flex; gap: 4px; padding: 4px 2px; }
+.ask-typing span {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    animation: ask-typing 1.1s infinite ease-in-out;
+}
+.ask-typing span:nth-child(2) { animation-delay: 0.18s; }
+.ask-typing span:nth-child(3) { animation-delay: 0.36s; }
+@keyframes ask-typing {
+    0%, 60%, 100% { opacity: 0.35; transform: translateY(0); }
+    30% { opacity: 1; transform: translateY(-3px); }
+}
+
+/* Composer. */
+.ask-inputbar {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    padding: 10px 12px;
+    border-top: 1px solid var(--border-default);
+    background: var(--surface-panel);
+}
+.ask-input {
+    flex: 1;
+    min-width: 0;
+    max-height: 120px;
+    resize: none;
+    padding: 8px 12px;
+    border: 1px solid var(--border-default);
+    border-radius: 10px;
+    background: var(--surface-app);
+    color: var(--text-primary);
+    font: inherit;
+    font-size: 13.5px;
+    line-height: 1.45;
+    overflow-y: auto;
+}
+.ask-input:focus { outline: none; border-color: var(--border-input); }
+.ask-input:disabled { opacity: 0.6; }
+.ask-send {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border: 1px solid var(--border-default);
+    border-radius: 10px;
+    background: var(--surface-raised);
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: border-color 120ms var(--ease), background 120ms var(--ease);
+}
+.ask-send:hover:not(:disabled) { border-color: var(--border-input); background: var(--ink-750); }
+.ask-send:disabled { opacity: 0.45; cursor: default; }
+
+/* Markdown rendered inside the assistant bubbles. */
 .md-body { font-size: 14px; line-height: 1.65; color: var(--text-primary); white-space: pre-wrap; }
 .md-body .md-heading {
     margin: 18px 0 6px;
