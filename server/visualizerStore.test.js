@@ -144,6 +144,50 @@ test('deploy_note is sticky while a resource stays divergent, and clears when it
     assert.equal((await store.readState(USER, 'note-life')).gw.deploy_note, 'torn down at user request');
 });
 
+test('tearDown flips a Live sigil to Design, marks every resource undeployed and keeps them all', async () => {
+    // Live sigil: one converged resource (deployed:true) and one divergent failed create.
+    await store.applyChanges(USER, 'teardown-1', [
+        { ...upsert('ok'), type: 'lambda', arn: 'arn:aws:lambda:eu-west-1:1:function:ok', code: [{ name: 'h.py', content: 'x\n' }] },
+        { ...upsert('failed'), type: 'api-gateway', deployed: false, deploy_note: 'create failed: AccessDenied' }
+    ], undefined, true);
+    assert.equal((await store.readMeta(USER, 'teardown-1')).deployed, true);
+
+    const resources = await store.tearDown(USER, 'teardown-1');
+
+    // Sigil is Design now.
+    assert.equal((await store.readMeta(USER, 'teardown-1')).deployed, false);
+    // Both resources are KEPT (nothing deleted) — same node count.
+    assert.equal(resources.length, 2);
+    const state = await store.readState(USER, 'teardown-1');
+    assert.ok(state.ok && state.failed, 'both resources still present');
+    // Every resource is undeployed, and every divergence note is cleared.
+    assert.equal(state.ok.deployed, false);
+    assert.equal(state.failed.deployed, false);
+    assert.equal(state.ok.deploy_note, undefined);
+    assert.equal(state.failed.deploy_note, undefined, 'the failed-create reason is dropped on teardown');
+    // Non-deploy fields survive.
+    assert.equal(state.ok.arn, 'arn:aws:lambda:eu-west-1:1:function:ok');
+    assert.deepEqual(state.ok.code, [{ name: 'h.py', content: 'x\n' }], 'code preserved through teardown');
+});
+
+test('after tearDown a codeless re-push inherits Design (deployed:false), and tearDown is idempotent', async () => {
+    await store.applyChanges(USER, 'teardown-2', [upsert('a')], undefined, true); // Live
+    await store.tearDown(USER, 'teardown-2');
+    assert.equal((await store.readMeta(USER, 'teardown-2')).deployed, false);
+
+    // A follow-up push with no explicit deployed flag inherits the (now Design) mode.
+    await store.applyChanges(USER, 'teardown-2', [upsert('b')]);
+    const state = await store.readState(USER, 'teardown-2');
+    assert.equal(state.a.deployed, false);
+    assert.equal(state.b.deployed, false);
+
+    // Tearing down an already-Design sigil is a harmless no-op (the route guards it, but the
+    // primitive must be safe too): stays Design, keeps every resource.
+    const resources = await store.tearDown(USER, 'teardown-2');
+    assert.equal((await store.readMeta(USER, 'teardown-2')).deployed, false);
+    assert.equal(resources.length, 2);
+});
+
 test('code survives a codeless re-push (the deploy→Live re-report), and a new code replaces it', async () => {
     const code = [{ name: 'handler.py', language: 'python', content: 'def handler(e, c):\n    return 200\n' }];
     // Design push carries the code.

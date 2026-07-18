@@ -100,6 +100,16 @@
 /* ── 2. RESET & BASE ──────────────────────────────────── */
 * { box-sizing: border-box; }
 
+/* Paint the ultimate root the app colour so nothing else ever shows at the app's edges:
+   the html element is what a browser reveals during rubber-band overscroll (macOS) and what
+   a host webview paints behind a transparent page, so leaving it unset let a non-app colour
+   bleed in at the top/bottom/sides. Keep it in lockstep with the body/stage dark surfaces. */
+html {
+    background: var(--surface-app);
+    /* No scroll chaining / overscroll glow past the app shell (the app manages its own panning). */
+    overscroll-behavior: none;
+}
+
 body {
     margin: 0;
     font-family: var(--font-ui);

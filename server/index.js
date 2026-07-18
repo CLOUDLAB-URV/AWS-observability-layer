@@ -326,6 +326,44 @@ app.post('/api/chats/:chatId/deploy', agentGate, requireToken, async (req, res) 
     res.json({ ok: true, chat: chatId, name: meta.name || meta.project || '', deployed: true, resources });
 });
 
+// Tear down a Live sigil back to "Design": the inverse of /deploy. The MCP's teardown_sigil
+// tool calls this AFTER the coding agent has destroyed the real AWS resources with its own tools
+// (Sigilum has no AWS access — it only records the teardown). It flips the sigil to Design and
+// marks EVERY resource undeployed while KEEPING them all (a teardown never deletes a node), so the
+// user can review or redeploy later. Bearer-token auth like the deploy route.
+app.post('/api/chats/:chatId/teardown', agentGate, requireToken, async (req, res) => {
+    const chatId = visualizerStore.sanitizeChatId(req.params.chatId);
+    if (!chatId) {
+        res.status(400).json({ error: 'Invalid chat id.' });
+        return;
+    }
+    const [meta, state] = await Promise.all([
+        visualizerStore.readMeta(req.userId, chatId),
+        visualizerStore.readState(req.userId, chatId)
+    ]);
+    if (!meta.createdAt || Object.keys(state).length === 0) {
+        res.status(404).json({ error: 'No such diagram (or it is empty) — nothing to tear down.' });
+        return;
+    }
+    if (!meta.deployed) {
+        res.status(409).json({ error: 'This diagram is already Design (not deployed) — nothing to tear down.' });
+        return;
+    }
+    // Flip Design mode + mark every resource undeployed. This is the authoritative part and is
+    // persisted before we regenerate, so a diagram-regen failure never loses the teardown.
+    const resources = await visualizerStore.tearDown(req.userId, chatId);
+    // Best-effort re-render so the open web reflects Design immediately; regen may fail (e.g. the
+    // LLM is unreachable) but the state flip already landed, so don't fail the request over it.
+    try {
+        const d2 = await runStateViz(req.userId, chatId);
+        const { svg, error } = await renderDiagramSvg(d2);
+        broadcastToChat(req.userId, chatId, { type: 'render-svg', svg, renderError: error });
+    } catch (error) {
+        console.error('[teardown re-render failed]', error);
+    }
+    res.json({ ok: true, chat: chatId, name: meta.name || meta.project || '', deployed: false, resources });
+});
+
 // Rename a session. Hit by the web UI same-origin (owner user) to override the
 // auto-assigned name.
 app.patch('/api/chats/:chatId', agentGate, requireSession, async (req, res) => {

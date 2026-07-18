@@ -9,9 +9,10 @@
 // changes, and renders a live architecture sigil of what is actually deployed.
 //
 // Tools:
-//   - push_sigil   : report the delta of changes (the only push tool).
-//   - deploy_sigil : mark a design sigil Live and get the spec to actually build.
-//   - list_sigils  : discover previous sigils by name.
+//   - push_sigil    : report the delta of changes (the only push tool).
+//   - deploy_sigil  : mark a design sigil Live and get the spec to actually build.
+//   - teardown_sigil: mark a live sigil back to Design after tearing down its AWS resources.
+//   - list_sigils   : discover previous sigils by name.
 //   - load_sigil   : resume a previous sigil BY NAME (resolved by proximity)
 //                    and load its full current deployed state into context.
 //
@@ -95,7 +96,7 @@ const connectionSchema = z
 // One incremental change to a single resource.
 const changeSchema = z
     .object({
-        op: z.enum(['upsert', 'delete']).describe('"upsert" = created or modified (send full detail); "delete" = removed (type + id are enough).'),
+        op: z.enum(['upsert', 'delete']).describe('"upsert" = created or modified (send full detail); "delete" = removed (type + id are enough). Use "delete" ONLY when the user EXPLICITLY asks to remove that resource from the diagram — it makes the node disappear. To record a teardown of the whole architecture, do NOT delete the resources: call teardown_sigil, which keeps them and just marks them undeployed.'),
         type: z.string().describe('AWS service type, e.g. "ec2", "rds", "s3", "lambda", "vpc".'),
         id: z.string().describe('Stable identifier of the resource (InstanceId / ARN / bucket name). This is the key the backend stores it under.'),
         name: z.string().optional().describe('Friendly name, if any.'),
@@ -243,7 +244,9 @@ server.registerTool(
             'sees exactly what is pending and why on the diagram. Resources you have not ' +
             're-reported yet show as "not deployed" in the web until you push them. Do not add ' +
             'anything that is not in the spec. Only works on a DESIGN sigil ' +
-            '(a Live one is already deployed).',
+            '(a Live one is already deployed). To reverse this later — when the user asks to tear ' +
+            'down the deployed architecture — destroy the AWS resources yourself, then call ' +
+            'teardown_sigil to flip the sigil back to Design.',
         inputSchema: {
             chat: z
                 .string()
@@ -292,6 +295,70 @@ server.registerTool(
                         `sigil automatically — you only need to re-send \`code\` if you changed the source before deploying. ` +
                         `Do not add resources that are not in this spec.\n\n` +
                         `Spec to deploy:\n${JSON.stringify(resources, null, 2)}`
+                }
+            ]
+        };
+    }
+);
+
+server.registerTool(
+    'teardown_sigil',
+    {
+        title: 'Tear down a live sigil back to Design',
+        description:
+            'Tear down the current LIVE sigil: mark it back to DESIGN and flag every resource as ' +
+            'undeployed. Call this when the user asks to TEAR DOWN, DESTROY, DECOMMISSION or ' +
+            'REMOVE the deployed AWS architecture. Sigilum has NO AWS access, so FIRST you must ' +
+            'actually destroy the real resources in AWS with your own tools (CLI/SDK), in reverse ' +
+            'dependency order (wiring → data stores → compute → subnets/security groups → VPC); ' +
+            'THEN call this to record it. It KEEPS every resource in the diagram — it does NOT ' +
+            'delete any node — it just flips the sigil to Design and marks all resources ' +
+            'undeployed, so the design is preserved and the user can review or redeploy it later ' +
+            '(deploy_sigil works again afterwards). Do NOT use push_sigil op:"delete" to reflect a ' +
+            'teardown; that would erase the design. Only delete a resource when the user ' +
+            'EXPLICITLY asks to remove that specific resource from the diagram. Only works on a ' +
+            'LIVE sigil (a Design one is not deployed, so there is nothing to tear down).',
+        inputSchema: {
+            chat: z
+                .string()
+                .optional()
+                .describe('Optional internal targeting override — leave unset. Defaults to this session\'s active sigil (this session\'s, or the one you resumed with load_sigil).')
+        }
+    },
+    async ({ chat }) => {
+        if (!TOKEN) {
+            return { isError: true, content: [{ type: 'text', text: 'SIGILUM_TOKEN is not set. Generate a token in the web UI and add it to this MCP server config.' }] };
+        }
+        const chatId = chat || activeChatId;
+        let response;
+        try {
+            response = await fetch(`${BACKEND_URL}/api/chats/${encodeURIComponent(chatId)}/teardown`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json', authorization: `Bearer ${TOKEN}` }
+            });
+        } catch (error) {
+            return { isError: true, content: [{ type: 'text', text: `Could not reach the visualizer backend at ${BACKEND_URL}: ${error?.message || error}` }] };
+        }
+        const text = await response.text();
+        if (!response.ok) {
+            return { isError: true, content: [{ type: 'text', text: `Teardown failed (HTTP ${response.status}): ${text}` }] };
+        }
+        let data = {};
+        try {
+            data = JSON.parse(text);
+        } catch {
+            // fall through with empty data
+        }
+        const resources = Array.isArray(data.resources) ? data.resources : [];
+        const name = data.name || '(unnamed)';
+        return {
+            content: [
+                {
+                    type: 'text',
+                    text: `Sigil "${name}" is now back to DESIGN. All ${resources.length} resource(s) are kept in the ` +
+                        `diagram and marked undeployed — nothing was removed. Make sure you have actually destroyed the ` +
+                        `real AWS resources with your own tools; this only records the teardown. The design is preserved, ` +
+                        `so you can redeploy it later with deploy_sigil.`
                 }
             ]
         };

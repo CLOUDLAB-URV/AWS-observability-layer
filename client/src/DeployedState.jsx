@@ -195,6 +195,9 @@ export default function DeployedState({ user, onOpenAdmin }) {
     const [codeView, setCodeView] = useState(null);
     // Mode of the selected diagram: true = "Live" (deployed to AWS), false = "Design" (a sketch).
     const [deployed, setDeployed] = useState(false);
+    // Bumped on every diagram broadcast to force a resource/mode refetch even when the regenerated
+    // SVG is byte-identical (e.g. a teardown flips flags but keeps the same nodes → same D2).
+    const [syncNonce, setSyncNonce] = useState(0);
     const socketRef = useRef(null);
 
     // dockview plumbing: the layout api, a debounce timer for persistence, the set of
@@ -284,7 +287,7 @@ export default function DeployedState({ user, onOpenAdmin }) {
             }
         })();
         return () => { cancelled = true; };
-    }, [chatId, svg]);
+    }, [chatId, svg, syncNonce]);
 
     // Persist the selected sigil so a reload / revisit reopens it.
     useEffect(() => {
@@ -309,6 +312,9 @@ export default function DeployedState({ user, onOpenAdmin }) {
             case 'render-svg':
                 setSvg(message.svg || '');
                 setRenderError(message.renderError || null);
+                // Force a resource/mode refetch even if the SVG didn't change (e.g. a teardown keeps
+                // the same nodes but flips every resource to undeployed and the sigil to Design).
+                setSyncNonce((n) => n + 1);
                 // A push may have created/updated a chat — refresh the list.
                 loadChats();
                 break;
