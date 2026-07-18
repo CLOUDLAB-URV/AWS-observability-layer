@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { findArn, consoleUrl } from './awsLinks.js';
+import { isExternalResource } from './externalResource.js';
 
 // Slide-in panel showing the full live detail of one deployed resource, opened by clicking a
 // service node in the diagram. The diagram node itself only carries the service kind (e.g.
@@ -121,10 +122,13 @@ export default function ResourceDetail({ resource, onClose, onViewCode }) {
     );
     // The backend backfills `deployed` on read, so it's always a boolean by the time it's here.
     const deployed = resource.deployed === true;
+    // External actors (internet / end user / browser) live outside AWS: their Deployment section
+    // shows a neutral status — never the amber "not deployed", never a console link.
+    const external = isExternalResource(resource);
     // Deployed only: the resource exists in AWS — derive its ARN (explicit field, ARN-shaped id,
     // or from `details`). The derived ARN gets its own copyable row, so the plain-text `arn`
     // identity row drops out to avoid showing it twice.
-    const liveArn = deployed ? findArn(resource) : null;
+    const liveArn = deployed && !external ? findArn(resource) : null;
     const identityRows = TOP_FIELDS.filter(
         ([key]) => resource[key] != null && resource[key] !== '' && !(liveArn && key === 'arn')
     );
@@ -168,14 +172,16 @@ export default function ResourceDetail({ resource, onClose, onViewCode }) {
             <div className="rd-body">
                 <section className="rd-section rd-deployment">
                     <h4 className="rd-section-title">Deployment</h4>
-                    <div className={`rd-cloud-status ${deployed ? 'is-deployed' : 'is-undeployed'}`}>
+                    <div className={`rd-cloud-status ${external ? 'is-external' : deployed ? 'is-deployed' : 'is-undeployed'}`}>
                         <span className="rd-cloud-dot" aria-hidden="true" />
-                        {deployed ? 'In the AWS cloud' : 'Not deployed to AWS'}
+                        {external
+                            ? 'External element — outside AWS (nothing to deploy)'
+                            : deployed ? 'In the AWS cloud' : 'Not deployed to AWS'}
                     </div>
                     {resource.deploy_note && (
                         <p className="rd-deploy-note">{resource.deploy_note}</p>
                     )}
-                    {deployed && (
+                    {deployed && !external && (
                         <a
                             className="btn btn-primary rd-console-link"
                             href={consoleUrl(resource)}

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { findArn, shortArn } from './awsLinks.js';
+import { isExternalResource } from './externalResource.js';
 
 // Mirror of the sanitization the stateviz prompt applies to a resource id when it becomes a D2
 // node id, so we can match a rendered SVG node back to its resource. Keep both in lockstep.
@@ -247,11 +248,16 @@ export default function Diagram({ svg, renderError, resources = [], onSelectReso
             const meta = document.createElement('div');
             meta.className = 'svc-tip-meta';
             meta.textContent = `${resource.type || 'resource'}${region}${state}`;
-            // Cloud status line, always present so deployment state reads at a glance.
+            // Cloud status line, always present so deployment state reads at a glance. External
+            // actors (the internet / end user) live outside AWS — show a neutral status, never
+            // the amber "not deployed" (there is nothing to deploy).
             const deployed = resource.deployed === true;
+            const external = isExternalResource(resource);
             const status = document.createElement('div');
-            status.className = `svc-tip-status ${deployed ? 'is-deployed' : 'is-undeployed'}`;
-            status.textContent = deployed ? 'In the AWS cloud' : 'Not deployed to AWS';
+            status.className = `svc-tip-status ${external ? 'is-external' : deployed ? 'is-deployed' : 'is-undeployed'}`;
+            status.textContent = external
+                ? 'External — lives outside AWS'
+                : deployed ? 'In the AWS cloud' : 'Not deployed to AWS';
             tip.append(title, meta, status);
             // Deployed resources really exist in AWS — surface their ARN (abbreviated) too.
             if (deployed) {
@@ -316,9 +322,11 @@ export default function Diagram({ svg, renderError, resources = [], onSelectReso
             // mode (not deployed on a Live sigil / already deployed on a Design one). Hovering
             // the badge swaps the tooltip for the status + the agent's reason; leaving it
             // restores the normal resource tooltip (mouseenter/leave don't bubble).
+            // External actors (internet / end user) are NEVER badged — they can't be deployed,
+            // so "not in AWS" is their normal state, not a divergence.
             const isDeployed = resource.deployed === true;
             let badge = null;
-            if (isDeployed !== (sigilDeployed === true)) {
+            if (!isExternalResource(resource) && isDeployed !== (sigilDeployed === true)) {
                 badge = makeBadge(g, isDeployed);
                 if (badge) {
                     const onBadgeEnter = (e) => showBadgeTip(resource, e);

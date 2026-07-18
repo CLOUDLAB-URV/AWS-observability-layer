@@ -553,6 +553,8 @@ body {
 }
 .svc-tip-status.is-deployed   { color: var(--fn-green); }
 .svc-tip-status.is-undeployed { color: var(--fn-amber); }
+/* External actors (internet / end user): neutral — outside AWS is their normal state. */
+.svc-tip-status.is-external   { color: var(--text-muted); }
 /* Badge tooltip variants: the title takes the badge's color. */
 .svc-tip-title.svc-tip-warn { color: var(--fn-amber); }
 .svc-tip-title.svc-tip-live { color: var(--fn-green); }
@@ -663,6 +665,9 @@ body {
 }
 .rd-cloud-status.is-deployed   { color: var(--fn-green); }
 .rd-cloud-status.is-undeployed { color: var(--fn-amber); }
+/* External actors (internet / end user): neutral — outside AWS is their normal state. */
+.rd-cloud-status.is-external   { color: var(--text-muted); }
+.rd-cloud-status.is-external + .rd-deploy-note { border-left-color: var(--border-default); background: rgba(255, 255, 255, 0.04); }
 .rd-deploy-note {
     margin: 8px 0 0;
     padding: 8px 10px;

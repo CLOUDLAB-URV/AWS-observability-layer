@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { DockviewReact, themeAbyss } from 'dockview-react';
 import { createSocket } from './ws.js';
 import { DeployedContext } from './DeployedContext.js';
+import { isExternalResource } from './externalResource.js';
 import SigilSelect from './SigilSelect.jsx';
 import UserMenu from './UserMenu.jsx';
 import Logo from './Logo.jsx';
@@ -925,8 +926,11 @@ export default function DeployedState({ user, onOpenAdmin }) {
     // Deployment consistency of the selected sigil: resources whose own `deployed` state
     // (backfilled by the backend) diverges from the sigil mode — e.g. a failed create on a
     // Live sigil, or something deployed early on a Design one. Drives the top-bar warning
-    // icon, and the Details panel shows the count.
-    const divergentCount = resources.filter((r) => (r.deployed === true) !== deployed).length;
+    // icon, and the Details panel shows the count. External actors (internet / end user)
+    // can never be deployed, so they never count as divergent.
+    const divergentCount = resources.filter(
+        (r) => !isExternalResource(r) && (r.deployed === true) !== deployed
+    ).length;
     const mixed = divergentCount > 0;
 
     function copy(text, key) {

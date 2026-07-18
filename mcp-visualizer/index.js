@@ -97,7 +97,7 @@ const connectionSchema = z
 const changeSchema = z
     .object({
         op: z.enum(['upsert', 'delete']).describe('"upsert" = created or modified (send full detail); "delete" = removed (type + id are enough). Use "delete" ONLY when the user EXPLICITLY asks to remove that resource from the diagram — it makes the node disappear. To record a teardown of the whole architecture, do NOT delete the resources: call teardown_sigil, which keeps them and just marks them undeployed.'),
-        type: z.string().describe('AWS service type, e.g. "ec2", "rds", "s3", "lambda", "vpc".'),
+        type: z.string().describe('AWS service type, e.g. "ec2", "rds", "s3", "lambda", "vpc". For EXTERNAL actors that are part of the architecture but NOT AWS resources (the end user, their browser/mobile app, "the internet"), use type "client" (or "internet") with deployed:false and a short deploy_note — the web draws them as part of the diagram but never counts or flags them as pending deployment.'),
         id: z.string().describe('Stable identifier of the resource (InstanceId / ARN / bucket name). This is the key the backend stores it under.'),
         name: z.string().optional().describe('Friendly name, if any.'),
         region: z.string().optional().describe('AWS region, e.g. "us-east-1". Include it whenever known — it powers the "Open in AWS Console" link in the web.'),
@@ -156,6 +156,9 @@ server.registerTool(
             'failed: AccessDenied…"`) or that the user asked to keep undeployed; on a Design ' +
             'sigil, something the user explicitly asked to deploy already (`deployed:true` + ' +
             'note). The web marks divergent resources on the diagram and shows your note. ' +
+            'EXTERNAL actors (type "client"/"internet" — the end user, a browser, a mobile app) ' +
+            'are exempt: they can never be deployed, so the web never flags them — push them with ' +
+            '`deployed:false` and they simply appear as part of the architecture. ' +
             'After `deploy_sigil`, a sigil is Live, so keep the SAME resource ids and upsert ' +
             'them with the real ARNs/ids (`arn`, `region`) and `state`.\n\n' +
             'CODE — plan it in the DESIGN phase. When a resource runs code you wrote (a Lambda ' +

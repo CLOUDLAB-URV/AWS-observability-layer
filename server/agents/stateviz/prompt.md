@@ -55,9 +55,18 @@ The diagram renders on a **dark canvas**. Use dark, tinted container fills, brig
     style.fill: "#2a1806"; style.stroke: "#ED7100"; style.stroke-width: 2; style.border-radius: 10; style.font-color: "#ffb066"
   }
   ```
-- **External client** (internet / end-user), only if the deployment is publicly reachable:
+- **External client** (internet / end-user) — drawn as a neutral grey GLOBE icon, styled exactly
+  like the service nodes (icon + light label, no card, no box). Use it when the deployment is
+  publicly reachable, and for any inventory resource of an external type (`client`, `internet`,
+  `user`, `browser`, `mobile`…) — that resource keeps its own id as the node id, like every
+  resource. Never use `shape: person`:
   ```
-  client: "Internet" { shape: person; style.fill: "#1f6feb"; style.stroke: "#58a6ff"; style.stroke-width: 2 }
+  client: "Internet" {
+    shape: image
+    icon: "https://api.iconify.design/mdi:web.svg?color=%238b949e"
+    style.font-color: "#f0f6fc"
+    style.font-size: 18
+  }
   ```
 - **AWS Cloud boundary** (outer dark panel; include region in label when known):
   ```
@@ -148,10 +157,10 @@ Common mappings: ALB/NLB → `aws-elb`; Aurora → `aws-aurora`; Fargate task �
 direction: right
 
 client: "Internet" {
-  shape: person
-  style.fill: "#1f6feb"
-  style.stroke: "#58a6ff"
-  style.stroke-width: 2
+  shape: image
+  icon: "https://api.iconify.design/mdi:web.svg?color=%238b949e"
+  style.font-color: "#f0f6fc"
+  style.font-size: 18
 }
 
 aws: "AWS Cloud (us-east-1)" {
