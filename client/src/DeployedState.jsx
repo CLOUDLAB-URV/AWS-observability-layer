@@ -166,7 +166,7 @@ function findZoneGroup(api, zone, diagramGroup) {
 // The diagram + all side panels live in a VSCode-like dockview layout the user can rearrange
 // into the four zones (drag to stack / dock at an edge / resize); the arrangement and
 // per-zone sizes are persisted to localStorage.
-export default function DeployedState({ user, onOpenAdmin }) {
+export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
     const [connected, setConnected] = useState(false);
     const [chats, setChats] = useState([]);
     const [chatId, setChatId] = useState(() => {
@@ -1089,7 +1089,7 @@ export default function DeployedState({ user, onOpenAdmin }) {
                         Guide
                     </button>
                     <span className="topbar-sep" aria-hidden="true" />
-                    {user && <UserMenu user={user} onOpenAdmin={onOpenAdmin} />}
+                    {user && <UserMenu user={user} onUserChange={onUserChange} onOpenAdmin={onOpenAdmin} />}
                 </div>
             </header>
             <main id="main-content" className="layout layout-deployed" role="main">

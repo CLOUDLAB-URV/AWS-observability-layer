@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.jsx';
 import Auth from './Auth.jsx';
@@ -27,6 +27,13 @@ if (resetToken) {
         </React.StrictMode>
     );
 } else {
+    // Holds the session user in state so profile edits (username, avatar) refresh the whole UI
+    // without a page reload — the Options modal pushes the updated user back via onUserChange.
+    function Root({ features, initialUser }) {
+        const [user, setUser] = useState(initialUser);
+        return <App features={features} user={user} onUserChange={setUser} />;
+    }
+
     // Before rendering, fetch which modes are available and the current session. If auth is on and
     // nobody is logged in, show the login screen; otherwise render the app for the resolved user.
     Promise.all([loadFeatures(), loadSession()]).then(([features, session]) => {
@@ -34,7 +41,7 @@ if (resetToken) {
         const needsLogin = session.authEnabled && !session.user;
         root.render(
             <React.StrictMode>
-                {needsLogin ? <Auth /> : <App features={features} user={session.user} />}
+                {needsLogin ? <Auth /> : <Root features={features} initialUser={session.user} />}
             </React.StrictMode>
         );
     });

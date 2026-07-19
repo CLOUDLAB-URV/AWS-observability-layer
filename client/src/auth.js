@@ -36,6 +36,19 @@ export const login = ({ identifier, password }) => postJson('/api/auth/login', {
 export const changePassword = ({ currentPassword, newPassword }) =>
     postJson('/api/auth/password', { currentPassword, newPassword });
 
+export const changeUsername = (username) => postJson('/api/auth/username', { username });
+
+// `avatar` is a small data-URL string, or null to remove the picture.
+export const setAvatar = (avatar) => postJson('/api/auth/avatar', { avatar });
+
+export const logoutAll = () => postJson('/api/auth/logout-all', {});
+
+export async function loadMyUsage() {
+    const res = await fetch('/api/me/usage');
+    if (!res.ok) throw new Error(`/api/me/usage ${res.status}`);
+    return res.json(); // { llm:{input,output,total,calls}, llmLimit, sigils, sigilLimit }
+}
+
 export const forgotPassword = (email) => postJson('/api/auth/forgot', { email });
 
 export const resetPassword = ({ token, password }) => postJson('/api/auth/reset', { token, password });

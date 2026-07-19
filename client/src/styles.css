@@ -1991,7 +1991,108 @@ body {
     color: var(--text-primary);
     font-size: 0.8rem;
     font-weight: 600;
+    overflow: hidden; /* uploaded photo clips to the circle */
 }
+.user-avatar-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 50%;
+}
+
+/* ---- Options (user settings) modal: left section nav + content panel ---- */
+.us-box { max-width: 660px; }
+.us-layout {
+    display: flex;
+    /* Fixed height (flex:none so the modal's column flex can't override it) so every section
+       renders the dialog at the same size — switching tabs must not make it jump around;
+       tall content scrolls inside the panel instead. */
+    flex: none;
+    height: min(490px, 66vh);
+    margin-top: 14px;
+    border-top: 1px solid var(--border-default);
+}
+.us-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: none;
+    width: 148px;
+    padding: 14px 12px 0 0;
+    border-right: 1px solid var(--border-default);
+}
+.us-nav-btn {
+    appearance: none;
+    background: none;
+    border: none;
+    border-radius: 7px;
+    padding: 7px 10px;
+    text-align: left;
+    font: inherit;
+    font-size: 13px;
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+.us-nav-btn:hover { background: var(--surface-raised); color: var(--text-primary); }
+.us-nav-btn.is-active {
+    background: var(--surface-raised);
+    color: var(--text-primary);
+    font-weight: 600;
+}
+.us-nav-btn.is-danger { color: var(--fn-red); }
+.us-nav-btn.is-danger:hover,
+.us-nav-btn.is-danger.is-active { background: rgba(201, 139, 139, 0.1); color: var(--fn-red); }
+.us-panel {
+    flex: 1;
+    min-width: 0;
+    margin-top: 0;
+    padding: 14px 2px 4px 20px;
+}
+.us-avatar-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+.us-avatar {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--surface-raised);
+    border: 1px solid var(--line-strong);
+    color: var(--text-primary);
+    font-size: 1.5rem;
+    font-weight: 600;
+    overflow: hidden;
+}
+.us-avatar-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+.us-usage-bar {
+    height: 8px;
+    border-radius: 999px;
+    background: var(--surface-raised);
+    border: 1px solid var(--border-default);
+    overflow: hidden;
+}
+.us-usage-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: var(--conn-on, #4c9a68);
+    transition: width 0.3s ease;
+}
+.us-usage-fill.is-hot { background: var(--fn-amber, #d9a04c); }
+.us-usage-note {
+    margin: 8px 0 0;
+    font-size: 12.5px;
+    color: var(--text-secondary);
+}
+.us-usage-note strong { color: var(--text-primary); }
 .user-name {
     font-size: 0.85rem;
     color: var(--text-secondary);

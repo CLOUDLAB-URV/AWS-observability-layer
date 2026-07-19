@@ -277,6 +277,50 @@ export function registerRoutes(app) {
         res.json({ ok: true });
     });
 
+    // Rename the logged-in user's account (from the Options modal).
+    app.post('/api/auth/username', requireSession, async (req, res) => {
+        const username = String(req.body?.username || '').trim();
+        if (!USERNAME_RE.test(username)) {
+            res.status(400).json({ error: 'Username must be 3–30 characters: letters, numbers or underscore.' });
+            return;
+        }
+        const result = await authStore.changeUsername(req.userId, username);
+        if (result.error === 'username_taken') {
+            res.status(409).json({ error: 'That username is taken.' });
+            return;
+        }
+        if (result.error) {
+            res.status(400).json({ error: 'Could not change the username.' });
+            return;
+        }
+        res.json({ ok: true, user: result.user });
+    });
+
+    // Set or remove the profile picture. The client downsizes to a small square before sending,
+    // so the payload is a tiny data URL; the size cap here is just a hard backstop.
+    const AVATAR_RE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
+    const AVATAR_MAX_CHARS = 200_000; // ~150 KB decoded — far above the ~15 KB a 128×128 JPEG needs
+    app.post('/api/auth/avatar', requireSession, async (req, res) => {
+        const avatar = req.body?.avatar ?? null;
+        if (avatar !== null && (typeof avatar !== 'string' || !AVATAR_RE.test(avatar) || avatar.length > AVATAR_MAX_CHARS)) {
+            res.status(400).json({ error: 'Avatar must be a small JPEG/PNG/WebP image.' });
+            return;
+        }
+        const result = await authStore.setAvatar(req.userId, avatar);
+        if (result.error) {
+            res.status(400).json({ error: 'Could not update the profile picture.' });
+            return;
+        }
+        res.json({ ok: true, user: result.user });
+    });
+
+    // Invalidate every session of the logged-in user (all devices), including this one.
+    app.post('/api/auth/logout-all', requireSession, async (req, res) => {
+        await authStore.deleteAllSessionsForUser(req.userId);
+        clearSessionCookie(res);
+        res.json({ ok: true });
+    });
+
     // Permanently delete the logged-in user's account and all their data. Confirmation is a
     // re-typed username + current password.
     app.delete('/api/auth/account', requireSession, async (req, res) => {

@@ -161,6 +161,18 @@ async function llmQuotaBlock(userId) {
     return { error: `Monthly AI quota reached (${used} of ${cap} tokens used). It resets on the 1st.` };
 }
 
+// The logged-in user's own consumption, for the Options → Usage tab: LLM tokens this month
+// against the monthly cap, and sigil count against the per-user cap.
+app.get('/api/me/usage', requireSession, async (req, res) => {
+    const [llm, llmLimit, chats, sigilLimit] = await Promise.all([
+        usageStore.monthUsage(req.userId),
+        getSetting('maxLlmTokensPerUserPerMonth'),
+        visualizerStore.listChats(req.userId),
+        getSetting('maxSigilsPerUser')
+    ]);
+    res.json({ llm, llmLimit, sigils: chats.length, sigilLimit });
+});
+
 // Ingest: the MCP tool POSTs a batch of incremental changes (upsert/delete per
 // resource) for a chat. We merge them into the chat's authoritative state,
 // regenerate the deployed-state D2, render it, and push it live to any web clients

@@ -120,7 +120,10 @@ function activeBan(rec) {
 function publicUser(userId, rec) {
     return {
         userId, email: rec.email, username: rec.username, name: rec.username,
-        role: roleOf(rec), bannedUntil: activeBan(rec)
+        role: roleOf(rec), bannedUntil: activeBan(rec),
+        avatar: rec.avatar || null,
+        createdAt: rec.createdAt || null,
+        lastLogin: rec.lastLogin || null
     };
 }
 
@@ -135,9 +138,7 @@ export async function listUsers() {
     return Object.entries(map)
         .map(([userId, rec]) => ({
             ...publicUser(userId, rec),
-            verified: Boolean(rec.verified),
-            createdAt: rec.createdAt || null,
-            lastLogin: rec.lastLogin || null
+            verified: Boolean(rec.verified)
         }))
         .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
 }
@@ -300,6 +301,47 @@ export function changePassword(userId, currentPassword, newPassword) {
         rec.passwordHash = hashPassword(newPassword);
         await writeUsers(map);
         return { ok: true };
+    });
+}
+
+// Rename a logged-in user's account. Same uniqueness rule as registration: only a VERIFIED
+// account blocks the name. Returns { ok, user } or { error:'not_found'|'username_taken' }.
+export function changeUsername(userId, username) {
+    return enqueue(async () => {
+        const map = await readUsers();
+        const rec = map[userId];
+        if (!rec) {
+            return { error: 'not_found' };
+        }
+        const usernameLower = String(username).trim().toLowerCase();
+        const takenBy = findIdBy(map, 'usernameLower', usernameLower);
+        if (takenBy && takenBy !== userId && map[takenBy].verified) {
+            return { error: 'username_taken' };
+        }
+        rec.username = String(username).trim();
+        rec.usernameLower = usernameLower;
+        await writeUsers(map);
+        return { ok: true, user: publicUser(userId, rec) };
+    });
+}
+
+// Set (data URL string) or clear (null) the user's profile picture. Content validation lives in
+// the route; like `role`, the key is only stored while set. Returns { ok, user } or
+// { error:'not_found' }.
+export function setAvatar(userId, avatar) {
+    return enqueue(async () => {
+        const map = await readUsers();
+        const rec = map[userId];
+        if (!rec) {
+            return { error: 'not_found' };
+        }
+        if (avatar === null) {
+            delete rec.avatar;
+        } else {
+            rec.avatar = String(avatar);
+        }
+        await writeUsers(map);
+        return { ok: true, user: publicUser(userId, rec) };
     });
 }
 
