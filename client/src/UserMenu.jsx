@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { changePassword, deleteAccount, logout } from './auth.js';
+import { changePassword, deleteAccount, forgotPassword, logout } from './auth.js';
 import ConnectAgentModal from './ConnectAgentModal.jsx';
 
 // Profile menu in the top bar: the avatar + name is a trigger that opens a dropdown with the
@@ -80,19 +80,34 @@ export default function UserMenu({ user, onOpenAdmin }) {
             )}
 
             {modal === 'connect' && <ConnectAgentModal onClose={() => setModal(null)} />}
-            {modal === 'password' && <ChangePasswordModal onClose={() => setModal(null)} />}
+            {modal === 'password' && <ChangePasswordModal user={user} onClose={() => setModal(null)} />}
             {modal === 'delete' && <DeleteAccountModal user={user} onClose={() => setModal(null)} />}
         </div>
     );
 }
 
-function ChangePasswordModal({ onClose }) {
+function ChangePasswordModal({ user, onClose }) {
     const [current, setCurrent] = useState('');
     const [next, setNext] = useState('');
     const [confirm, setConfirm] = useState('');
     const [error, setError] = useState('');
     const [done, setDone] = useState(false);
     const [busy, setBusy] = useState(false);
+    const [resetSent, setResetSent] = useState(false);
+    const [devResetUrl, setDevResetUrl] = useState('');
+
+    // Fallback for when the user doesn't remember their current password: email them the same
+    // reset link the login screen's "Forgot password?" flow uses.
+    async function onSendReset() {
+        if (busy) return;
+        setError('');
+        setBusy(true);
+        const { ok, data } = await forgotPassword(user.email);
+        setBusy(false);
+        if (!ok) { setError(data.error || 'Could not send the email.'); return; }
+        setDevResetUrl(data.devResetUrl || '');
+        setResetSent(true);
+    }
 
     useEffect(() => {
         const onKey = (e) => { if (e.key === 'Escape') onClose(); };
@@ -124,6 +139,19 @@ function ChangePasswordModal({ onClose }) {
                             <button className="modal-confirm-btn modal-confirm-primary" onClick={onClose}>Done</button>
                         </div>
                     </>
+                ) : resetSent ? (
+                    <>
+                        <p className="modal-message">
+                            We've sent a reset link to <strong>{user.email}</strong>. Open it to choose
+                            a new password.
+                        </p>
+                        {devResetUrl && (
+                            <p className="auth-dev">Dev mode (no email configured): <a className="auth-link" href={devResetUrl}>open reset link</a></p>
+                        )}
+                        <div className="modal-actions">
+                            <button className="modal-confirm-btn modal-confirm-primary" onClick={onClose}>Done</button>
+                        </div>
+                    </>
                 ) : (
                     <form className="modal-form" onSubmit={onSubmit}>
                         <label className="modal-field">
@@ -148,6 +176,12 @@ function ChangePasswordModal({ onClose }) {
                                 {busy ? 'Saving…' : 'Update password'}
                             </button>
                         </div>
+                        <p className="auth-switch">
+                            Don't remember your current password?{' '}
+                            <button type="button" className="auth-link" onClick={onSendReset} disabled={busy}>
+                                Email me a reset link
+                            </button>
+                        </p>
                     </form>
                 )}
             </div>
