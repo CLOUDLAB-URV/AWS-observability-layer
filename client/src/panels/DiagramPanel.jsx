@@ -1,4 +1,5 @@
 import Diagram from '../Diagram.jsx';
+import Onboarding from '../Onboarding.jsx';
 import { useDeployed } from '../DeployedContext.js';
 
 // Central, always-present panel: the live architecture canvas. When no diagram is
@@ -6,7 +7,7 @@ import { useDeployed } from '../DeployedContext.js';
 // (pick a chat / no deployed state yet). The <Diagram> refits itself via a
 // ResizeObserver, so docking/resizing this panel keeps it centered automatically.
 export default function DiagramPanel() {
-    const { svg, renderError, resources, diagramSelectedId, selectResource, chatId, chatsCount, deployed } =
+    const { svg, renderError, resources, diagramSelectedId, selectResource, chatId, chatsCount, deployed, onboarding } =
         useDeployed();
 
     return (
@@ -22,7 +23,8 @@ export default function DiagramPanel() {
                 />
             ) : (
                 <div className="diagram-empty">
-                    {chatId ? (
+                    {/* Not set up yet → the first-run guide takes over the empty canvas. */}
+                    {onboarding && !chatId ? <Onboarding /> : chatId ? (
                         <>Nothing drawn on this sigil yet. Deploy with your agent (it calls{' '}
                         <code>push_sigil</code>) to see the live sigil here.</>
                     ) : (

@@ -112,6 +112,8 @@ const SIZES_KEY = 'viz-dock-sizes-v8';
 const HIDDEN_KEY = 'viz-dock-hidden-v8';
 // The sigil (chat) the user last had selected, so it reopens on reload / revisit.
 const CHAT_KEY = 'viz-current-chat';
+// Set the first time the first-run guide auto-opens "Connect agent", so it only ever happens once.
+const ONBOARDED_KEY = 'viz-onboarded';
 
 // Per-panel remembered zone, persisted so reopening a panel returns it to where the user
 // last left it. Seeded from the defaults above.
@@ -193,6 +195,9 @@ function findZoneGroup(api, zone, diagramGroup) {
 export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
     const [connected, setConnected] = useState(false);
     const [chats, setChats] = useState([]);
+    // Whether /api/chats has answered at least once. `chats` starts empty, so without this the
+    // first-run guide would briefly think an established user has no sigils and auto-open on them.
+    const [chatsLoaded, setChatsLoaded] = useState(false);
     const [chatId, setChatId] = useState(() => {
         try { return localStorage.getItem(CHAT_KEY) || ''; } catch { return ''; }
     });
@@ -201,6 +206,9 @@ export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
     // "Connect agent" pop-up (opened from the toolbar/Guide CTA — it lives in the profile menu
     // too). Self-contained: it fetches its own token data.
     const [connectOpen, setConnectOpen] = useState(false);
+    // Token presence, for the first-run guide. The modal fetches /api/tokens for its own purposes;
+    // we need the count here to know whether this account can talk to the MCP at all.
+    const [tokenInfo, setTokenInfo] = useState({ loading: true, dev: false, count: 0 });
     // "Sigil options" pop-up (rename / data / delete) — replaces the old dockable Details panel.
     const [detailsOpen, setDetailsOpen] = useState(false);
     const [copied, setCopied] = useState('');
@@ -275,6 +283,7 @@ export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
         const socket = createSocket(handleMessage, setConnected, '/ws-visualizer');
         socketRef.current = socket;
         loadChats();
+        loadTokens();
         return () => socket.close();
     }, []);
 
@@ -360,6 +369,25 @@ export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
         }
     }
 
+    // Local dev has no generated tokens at all — it returns `dev: true` plus a fixed token, and
+    // POST /api/tokens is a hard 403. So dev counts as "already has a token": steps 2 and 3 still
+    // apply there.
+    async function loadTokens() {
+        try {
+            const res = await fetch('/api/tokens');
+            const data = await res.json();
+            setTokenInfo({
+                loading: false,
+                dev: Boolean(data.dev),
+                count: Array.isArray(data.tokens) ? data.tokens.length : 0
+            });
+        } catch {
+            // Treat an unreachable endpoint as "has a token" so a transient failure never puts an
+            // established user through onboarding.
+            setTokenInfo({ loading: false, dev: false, count: 1 });
+        }
+    }
+
     async function loadChats() {
         try {
             const res = await fetch('/api/chats');
@@ -371,6 +399,8 @@ export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
             setChatId((cur) => (cur && !list.some((c) => c.chatId === cur) ? '' : cur));
         } catch {
             setChats([]);
+        } finally {
+            setChatsLoaded(true);
         }
     }
 
@@ -1023,6 +1053,40 @@ export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
     ).length;
     const mixed = divergentCount > 0;
 
+    // First-run state: the guide is up until the account has BOTH a token and a first sigil. Null
+    // once set up (or while /api/tokens is still in flight, so an established user never sees a
+    // flash of onboarding).
+    // Both sources must have answered first — otherwise their load order decides whether an
+    // established user gets onboarded.
+    const hasToken = tokenInfo.dev || tokenInfo.count > 0;
+    const onboarding = (!tokenInfo.loading && chatsLoaded && (!hasToken || chats.length === 0))
+        ? { hasToken, hasSigil: chats.length > 0 }
+        : null;
+
+    // Effects below key off primitives, not the `onboarding` object — it's rebuilt every render.
+    const onboardingActive = onboarding !== null;
+    const awaitingFirstSigil = onboardingActive && chats.length === 0;
+
+    // Step 3 can't come over the WebSocket: the server only pushes to sockets subscribed to a
+    // specific chatId, and a brand-new user has no chat selected — so their agent's first push
+    // would never reach us. Poll instead, but only while the guide is waiting on it.
+    useEffect(() => {
+        if (!awaitingFirstSigil) return;
+        const id = setInterval(loadChats, 5000);
+        return () => clearInterval(id);
+    }, [awaitingFirstSigil]);
+
+    // Open "Connect agent" for the user the very first time they land without being set up, then
+    // never again — the guide stays on the canvas as the non-intrusive reminder.
+    useEffect(() => {
+        if (!onboardingActive) return;
+        try {
+            if (localStorage.getItem(ONBOARDED_KEY) === '1') return;
+            localStorage.setItem(ONBOARDED_KEY, '1');
+        } catch { /* quota / disabled storage — just don't auto-open */ return; }
+        setConnectOpen(true);
+    }, [onboardingActive]);
+
     function copy(text, key) {
         navigator.clipboard?.writeText(text).catch(() => {});
         setCopied(key);
@@ -1035,6 +1099,7 @@ export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
     const diagramSelectedId = activeResourceId;
 
     const ctx = {
+        onboarding,
         svg, renderError, resources,
         selectResource, diagramSelectedId,
         codeView, setCodeView, openCode,
@@ -1204,7 +1269,8 @@ export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
                     </div>
                 </div>
             </main>
-            {connectOpen && <ConnectAgentModal onClose={() => setConnectOpen(false)} />}
+            {/* Refetch tokens on close so the guide's step 1 ticks as soon as one is generated. */}
+            {connectOpen && <ConnectAgentModal onClose={() => { setConnectOpen(false); loadTokens(); }} />}
             {detailsOpen && selectedChat && <SigilSettingsModal onClose={() => setDetailsOpen(false)} />}
         </DeployedContext.Provider>
     );

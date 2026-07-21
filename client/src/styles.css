@@ -1008,6 +1008,90 @@ body {
     color: var(--text-primary);
 }
 
+/* ---- First-run guide (empty canvas, until token + first sigil exist) -------------------- */
+.onboarding {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    max-width: 460px;
+    padding: 28px 30px 26px;
+    border: 1px solid var(--border-default);
+    border-radius: 12px;
+    background: var(--surface-raised);
+    text-align: center;
+}
+.onb-icon {
+    font-size: 26px;
+    line-height: 1;
+    color: var(--text-muted);
+    opacity: 0.7;
+}
+.onb-title {
+    margin: 10px 0 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+.onb-lede {
+    margin: 8px 0 0;
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--text-secondary);
+}
+.onb-steps {
+    width: 100%;
+    margin: 20px 0 0;
+    padding: 0;
+    list-style: none;
+    text-align: left;
+}
+.onb-step {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 9px 0;
+    border-top: 1px solid var(--border-default);
+}
+.onb-step:first-child { border-top: none; }
+/* The step marker: number while pending/current, check once satisfied. */
+.onb-step-mark {
+    flex: none;
+    width: 19px;
+    height: 19px;
+    margin-top: 1px;
+    border-radius: 50%;
+    border: 1px solid var(--border-default);
+    font-size: 10.5px;
+    font-weight: 700;
+    line-height: 17px;
+    text-align: center;
+    color: var(--text-muted);
+}
+.onb-step-body { display: flex; flex-direction: column; gap: 2px; }
+.onb-step-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+.onb-step-detail {
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: var(--text-muted);
+}
+/* Done: green check. Current: the step to act on now. Pending: dimmed, but still legible. */
+.onb-step.is-done .onb-step-mark {
+    color: var(--fn-green);
+    border-color: var(--fn-green);
+}
+.onb-step.is-done .onb-step-title { color: var(--text-secondary); }
+.onb-step.is-current .onb-step-mark {
+    color: var(--text-primary);
+    border-color: var(--text-secondary);
+}
+.onb-step.is-pending { opacity: 0.72; }
+.onb-waiting { color: var(--text-secondary); font-style: italic; }
+.onb-cta { margin-top: 20px; }
+
 /* Keyboard shortcut hint (visible on focus) */
 .stage-kb-hint {
     position: absolute;
