@@ -26,6 +26,17 @@ function decodeNodePath(cls) {
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
+// Shift-click opens a service in its OWN detail tab (several stay open at once) — a gesture nobody
+// finds on their own. The node tooltip carries a one-line hint until the user actually uses it once,
+// then retires for good; the corner shortcut strip keeps it discoverable afterwards.
+const SHIFT_HINT_KEY = 'viz.shiftTabHintUsed';
+function shiftHintSeen() {
+    try { return localStorage.getItem(SHIFT_HINT_KEY) === '1'; } catch { return false; }
+}
+function markShiftHintSeen() {
+    try { localStorage.setItem(SHIFT_HINT_KEY, '1'); } catch { /* quota */ }
+}
+
 // Small corner badge injected INTO a node's <g> (so it pans/zooms with the diagram for
 // free): marks a resource whose deployment state diverges from the sigil mode. `isDeployed`
 // true → green check ("deployed although this is a Design sigil"); false → amber "!"
@@ -70,6 +81,8 @@ export default function Diagram({ svg, renderError, resources = [], onSelectReso
     const stageRef = useRef(null);
     const canvasRef = useRef(null);
     const tooltipRef = useRef(null);
+    // A ref, not state: the tooltip is built imperatively, so retiring the hint must not re-render.
+    const hintDoneRef = useRef(shiftHintSeen());
     // `userAdjusted` tracks whether the user has manually panned/zoomed. While false,
     // the diagram stays auto-fit & centered (and refits on stage resize); once the
     // user interacts we leave their view alone.
@@ -179,11 +192,20 @@ export default function Diagram({ svg, renderError, resources = [], onSelectReso
             }
         };
 
+        // While Shift is held, the canvas advertises the "open in its own tab" gesture: nodes take
+        // the copy cursor and a green hover glow. Window-level so it tracks even before the stage
+        // has focus; a window blur clears it (a Shift-held alt-tab never sends us the keyup).
+        const syncShift = (event) => stage.classList.toggle('is-shift', event.shiftKey === true);
+        const clearShift = () => stage.classList.remove('is-shift');
+
         stage.addEventListener('mousedown', onMouseDown);
         window.addEventListener('mouseup', onMouseUp);
         window.addEventListener('mousemove', onMouseMove);
         stage.addEventListener('wheel', onWheel, { passive: false });
         stage.addEventListener('keydown', onKeyDown);
+        window.addEventListener('keydown', syncShift);
+        window.addEventListener('keyup', syncShift);
+        window.addEventListener('blur', clearShift);
 
         // Keep the diagram fit & centered when the stage resizes (window resize, the
         // Details panel opening, the chat panel docking/floating) — but only while the
@@ -200,6 +222,10 @@ export default function Diagram({ svg, renderError, resources = [], onSelectReso
             window.removeEventListener('mousemove', onMouseMove);
             stage.removeEventListener('wheel', onWheel);
             stage.removeEventListener('keydown', onKeyDown);
+            window.removeEventListener('keydown', syncShift);
+            window.removeEventListener('keyup', syncShift);
+            window.removeEventListener('blur', clearShift);
+            clearShift();
             resizeObserver.disconnect();
             if (rafId) cancelAnimationFrame(rafId);
         };
@@ -268,6 +294,13 @@ export default function Diagram({ svg, renderError, resources = [], onSelectReso
                     arnLine.textContent = shortArn(arn);
                     tip.append(arnLine);
                 }
+            }
+            // Teach the multi-tab gesture in place, only until it's been used once.
+            if (!hintDoneRef.current) {
+                const hint = document.createElement('div');
+                hint.className = 'svc-tip-hint';
+                hint.textContent = '⇧ Shift-click → open in a new tab';
+                tip.append(hint);
             }
             tip.classList.add('is-visible');
             moveTip(event);
@@ -355,6 +388,10 @@ export default function Diagram({ svg, renderError, resources = [], onSelectReso
                     hideTip();
                     // Shift-click pins the service into its own detail tab (several stay open at
                     // once); a plain click updates the shared preview tab.
+                    if (e.shiftKey && !hintDoneRef.current) {
+                        hintDoneRef.current = true;
+                        markShiftHintSeen();
+                    }
                     onSelectResource(resource, e.shiftKey);
                 }
             };
@@ -446,7 +483,7 @@ export default function Diagram({ svg, renderError, resources = [], onSelectReso
             )}
 
             <span className="stage-kb-hint" aria-hidden="true">
-                ↑↓←→ pan · +/- zoom · 0 fit
+                ↑↓←→ pan · +/- zoom · 0 fit · ⇧-click new tab
             </span>
 
             <div ref={tooltipRef} className="svc-tooltip" role="tooltip" aria-hidden="true" />

@@ -506,6 +506,13 @@ body {
     filter: drop-shadow(0 0 2px #3b82f6) drop-shadow(0 0 4px rgba(59, 130, 246, 0.7));
 }
 
+/* Shift held over the canvas: nodes advertise that a click will open them in their OWN detail
+   tab (rather than retargeting the shared one). Green, to read as "additive". */
+.stage.is-shift .diagram-canvas g.svc-node { cursor: copy; }
+.stage.is-shift .diagram-canvas g.svc-node:hover {
+    filter: drop-shadow(0 0 2px var(--fn-green)) drop-shadow(0 0 5px rgba(127, 174, 143, 0.55));
+}
+
 /* Floating hover card. Positioned via JS (transform); follows the cursor inside the stage. */
 .svc-tooltip {
     position: absolute;
@@ -592,6 +599,16 @@ body {
     font-family: var(--font-mono, monospace);
     color: var(--text-muted);
     word-break: break-all;
+}
+/* Footer hint teaching the Shift-click → own-tab gesture. Retired (never rendered) once the
+   user has shift-clicked once — see SHIFT_HINT_KEY in Diagram.jsx. */
+.svc-tip-hint {
+    margin-top: 6px;
+    padding-top: 5px;
+    border-top: 1px solid var(--border-default);
+    font-size: 10px;
+    color: var(--text-muted);
+    opacity: 0.85;
 }
 
 /* ---- Resource detail panel (opens on click) ------------------------------------------- */
@@ -995,7 +1012,9 @@ body {
 .stage-kb-hint {
     position: absolute;
     bottom: 12px;
-    right: 14px;
+    /* Clear of the zoom toolbar column (32px button + its 14px inset) so the strip is never
+       clipped by it. */
+    right: 60px;
     font-size: 10px;
     color: var(--text-muted);
     pointer-events: none;
