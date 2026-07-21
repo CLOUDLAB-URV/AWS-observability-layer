@@ -80,6 +80,30 @@ function zoneCreateSize(zone, dockEl, sizes) {
     return Math.min(stored || ZONE_DEFAULT_SIZE[zone], Math.round(w * 0.45));
 }
 
+// Every service opens as a normal, named detail tab (there is no special "preview" tab). Each tab
+// is one instance of the 'resource-detail' component under a unique id in this namespace, bound to
+// a resource via its params (retargeted in place on a plain click, so the id stays stable while the
+// resource it shows changes). The logical zone key below is shared by all of them so a moved
+// column is remembered for tabs opened later.
+const RES_PREFIX = 'resource-tab~';
+const RES_ZONE_KEY = 'resource-detail';
+const isResourceTabId = (id) => typeof id === 'string' && id.startsWith(RES_PREFIX);
+const newResourceTabId = () =>
+    RES_PREFIX + (globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+
+// Short, human tab title for a resource detail tab: the resource's own name if it has one, else its
+// service type, else its id — truncated so the tab stays compact.
+function resourceTabTitle(resource) {
+    const t = (resource?.name || resource?.type || resource?.id || 'Resource').toString();
+    return t.length > 24 ? t.slice(0, 23) + '…' : t;
+}
+
+// The resource id a detail tab is bound to (null for any non-resource panel), read from its params.
+// Drives which node the diagram highlights when a resource tab is active.
+function resourceIdOfPanel(panel) {
+    return panel && isResourceTabId(panel.id) ? (panel.params?.resourceId ?? null) : null;
+}
+
 // Bump the suffixes when panel ids / defaults change so stale saved state is ignored.
 // (v8 = added the Code window panel; v7 = rigid 4-zone VSCode model.)
 const LAYOUT_KEY = 'viz-dock-layout-v8';
@@ -190,7 +214,10 @@ export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
     // Live resource inventory for the selected chat (powers per-service tooltips + the detail
     // panel), and the resource the user clicked in the diagram.
     const [resources, setResources] = useState([]);
-    const [selectedResource, setSelectedResource] = useState(null);
+    // The resource of the currently active detail tab — the node the diagram highlights, and the
+    // "current resource" the Code window follows. Kept in sync from dockview's active-panel changes
+    // and set directly when a click retargets/creates a tab (an already-active tab fires no event).
+    const [activeResourceId, setActiveResourceId] = useState(null);
     // The Code window's target: { resourceId, fileName } or null. Set by "View code" in the
     // resource detail panel; drives opening/closing the dedicated `code` panel.
     const [codeView, setCodeView] = useState(null);
@@ -207,9 +234,9 @@ export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
     const apiRef = useRef(null);
     const dockRef = useRef(null);           // the .viz-dock container (for width/animation)
     const saveTimer = useRef(null);
-    const selectedResourceRef = useRef(null);
     const codeViewRef = useRef(null);       // mirror of codeView, read inside layout-change callback
-    const lastSelectedIdRef = useRef(null); // last selected resource id (to close Code on a real change)
+    const lastResourceTabIdRef = useRef(null); // id of the last resource tab that was active (the tab a plain click retargets)
+    const lastActiveResourceRef = useRef(null); // last active resource id (to close Code on a real change)
     const zonesRef = useRef(loadZones());   // per-panel remembered zone (persisted)
     // Intended pixel size of each zone (left/right width, bottom height). Captured whenever the
     // layout settles at a STABLE container width (a user sash drag or a panel open) and restored
@@ -232,15 +259,13 @@ export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
     const [, setHiddenTick] = useState(0);
 
     useEffect(() => {
-        selectedResourceRef.current = selectedResource;
-        // Close the Code window when the selection moves to a DIFFERENT resource (or clears) —
-        // but not on a mere data refresh that keeps the same id (a push updates the object).
-        const id = selectedResource?.id ?? null;
-        if (id !== lastSelectedIdRef.current) {
-            lastSelectedIdRef.current = id;
+        // Close the Code window when the active resource moves to a DIFFERENT one (or clears) — but
+        // not on a mere data refresh that keeps the same id (a push updates the object in place).
+        if (activeResourceId !== lastActiveResourceRef.current) {
+            lastActiveResourceRef.current = activeResourceId;
             setCodeView(null);
         }
-    }, [selectedResource]);
+    }, [activeResourceId]);
 
     useEffect(() => {
         codeViewRef.current = codeView;
@@ -258,7 +283,7 @@ export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
     useEffect(() => {
         setSvg('');
         setRenderError(null);
-        setSelectedResource(null);
+        setActiveResourceId(null);
         if (connected && chatId) {
             socketRef.current?.send({ type: 'subscribe', chatId });
         }
@@ -282,7 +307,15 @@ export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
                 const list = Array.isArray(data.resources) ? data.resources : [];
                 setResources(list);
                 setDeployed(data.deployed === true);
-                setSelectedResource((cur) => (cur ? list.find((r) => r.id === cur.id) || null : null));
+                // Drop any resource tab whose resource is no longer in the sigil.
+                const api = apiRef.current;
+                if (api) {
+                    for (const p of [...api.panels]) {
+                        if (!isResourceTabId(p.id)) continue;
+                        const rid = p.params?.resourceId;
+                        if (rid && !list.some((r) => r.id === rid)) p.api.close();
+                    }
+                }
             } catch {
                 if (!cancelled) setResources([]);
             }
@@ -508,7 +541,10 @@ export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
             for (const panel of api.panels) {
                 if (panel.id === 'diagram') continue;
                 const z = zoneOfGroup(panel.group, diagramGroup);
-                if (z) zones[panel.id] = z;
+                if (!z) continue;
+                // Resource tabs share one logical zone key so a moved column is remembered for new
+                // tabs; their per-instance ids never accumulate in the map.
+                zones[isResourceTabId(panel.id) ? RES_ZONE_KEY : panel.id] = z;
             }
             zonesRef.current = zones;
             saveZones(zones);
@@ -516,26 +552,26 @@ export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
         persist(api);
     }, [persist]);
 
-    // Open a panel into its remembered zone: stack as a tab in that zone's group if one
-    // exists, else create the zone group beside the diagram. No-op if already open.
-    const ensurePanel = useCallback((id) => {
+    // Add a panel into `zone`: stack as a tab in that zone's existing group, else create the zone
+    // group beside/under the diagram at its remembered size (reasserted one frame later, since
+    // dockview equalises the fresh split, so only the diagram gives up the space). Shared by
+    // ensurePanel (single-instance panels) and createResourceTab (per-resource detail tabs).
+    const addIntoZone = useCallback(({ id, component, title, params, zone }) => {
         const api = apiRef.current;
-        if (!api || api.getPanel(id)) return;
-        const meta = PANEL_META[id];
-        const zone = zonesRef.current[id] || meta.zone;
+        if (!api) return;
         const diagram = api.getPanel('diagram');
         const diagramGroup = diagram?.group;
         const zoneGroup = findZoneGroup(api, zone, diagramGroup);
         if (zoneGroup) {
             // Zone already open → stack as a tab (no size change; the other zones stay put).
-            api.addPanel({ id, component: id, title: meta.title, position: { referenceGroup: zoneGroup, direction: 'within' } });
+            api.addPanel({ id, component, title, params, position: { referenceGroup: zoneGroup, direction: 'within' } });
         } else if (diagram) {
             // Create the zone as a fresh group beside/under the DIAGRAM (so left/right are full
             // height and bottom sits under the centre only), then size it to the per-zone width.
             const dock = dockRef.current;
             const size = zoneCreateSize(zone, dock, sizesRef.current);
             api.addPanel({
-                id, component: id, title: meta.title,
+                id, component, title, params,
                 position: { referencePanel: 'diagram', direction: ZONE_DIRECTION[zone] },
                 ...(zone === 'bottom' ? { initialHeight: size } : { initialWidth: size })
             });
@@ -544,9 +580,59 @@ export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
             const g = api.getPanel(id)?.group;
             if (g) requestAnimationFrame(() => g.api.setSize(zone === 'bottom' ? { height: size } : { width: size }));
         } else {
-            api.addPanel({ id, component: id, title: meta.title });
+            api.addPanel({ id, component, title, params });
         }
     }, []);
+
+    // Open a single-instance panel into its remembered zone. No-op if already open.
+    const ensurePanel = useCallback((id) => {
+        const api = apiRef.current;
+        if (!api || api.getPanel(id)) return;
+        const meta = PANEL_META[id];
+        const zone = zonesRef.current[id] || meta.zone;
+        addIntoZone({ id, component: id, title: meta.title, zone });
+    }, [addIntoZone]);
+
+    // Open a NEW resource detail tab, bound to `resource` and stacked into the (right by default)
+    // resource column. Each tab gets a fresh unique id so several services stay open at once.
+    const createResourceTab = useCallback((resource) => {
+        const api = apiRef.current;
+        if (!api || !resource?.id) return;
+        const id = newResourceTabId();
+        const zone = zonesRef.current[RES_ZONE_KEY] || PANEL_META['resource-detail'].zone;
+        addIntoZone({ id, component: 'resource-detail', title: resourceTabTitle(resource), params: { resourceId: resource.id }, zone });
+        // A freshly-added tab is active, but if it merely stacked onto the existing column dockview
+        // may not fire an active-panel change — set the highlight directly.
+        lastResourceTabIdRef.current = id;
+        setActiveResourceId(resource.id);
+    }, [addIntoZone]);
+
+    // Point an existing resource tab at a different resource (retitle + rebind its params). Used by
+    // a plain click so the last-used tab is reused in place rather than piling up new tabs.
+    const retargetResourceTab = useCallback((panel, resource) => {
+        panel.setTitle(resourceTabTitle(resource));
+        panel.update({ params: { ...(panel.params || {}), resourceId: resource.id } });
+        panel.api.setActive();
+        lastResourceTabIdRef.current = panel.id;
+        setActiveResourceId(resource.id); // an already-active tab fires no change event
+    }, []);
+
+    // A service node click from the diagram:
+    //  • Shift-click, OR no resource tab open yet → open a NEW tab.
+    //  • Plain click with tabs already open → reuse the last-selected resource tab (the active one
+    //    if it's a resource tab, else the most-recently active, else any open one).
+    const selectResource = useCallback((resource, newTab) => {
+        const api = apiRef.current;
+        if (!api || !resource?.id) return;
+        const openTabs = api.panels.filter((p) => isResourceTabId(p.id));
+        if (newTab || openTabs.length === 0) { createResourceTab(resource); return; }
+        const active = api.activePanel;
+        const target =
+            (active && isResourceTabId(active.id) && active) ||
+            (lastResourceTabIdRef.current && openTabs.find((p) => p.id === lastResourceTabIdRef.current)) ||
+            openTabs[openTabs.length - 1];
+        retargetResourceTab(target, resource);
+    }, [createResourceTab, retargetResourceTab]);
 
     // The default arrangement is EMPTY: just the (non-closable) diagram in the centre, no side
     // panels open. The app opens blank on first run and the user opens whatever they want; each
@@ -717,10 +803,11 @@ export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
         // modal) may carry an id with no registered component — close any such orphan so the
         // restore doesn't render a blank/broken pane.
         for (const p of [...api.panels]) {
-            if (!PANEL_COMPONENTS[p.id]) p.api.close();
+            // Resource tabs render the 'resource-detail' component under a per-instance id, so they
+            // aren't keyed in PANEL_COMPONENTS by their own id — keep them on restore (they rebind
+            // to their resource from params, or show an empty state if it's gone).
+            if (!PANEL_COMPONENTS[p.id] && !isResourceTabId(p.id)) p.api.close();
         }
-        const rd = api.getPanel('resource-detail');
-        if (rd && !selectedResourceRef.current) rd.api.close();
         // The Code window is transient (no target until "View code" is clicked) — close any
         // restored instance so a stale layout doesn't reopen an empty pane.
         const cp = api.getPanel('code');
@@ -808,12 +895,10 @@ export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
         setOpenIds(api.panels.map((p) => p.id));
         api.onDidLayoutChange(() => {
             setOpenIds(api.panels.map((p) => p.id));
-            // If the user closed the resource-detail tab manually, clear the selection so the
-            // diagram highlight goes away and a later click can reopen it.
-            if (!api.getPanel('resource-detail') && selectedResourceRef.current) {
-                setSelectedResource(null);
-            }
-            // Likewise, closing the Code tab clears its target so it can be reopened cleanly.
+            // When no resource tab is open any more, drop the highlight so a later click starts fresh
+            // (setState no-ops when it's already null).
+            if (!api.panels.some((p) => isResourceTabId(p.id))) setActiveResourceId(null);
+            // Closing the Code tab clears its target so it can be reopened cleanly.
             if (!api.getPanel('code') && codeViewRef.current) {
                 setCodeView(null);
             }
@@ -839,21 +924,26 @@ export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
             }
             syncZones();
         });
+        // Keep the diagram highlight on whichever resource tab is active, and remember it as the tab
+        // a later plain click will reuse. Activating a non-resource panel leaves both as-is (the
+        // last resource stays highlighted and reusable).
+        api.onDidActivePanelChange((e) => {
+            const rid = resourceIdOfPanel(e.panel);
+            if (rid !== null) { lastResourceTabIdRef.current = e.panel.id; setActiveResourceId(rid); }
+        });
+        // Seed from whatever tab is active after a restore (the change event only fires on changes),
+        // so a reload with a resource tab active still highlights its node.
+        const active = api.activePanel;
+        if (active && isResourceTabId(active.id)) {
+            lastResourceTabIdRef.current = active.id;
+            setActiveResourceId(resourceIdOfPanel(active));
+        }
         // Seed the stable container width + group count.
         lastContainerWRef.current = dockRef.current?.clientWidth || 0;
         lastGroupCountRef.current = api.groups.length;
         captureZoneSizes();
         syncZones();
     }, [buildDefault, syncZones, captureZoneSizes, reconcileZones, pinSideWidths, restoreRevealedZones]);
-
-    // Data-driven: open/close the resource-detail panel following the diagram selection.
-    useEffect(() => {
-        const api = apiRef.current;
-        if (!api) return;
-        const existing = api.getPanel('resource-detail');
-        if (selectedResource && !existing) ensurePanel('resource-detail');
-        else if (!selectedResource && existing) existing.api.close();
-    }, [selectedResource, ensurePanel]);
 
     // Data-driven: open/close the Code window following the "View code" target.
     useEffect(() => {
@@ -941,8 +1031,12 @@ export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
 
     // Everything the dockview panels read. Recreated per render (cheap for this UI); panels
     // pull only what they need via useDeployed().
+    // The node the diagram highlights: the resource of the active detail tab.
+    const diagramSelectedId = activeResourceId;
+
     const ctx = {
-        svg, renderError, resources, selectedResource, setSelectedResource,
+        svg, renderError, resources,
+        selectResource, diagramSelectedId,
         codeView, setCodeView, openCode,
         chatId, chatsCount: chats.length,
         selectedChat, deployed, mixed, divergentCount,

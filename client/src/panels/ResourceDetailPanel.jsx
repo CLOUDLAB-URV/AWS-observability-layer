@@ -1,23 +1,30 @@
 import ResourceDetail from '../ResourceDetail.jsx';
 import { useDeployed } from '../DeployedContext.js';
 
-// Data-driven panel: opened by DeployedState whenever a diagram node is clicked
-// (selectedResource set) and closed when the selection clears. Closing the panel's
-// tab also clears the selection (DeployedState watches the layout for its removal).
-export default function ResourceDetailPanel() {
-    const { selectedResource, setSelectedResource, openCode } = useDeployed();
-    if (!selectedResource) {
-        return <div className="dv-pane dv-pane-empty">No resource selected.</div>;
+// A resource detail tab, bound to one resource via its params.resourceId. Every service opens as
+// one of these (there is no special shared tab): a plain click retargets the last-used tab to a new
+// resource (its params change in place), and a Shift-click opens another. It reads its resource from
+// the live inventory so backend pushes keep it fresh, and closing it removes just that tab.
+export default function ResourceDetailPanel(props) {
+    const { resources, openCode } = useDeployed();
+    const resourceId = props?.params?.resourceId ?? null;
+    const resource = (resources || []).find((r) => r.id === resourceId) || null;
+
+    if (!resource) {
+        // A tab restored before its inventory has loaded shows a neutral loading state; once
+        // resources arrive it either binds or reports the resource is gone.
+        const msg = (resources && resources.length)
+            ? 'This resource is no longer in the sigil.'
+            : 'Loading resource…';
+        return <div className="dv-pane dv-pane-empty">{msg}</div>;
     }
-    // ResourceDetail reads the per-resource `deployed` flag off the resource itself
-    // (the backend backfills it), so no sigil-level prop is needed here. "View code" opens the
-    // dedicated Code window for the clicked file, scoped to this resource.
+
     return (
         <div className="dv-pane">
             <ResourceDetail
-                resource={selectedResource}
-                onClose={() => setSelectedResource(null)}
-                onViewCode={(file) => openCode(selectedResource, file)}
+                resource={resource}
+                onClose={() => props.api.close()}
+                onViewCode={(file) => openCode(resource, file)}
             />
         </div>
     );

@@ -353,7 +353,9 @@ export default function Diagram({ svg, renderError, resources = [], onSelectReso
                 if (moved < 6 && onSelectResource) {
                     e.stopPropagation();
                     hideTip();
-                    onSelectResource(resource);
+                    // Shift-click pins the service into its own detail tab (several stay open at
+                    // once); a plain click updates the shared preview tab.
+                    onSelectResource(resource, e.shiftKey);
                 }
             };
             g.addEventListener('mouseenter', onEnter);
