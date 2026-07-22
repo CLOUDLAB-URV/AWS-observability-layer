@@ -1829,6 +1829,39 @@ body {
 }
 .ca-count { font-size: 12px; color: var(--text-muted); }
 
+/* ---- Export sigil modal ---------------------------------------------------------------- */
+/* Each control is one label + segmented-control row, reusing .ca-field-label / .ca-segment. */
+.ex-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+.ex-row .ca-field-label { margin: 0; }
+.ex-row-spaced { margin-top: 16px; }
+/* Filename + resulting pixel size, so there are no surprises before downloading. */
+.ex-summary {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 20px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border-default);
+}
+.ex-filename {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-primary);
+    word-break: break-all;
+}
+.ex-dims {
+    font-size: 11.5px;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
 /* Existing-token list (prod). */
 .ca-token-list {
     list-style: none;
@@ -2444,6 +2477,17 @@ body {
 /* ---------------------------------------------------------------------------
    MCP guide (Agent / MCP view)
    --------------------------------------------------------------------------- */
+/* In the Guide pop-up the modal already supplies the surface and the border, and its flex column
+   owns the scrolling — so the panel chrome is dropped and only the scroll cap remains. */
+.mcp-guide.is-modal {
+    padding: 4px 2px 0;
+    border-bottom: none;
+    background: none;
+    max-height: none;
+    overflow-y: auto;
+    min-height: 0;
+}
+
 .mcp-guide {
     padding: 24px 24px 32px;
     border-bottom: 1px solid var(--border-default);

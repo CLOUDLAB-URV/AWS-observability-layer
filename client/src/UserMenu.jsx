@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { logout } from './auth.js';
 import ConnectAgentModal from './ConnectAgentModal.jsx';
 import UserSettingsModal from './UserSettingsModal.jsx';
+import GuideModal from './GuideModal.jsx';
 
 // Profile menu in the top bar: the avatar + name is a trigger that opens a dropdown with the
 // account actions (Connect agent, Options, Log out). All account settings — username, avatar,
@@ -9,7 +10,7 @@ import UserSettingsModal from './UserSettingsModal.jsx';
 // Admins additionally get an "Admin view" entry (server-enforced — the menu gating is only UX).
 export default function UserMenu({ user, onUserChange, onOpenAdmin }) {
     const [open, setOpen] = useState(false);
-    const [modal, setModal] = useState(null); // null | 'connect' | 'options'
+    const [modal, setModal] = useState(null); // null | 'connect' | 'options' | 'guide'
     const wrapRef = useRef(null);
 
     useEffect(() => {
@@ -57,6 +58,10 @@ export default function UserMenu({ user, onUserChange, onOpenAdmin }) {
                         onClick={() => { setOpen(false); setModal('connect'); }}>
                         Connect agent
                     </button>
+                    <button type="button" className="user-menu-item" role="menuitem"
+                        onClick={() => { setOpen(false); setModal('guide'); }}>
+                        Guide
+                    </button>
                     <div className="user-menu-sep" />
                     {user.role === 'admin' && onOpenAdmin && (
                         <>
@@ -79,6 +84,9 @@ export default function UserMenu({ user, onUserChange, onOpenAdmin }) {
             )}
 
             {modal === 'connect' && <ConnectAgentModal onClose={() => setModal(null)} />}
+            {modal === 'guide' && (
+                <GuideModal onClose={() => setModal(null)} onOpenConnect={() => setModal('connect')} />
+            )}
             {modal === 'options' && (
                 <UserSettingsModal
                     user={user}

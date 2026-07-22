@@ -11,8 +11,8 @@ import ResourceDetailPanel from './panels/ResourceDetailPanel.jsx';
 import CodePanel from './panels/CodePanel.jsx';
 import AskPanel from './panels/AskPanel.jsx';
 import SigilSettingsModal from './SigilSettingsModal.jsx';
-import GuidePanel from './panels/GuidePanel.jsx';
 import DevToolsPanel from './panels/DevToolsPanel.jsx';
+import ExportModal from './ExportModal.jsx';
 import ConnectAgentModal from './ConnectAgentModal.jsx';
 
 // dockview panel registry (id → component). The layout is a rigid VSCode-like model: the
@@ -26,14 +26,12 @@ const PANEL_COMPONENTS = {
     'resource-detail': ResourceDetailPanel,
     code: CodePanel,
     ask: AskPanel,
-    guide: GuidePanel,
     devtools: DevToolsPanel
 };
 // Each panel's DEFAULT zone. The user can move a panel to another zone; that choice is
 // remembered (see zone memory below) and used when the panel is reopened.
 const PANEL_META = {
     ask: { title: 'Ask', zone: 'right' },
-    guide: { title: 'Guide', zone: 'right' },
     'resource-detail': { title: 'Resource', zone: 'right' },
     code: { title: 'Code', zone: 'right' },
     devtools: { title: 'opencode', zone: 'left' }
@@ -43,7 +41,7 @@ const ZONE_DIRECTION = { left: 'left', right: 'right', bottom: 'below' };
 // The panel a zone toggle opens when its zone is empty AND nothing was remembered (VSCode
 // opens the default view when you toggle an empty sidebar on). Bottom has no default → its
 // toggle stays disabled until something lives there.
-const ZONE_DEFAULT_PANEL = { left: 'devtools', right: 'guide', bottom: null };
+const ZONE_DEFAULT_PANEL = { left: 'devtools', right: 'ask', bottom: null };
 
 // A close-less tab renderer for the diagram: it's the anchor panel, so it must not be
 // closable (no ✕, and none exists). Every other panel keeps the default closable tab.
@@ -130,6 +128,50 @@ function saveZones(zones) {
     try { localStorage.setItem(ZONES_KEY, JSON.stringify(zones)); } catch { /* quota */ }
 }
 
+// Drop panels whose component no longer exists from a SAVED layout, before handing it to
+// dockview. This matters whenever a panel is retired (the Guide became a modal; "connect-agent"
+// before it): dockview THROWS while deserializing a panel whose contentComponent isn't
+// registered, which would discard the user's whole arrangement — every still-valid panel with
+// it — and log a deserialize error. Pruning first keeps everything that is still valid.
+// Mutates and returns `layout`; returns null if nothing usable is left.
+function pruneRetiredPanels(layout) {
+    const panels = layout?.panels;
+    if (!panels || typeof panels !== 'object') return layout;
+
+    const dead = new Set();
+    for (const [id, panel] of Object.entries(panels)) {
+        // Resource tabs live under per-instance ids but render the registered 'resource-detail'
+        // component, so keying off contentComponent covers them for free.
+        if (!PANEL_COMPONENTS[panel?.contentComponent]) {
+            dead.add(id);
+            delete panels[id];
+        }
+    }
+    if (!dead.size) return layout;
+
+    // Prune the dead views out of the grid, collapsing any leaf/branch left empty.
+    const walk = (node) => {
+        if (!node) return null;
+        if (node.type === 'leaf') {
+            const views = (node.data?.views || []).filter((v) => !dead.has(v));
+            if (!views.length) return null;
+            node.data.views = views;
+            if (dead.has(node.data.activeView)) node.data.activeView = views[0];
+            return node;
+        }
+        if (node.type === 'branch') {
+            const kids = (node.data || []).map(walk).filter(Boolean);
+            if (!kids.length) return null;
+            node.data = kids;
+            return node;
+        }
+        return node;
+    };
+
+    layout.grid.root = walk(layout.grid.root);
+    return layout.grid.root ? layout : null;
+}
+
 // Per-zone remembered pixel size (left/right width, bottom height), persisted so a column the
 // user widened comes back the same width next time it's opened. Seeded from ZONE_DEFAULT_SIZE.
 function loadSizes() {
@@ -211,6 +253,8 @@ export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
     const [tokenInfo, setTokenInfo] = useState({ loading: true, dev: false, count: 0 });
     // "Sigil options" pop-up (rename / data / delete) — replaces the old dockable Details panel.
     const [detailsOpen, setDetailsOpen] = useState(false);
+    // "Export sigil" pop-up (PNG / JPG / SVG).
+    const [exportOpen, setExportOpen] = useState(false);
     const [copied, setCopied] = useState('');
     const [renameValue, setRenameValue] = useState('');
     const [editingName, setEditingName] = useState(false);
@@ -826,7 +870,8 @@ export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
         let restored = false;
         try {
             const raw = localStorage.getItem(LAYOUT_KEY);
-            if (raw) { api.fromJSON(JSON.parse(raw)); restored = true; }
+            const layout = raw ? pruneRetiredPanels(JSON.parse(raw)) : null;
+            if (layout) { api.fromJSON(layout); restored = true; }
         } catch { restored = false; }
         if (!restored || !api.getPanel('diagram')) buildDefault(api);
         // A layout saved before a panel was removed (e.g. the old "connect-agent" panel, now a
@@ -1236,16 +1281,18 @@ export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
                     <button
                         type="button"
                         className="btn btn-ghost"
-                        onClick={() => togglePanel('guide')}
-                        aria-expanded={isOpen('guide')}
-                        title="Show the Sigilum guide"
+                        onClick={() => setExportOpen(true)}
+                        aria-haspopup="dialog"
+                        disabled={!svg}
+                        title="Export this sigil as an image"
                     >
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
                             strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                            <circle cx="12" cy="12" r="9" />
-                            <polygon points="15.6 8.4 13.6 13.6 8.4 15.6 10.4 10.4 15.6 8.4" />
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                            <polyline points="7 10 12 15 17 10" />
+                            <line x1="12" y1="15" x2="12" y2="3" />
                         </svg>
-                        Guide
+                        Export
                     </button>
                     <span className="topbar-sep" aria-hidden="true" />
                     {user && <UserMenu user={user} onUserChange={onUserChange} onOpenAdmin={onOpenAdmin} />}
@@ -1272,6 +1319,7 @@ export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
             {/* Refetch tokens on close so the guide's step 1 ticks as soon as one is generated. */}
             {connectOpen && <ConnectAgentModal onClose={() => { setConnectOpen(false); loadTokens(); }} />}
             {detailsOpen && selectedChat && <SigilSettingsModal onClose={() => setDetailsOpen(false)} />}
+            {exportOpen && <ExportModal onClose={() => setExportOpen(false)} />}
         </DeployedContext.Provider>
     );
 }

@@ -1,10 +1,11 @@
-// Usage guide for the Sigilum MCP, shown in the Sigils view. Written for users (how to
+// Usage guide for the Sigilum MCP, opened from the profile menu. Written for users (how to
 // use it), not as an API reference. `onOpenConnect` opens the "Connect agent" modal so
-// the token reference is one click away.
+// the token reference is one click away. `inModal` drops the panel chrome (its own surface and
+// bottom border) for the pop-up card, which already provides both.
 
-export default function McpGuide({ onOpenConnect }) {
+export default function McpGuide({ onOpenConnect, inModal = false }) {
     return (
-        <div className="mcp-guide" role="region" aria-label="How to use Sigilum">
+        <div className={`mcp-guide ${inModal ? 'is-modal' : ''}`} role="region" aria-label="How to use Sigilum">
             <div className="guide-head">
                 <h3>Using Sigilum</h3>
                 <p className="guide-lede">
@@ -40,7 +41,7 @@ export default function McpGuide({ onOpenConnect }) {
                     something in a chat, a <strong>new sigil is created with its own id</strong>,
                     and it's <strong>named automatically</strong> based on what you built in that
                     first deployment (for example, “Two-tier web app”). You can rename it anytime
-                    from <strong>Details</strong> in the toolbar above.
+                    from <strong>Options</strong> in the toolbar above.
                 </p>
                 <p>
                     From then on, everything you do in that chat — add, change or remove resources —
