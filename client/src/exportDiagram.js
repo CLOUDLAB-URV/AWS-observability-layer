@@ -89,8 +89,10 @@ function addBackground(svgEl, color) {
     svgEl.insertBefore(rect, svgEl.firstChild);
 }
 
-// Build the standalone, self-contained SVG for export.
-async function buildSvg(svgString, { background }) {
+// Build the standalone, self-contained SVG for export. Exported so the modal's live preview can
+// build the EXACT same markup the download would produce (icons inlined, background applied) —
+// the preview must never be a separate re-derivation that could drift from what actually downloads.
+export async function buildExportSvg(svgString, { background }) {
     const svgEl = parseSvg(svgString);
     const failedIcons = await inlineExternalImages(svgEl);
     if (background) addBackground(svgEl, background);
@@ -163,7 +165,7 @@ export async function exportDiagram(svgString, { format, scale = 2, background, 
     const size = svgSize(svgString);
     if (!size) throw new Error('The diagram has no usable size.');
 
-    const { markup, failedIcons } = await buildSvg(svgString, { background });
+    const { markup, failedIcons } = await buildExportSvg(svgString, { background });
 
     if (format === 'svg') {
         downloadBlob(new Blob([markup], { type: 'image/svg+xml;charset=utf-8' }), exportFilename(name, 'svg'));

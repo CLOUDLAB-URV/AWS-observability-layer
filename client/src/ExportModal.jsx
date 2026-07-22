@@ -1,9 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useDeployed } from './DeployedContext.js';
-import { exportDiagram, exportFilename, svgSize, CANVAS_BG } from './exportDiagram.js';
+import { exportDiagram, exportFilename, svgSize, CANVAS_BG, buildExportSvg } from './exportDiagram.js';
 
 const FORMATS = [['png', 'PNG'], ['jpg', 'JPG'], ['svg', 'SVG']];
 const SCALES = [1, 2, 3];
+
+function iconWarningText(n) {
+    return `${n} icon${n === 1 ? '' : 's'} could not be loaded and ${n === 1 ? 'is' : 'are'} missing from the file.`;
+}
 
 // Segmented control, same shape as the agent picker in ConnectAgentModal.
 function Segment({ label, options, value, onChange, disabledValues = [] }) {
@@ -39,6 +43,13 @@ export default function ExportModal({ onClose }) {
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
     const [warning, setWarning] = useState('');
+    // Live preview: an object URL for the exact same self-contained SVG (icons inlined, background
+    // applied) that a download would produce — never a separate re-derivation, so what you see here
+    // is genuinely what you'd get.
+    const [previewUrl, setPreviewUrl] = useState('');
+    const [previewLoading, setPreviewLoading] = useState(true);
+    const [previewFailed, setPreviewFailed] = useState(0);
+    const previewUrlRef = useRef('');
 
     useEffect(() => {
         const onKey = (e) => { if (e.key === 'Escape') onClose(); };
@@ -58,6 +69,35 @@ export default function ExportModal({ onClose }) {
         ? { width: Math.round(size.width * scale), height: Math.round(size.height * scale) }
         : size;
 
+    // Rebuild the preview only when the diagram or the background choice changes — format (PNG vs
+    // JPG vs SVG) and scale never change what the diagram LOOKS like, only how it's encoded/sized,
+    // so there's no reason to redo icon-fetching for those. `background` already folds in the
+    // JPG-forces-opaque rule, so switching format still updates the preview when that rule kicks in.
+    useEffect(() => {
+        if (!svg) return;
+        let cancelled = false;
+        setPreviewLoading(true);
+        (async () => {
+            try {
+                const { markup, failedIcons } = await buildExportSvg(svg, { background });
+                if (cancelled) return;
+                const url = URL.createObjectURL(new Blob([markup], { type: 'image/svg+xml;charset=utf-8' }));
+                if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+                previewUrlRef.current = url;
+                setPreviewUrl(url);
+                setPreviewFailed(failedIcons);
+            } catch {
+                if (!cancelled) setPreviewUrl('');
+            } finally {
+                if (!cancelled) setPreviewLoading(false);
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [svg, background]);
+
+    // Revoke the last object URL when the modal itself unmounts.
+    useEffect(() => () => { if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current); }, []);
+
     async function download() {
         setBusy(true);
         setError('');
@@ -65,7 +105,7 @@ export default function ExportModal({ onClose }) {
         try {
             const { failedIcons } = await exportDiagram(svg, { format, scale, background, name });
             if (failedIcons > 0) {
-                setWarning(`${failedIcons} icon${failedIcons === 1 ? '' : 's'} could not be loaded and ${failedIcons === 1 ? 'is' : 'are'} missing from the file.`);
+                setWarning(iconWarningText(failedIcons));
             } else {
                 onClose();
             }
@@ -106,6 +146,23 @@ export default function ExportModal({ onClose }) {
                 </div>
 
                 <div className="ca-body ex-body">
+                    {/* Live preview: the exact self-contained SVG a download would produce (icons
+                        inlined, background applied), shown small before committing to anything. A
+                        checkerboard shows through wherever the export is genuinely transparent. */}
+                    <div className={`ex-preview ${useTransparent ? 'has-checker' : ''}`}>
+                        {previewUrl && (
+                            <img
+                                className={`ex-preview-img ${previewLoading ? 'is-loading' : ''}`}
+                                src={previewUrl}
+                                alt="Export preview"
+                            />
+                        )}
+                        {previewLoading && <span className="ex-preview-status">Loading preview…</span>}
+                        {!previewLoading && !previewUrl && (
+                            <span className="ex-preview-status">Preview unavailable</span>
+                        )}
+                    </div>
+
                     <div className="ex-row">
                         <span className="ca-field-label">Format</span>
                         <Segment label="Export format" options={FORMATS} value={format} onChange={setFormat} />
@@ -153,7 +210,13 @@ export default function ExportModal({ onClose }) {
                     </div>
 
                     {error && <p className="token-hint token-danger" role="alert">{error}</p>}
-                    {warning && <p className="token-hint token-danger" role="alert">{warning}</p>}
+                    {/* The preview build already caught a missing icon — no need to wait for a
+                        download attempt to tell the user. */}
+                    {(warning || (previewFailed > 0 && iconWarningText(previewFailed))) && (
+                        <p className="token-hint token-danger" role="alert">
+                            {warning || iconWarningText(previewFailed)}
+                        </p>
+                    )}
 
                     <div className="ca-actions">
                         <button type="button" className="btn btn-primary" onClick={download} disabled={busy || !svg}>
