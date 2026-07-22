@@ -3,6 +3,14 @@
 // We export from the pristine SVG string the backend sent (the one in DeployedContext), NOT the
 // live DOM: the DOM copy carries app-injected divergence badges, the selection glow and svc-node
 // classes whose colors come from the app stylesheet and would not survive in a standalone file.
+//
+// The on-screen diagram's label/group/animation preferences (set in Sigil Options, applied live
+// via CSS in Diagram.jsx) are re-applied here too — by REMOVING the actual elements from this
+// detached copy, since there's no app stylesheet attached to inherit from. Both call sites share
+// the same classification rules from svgClassify.js so the two views of "the same diagram" never
+// silently disagree about what counts as a label or a group box.
+
+import { decodeNodePath, isEdgeGroup, isSemanticGroup, sanitizeId } from './svgClassify.js';
 
 // The diagram canvas colour (--stage). Raster exports default to it because the diagram is drawn
 // for a dark canvas — light labels, light arrows, bright icons.
@@ -89,12 +97,83 @@ function addBackground(svgEl, color) {
     svgEl.insertBefore(rect, svgEl.firstChild);
 }
 
+// Remove (not just hide — this copy has no app stylesheet to hide things WITH) whatever the
+// current display preferences say shouldn't be shown, using the same classification rules
+// Diagram.jsx uses live on screen. Resources are identified the same way Diagram.jsx does: by
+// sanitized id, so a "resource node" and "a semantic group box" are never confused.
+function applyVizPrefs(svgEl, vizPrefs, resourceIds) {
+    const { showConnectionLabels = true, showServiceLabels = true, showGroupBoxes = true } = vizPrefs || {};
+    if (showConnectionLabels && showServiceLabels && showGroupBoxes) return;
+
+    svgEl.querySelectorAll('g[class]').forEach((g) => {
+        const cls = g.getAttribute('class');
+        if (isEdgeGroup(cls)) {
+            // A connection's label + its dark background pill are every child except the line and
+            // its <marker> — the marker must be KEPT (not just hidden) here: this is a real DOM
+            // removal on a standalone file, and deleting the <marker> element outright would break
+            // the path's `marker-end="url(#id)"` reference, silently losing every arrowhead in the
+            // exported file (display:none on it, as the live canvas does, is harmless — actually
+            // deleting it is not). D2 also masks a label-shaped gap into the path's own geometry
+            // (a <mask> cut where the text used to sit), so the mask attribute is stripped too or
+            // the line would show an unexplained break once the label is gone.
+            if (!showConnectionLabels) {
+                [...g.children].forEach((child) => {
+                    if (child.tagName === 'path') child.removeAttribute('mask');
+                    else if (child.tagName !== 'marker') child.remove();
+                });
+            }
+            return;
+        }
+        const path = decodeNodePath(cls);
+        if (!path) return;
+        if (isSemanticGroup(path, resourceIds)) {
+            // The group's own boundary shape + its COMPUTE/MESSAGING-style label are its only
+            // direct children — the rendered SVG is flat (a container's <g> never actually nests
+            // the resources drawn "inside" it; those are separate top-level siblings positioned by
+            // absolute coordinates), so there is nothing else here to protect.
+            if (!showGroupBoxes) {
+                [...g.children].forEach((child) => child.remove());
+            }
+            return;
+        }
+        // A resource/service node: its label is a direct <text> child next to the icon.
+        if (!showServiceLabels) {
+            [...g.children].forEach((child) => { if (child.tagName === 'text') child.remove(); });
+        }
+    });
+}
+
+// Embed the actual moving-dashes look as real CSS so the file itself animates when opened in a
+// browser — the only export format a still image can't fake motion for is skipped by the caller
+// (see exportDiagram below): a raster file is one static frame, so it always gets the plain line.
+function applyAnimation(svgEl) {
+    let any = false;
+    svgEl.querySelectorAll('g[class]').forEach((g) => {
+        if (!isEdgeGroup(g.getAttribute('class'))) return;
+        g.querySelectorAll('path').forEach((p) => {
+            p.setAttribute('stroke-dasharray', '6 6');
+            p.style.animation = 'viz-flow 0.9s linear infinite';
+            any = true;
+        });
+    });
+    if (any) {
+        const style = document.createElementNS(SVG_NS, 'style');
+        style.textContent = '@keyframes viz-flow { to { stroke-dashoffset: -12; } }';
+        svgEl.insertBefore(style, svgEl.firstChild);
+    }
+}
+
 // Build the standalone, self-contained SVG for export. Exported so the modal's live preview can
-// build the EXACT same markup the download would produce (icons inlined, background applied) —
-// the preview must never be a separate re-derivation that could drift from what actually downloads.
-export async function buildExportSvg(svgString, { background }) {
+// build the EXACT same markup the download would produce (icons inlined, background applied,
+// display preferences applied) — the preview must never be a separate re-derivation that could
+// drift from what actually downloads. `resourceIds` is a Set of sanitized resource ids (see
+// svgClassify.sanitizeId), needed to tell a semantic group box apart from a resource node.
+// `embedAnimation` is true only for a real SVG-format download — see exportDiagram below.
+export async function buildExportSvg(svgString, { background, vizPrefs, resourceIds, embedAnimation = false }) {
     const svgEl = parseSvg(svgString);
     const failedIcons = await inlineExternalImages(svgEl);
+    if (vizPrefs) applyVizPrefs(svgEl, vizPrefs, resourceIds || new Set());
+    if (embedAnimation && vizPrefs?.animateArrows) applyAnimation(svgEl);
     if (background) addBackground(svgEl, background);
     if (!svgEl.getAttribute('xmlns')) svgEl.setAttribute('xmlns', SVG_NS);
     return { svgEl, failedIcons, markup: new XMLSerializer().serializeToString(svgEl) };
@@ -158,14 +237,20 @@ function downloadBlob(blob, filename) {
     setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
-// Export the sigil. `format` is 'png' | 'jpg' | 'svg'; `background` is a colour or null for
-// transparent (JPEG callers must pass a colour). Resolves with the number of icons that could not
-// be inlined, so the caller can report a partial result.
-export async function exportDiagram(svgString, { format, scale = 2, background, name }) {
+// Export the sigil exactly as the user currently has it displayed (Sigil Options' label/group/
+// animation preferences). `format` is 'png' | 'jpg' | 'svg'; `background` is a colour or null for
+// transparent (JPEG callers must pass a colour). `resourceIds` is a Set of sanitized resource ids
+// (see svgClassify.sanitizeId) so a group box can be told apart from a resource node. Resolves
+// with the number of icons that could not be inlined, so the caller can report a partial result.
+export async function exportDiagram(svgString, { format, scale = 2, background, name, vizPrefs, resourceIds }) {
     const size = svgSize(svgString);
     if (!size) throw new Error('The diagram has no usable size.');
 
-    const { markup, failedIcons } = await buildExportSvg(svgString, { background });
+    // A raster file is a single static frame — animating it would just be an arbitrary snapshot of
+    // the dash pattern, not a meaningful picture of "animated." Only a real SVG file can actually
+    // move when opened, so only SVG gets the embedded animation.
+    const embedAnimation = format === 'svg';
+    const { markup, failedIcons } = await buildExportSvg(svgString, { background, vizPrefs, resourceIds, embedAnimation });
 
     if (format === 'svg') {
         downloadBlob(new Blob([markup], { type: 'image/svg+xml;charset=utf-8' }), exportFilename(name, 'svg'));

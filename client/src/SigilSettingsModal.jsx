@@ -1,5 +1,28 @@
 import { useEffect } from 'react';
 import { useDeployed } from './DeployedContext.js';
+import Segment from './Segment.jsx';
+
+const ON_OFF = [['on', 'On'], ['off', 'Off']];
+
+// One "Diagram display" row: a label, an On/Off segmented control, and a short hint underneath.
+// Purely cosmetic — see Diagram.jsx's vizPrefs effect for how these apply to the canvas, and
+// exportDiagram.js for how the same preference carries into downloaded files.
+function DisplayRow({ title, hint, value, onChange }) {
+    return (
+        <div className="so-viz-row">
+            <div className="ex-row">
+                <span className="ca-field-label">{title}</span>
+                <Segment
+                    label={title}
+                    options={ON_OFF}
+                    value={value ? 'on' : 'off'}
+                    onChange={(v) => onChange(v === 'on')}
+                />
+            </div>
+            <p className="ca-hint">{hint}</p>
+        </div>
+    );
+}
 
 // "Sigil options" pop-up — the sigil's settings and data, shown as a modal (same shell as the
 // Connect agent modal). Reads everything it needs from the DeployedContext (it's rendered
@@ -9,7 +32,8 @@ export default function SigilSettingsModal({ onClose }) {
     const {
         selectedChat, deployed, mixed, divergentCount, resources,
         renameValue, setRenameValue, renameChat, renameError, setRenameError, formatDate,
-        confirmDelete, setConfirmDelete, deleteChat, deleting
+        confirmDelete, setConfirmDelete, deleteChat, deleting,
+        vizPrefs, setVizPref
     } = useDeployed();
 
     useEffect(() => {
@@ -117,6 +141,36 @@ export default function SigilSettingsModal({ onClose }) {
                             <dd>{formatDate(selectedChat.updatedAt)}</dd>
                         </div>
                     </dl>
+
+                    {/* Cosmetic — how this sigil's diagram displays (frontend-only; never changes
+                        what the agent generates, and carries into exports of this sigil too) */}
+                    <div className="ca-field-label ca-field-label-spaced">Diagram display</div>
+                    <div className="so-viz">
+                        <DisplayRow
+                            title="Connection labels"
+                            hint="Protocol and port shown on each connection (e.g. &quot;HTTPS :443&quot;)."
+                            value={vizPrefs.showConnectionLabels}
+                            onChange={(v) => setVizPref('showConnectionLabels', v)}
+                        />
+                        <DisplayRow
+                            title="Service names"
+                            hint="The AWS service name shown under each icon (e.g. &quot;S3&quot;, &quot;DynamoDB&quot;)."
+                            value={vizPrefs.showServiceLabels}
+                            onChange={(v) => setVizPref('showServiceLabels', v)}
+                        />
+                        <DisplayRow
+                            title="Group boxes"
+                            hint="The colored category boxes around related services (Compute, Messaging, Data…)."
+                            value={vizPrefs.showGroupBoxes}
+                            onChange={(v) => setVizPref('showGroupBoxes', v)}
+                        />
+                        <DisplayRow
+                            title="Animated flow"
+                            hint="Dashed lines flow along each connection, in the direction of the arrow."
+                            value={vizPrefs.animateArrows}
+                            onChange={(v) => setVizPref('animateArrows', v)}
+                        />
+                    </div>
 
                     {/* Destructive — delete */}
                     <div className="so-danger">

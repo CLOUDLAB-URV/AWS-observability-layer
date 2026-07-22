@@ -1,28 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { findArn, shortArn } from './awsLinks.js';
 import { isExternalResource } from './externalResource.js';
-
-// Mirror of the sanitization the stateviz prompt applies to a resource id when it becomes a D2
-// node id, so we can match a rendered SVG node back to its resource. Keep both in lockstep.
-function sanitizeId(value) {
-    return String(value ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
-}
-
-// D2 (v0.7.0) tags each shape's outer <g> with class = base64(full node path), e.g.
-// "YXdzLmxhbWJkYQ==" → "aws.lambda". Decode it; return the node path, or null for the connection
-// groups (whose decoded text contains "(" / "->") and anything that isn't a clean dotted path.
-function decodeNodePath(cls) {
-    if (!cls || /\s/.test(cls) || !/^[A-Za-z0-9+/=]+$/.test(cls)) {
-        return null;
-    }
-    let decoded;
-    try {
-        decoded = atob(cls);
-    } catch {
-        return null;
-    }
-    return /^[A-Za-z0-9_.]+$/.test(decoded) ? decoded : null;
-}
+import { decodeNodePath, isEdgeGroup, isSemanticGroup, sanitizeId } from './svgClassify.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -77,7 +56,17 @@ function makeBadge(g, isDeployed) {
     return badge;
 }
 
-export default function Diagram({ svg, renderError, resources = [], onSelectResource, selectedId, sigilDeployed = false }) {
+const DEFAULT_VIZ_PREFS = {
+    showConnectionLabels: true,
+    showServiceLabels: true,
+    showGroupBoxes: true,
+    animateArrows: false
+};
+
+export default function Diagram({
+    svg, renderError, resources = [], onSelectResource, selectedId, sigilDeployed = false,
+    vizPrefs = DEFAULT_VIZ_PREFS
+}) {
     const stageRef = useRef(null);
     const canvasRef = useRef(null);
     const tooltipRef = useRef(null);
@@ -341,8 +330,20 @@ export default function Diagram({ svg, renderError, resources = [], onSelectReso
         const cleanups = [];
         const groups = svgEl.querySelectorAll('g[class]');
         groups.forEach((g) => {
-            const path = decodeNodePath(g.getAttribute('class'));
+            const cls = g.getAttribute('class');
+            // Tag connection groups and semantic group boxes (COMPUTE/DATA/MESSAGING/…) so the
+            // display-preference CSS (toggled by the effect below) can target them. Neither gets
+            // tooltip/click wiring — that stays scoped to resource nodes only.
+            if (isEdgeGroup(cls)) {
+                g.classList.add('svc-edge');
+                return;
+            }
+            const path = decodeNodePath(cls);
             if (!path) return;
+            if (isSemanticGroup(path, byId)) {
+                g.classList.add('svc-group');
+                return;
+            }
             const resource = byId.get(path.split('.').pop());
             if (!resource) return;
 
@@ -415,6 +416,19 @@ export default function Diagram({ svg, renderError, resources = [], onSelectReso
             cleanups.forEach((fn) => fn());
         };
     }, [svg, resources, selectedId, onSelectResource, sigilDeployed]);
+
+    // Apply the sigil's display preferences (Sigil Options → "Diagram display"). Deliberately a
+    // separate, cheap effect from the node-wiring one above: flipping one of these toggles must
+    // only swap CSS classes on the container, never tear down and reattach every tooltip/badge
+    // listener (which would flash the divergence badges and hover state for no reason).
+    useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        canvas.classList.toggle('viz-hide-conn-labels', vizPrefs.showConnectionLabels === false);
+        canvas.classList.toggle('viz-hide-service-labels', vizPrefs.showServiceLabels === false);
+        canvas.classList.toggle('viz-hide-groups', vizPrefs.showGroupBoxes === false);
+        canvas.classList.toggle('viz-animate-edges', vizPrefs.animateArrows === true);
+    }, [svg, vizPrefs]);
 
     const zoomIn = () => {
         const stage = stageRef.current;

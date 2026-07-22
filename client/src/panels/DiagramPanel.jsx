@@ -7,7 +7,7 @@ import { useDeployed } from '../DeployedContext.js';
 // (pick a chat / no deployed state yet). The <Diagram> refits itself via a
 // ResizeObserver, so docking/resizing this panel keeps it centered automatically.
 export default function DiagramPanel() {
-    const { svg, renderError, resources, diagramSelectedId, selectResource, chatId, chatsCount, deployed, onboarding } =
+    const { svg, renderError, resources, diagramSelectedId, selectResource, chatId, chatsCount, deployed, onboarding, vizPrefs } =
         useDeployed();
 
     return (
@@ -20,6 +20,7 @@ export default function DiagramPanel() {
                     selectedId={diagramSelectedId}
                     onSelectResource={selectResource}
                     sigilDeployed={deployed}
+                    vizPrefs={vizPrefs}
                 />
             ) : (
                 <div className="diagram-empty">

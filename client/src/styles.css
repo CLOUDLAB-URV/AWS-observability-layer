@@ -513,6 +513,40 @@ body {
     filter: drop-shadow(0 0 2px var(--fn-green)) drop-shadow(0 0 5px rgba(127, 174, 143, 0.55));
 }
 
+/* ---- Diagram display preferences (Sigil Options → "Diagram display") -------------------- */
+/* Purely cosmetic, per-sigil toggles applied to the already-rendered SVG — see Diagram.jsx's
+   vizPrefs effect for the .svc-edge/.svc-group tagging these rules key off of. */
+
+/* Connection label + its dark background pill are every child of the edge group except the line
+   itself; the arrowhead is a <marker> referenced by the path's own attribute, so the line and its
+   arrowhead stay intact (confirmed: display:none on the <marker> definition does not break a
+   marker-end reference to it). D2 also masks a label-shaped gap into the path itself so the line
+   doesn't cross the text — that gap is baked into the path's geometry via a <mask>, so it survives
+   even once the label is hidden unless the mask is neutralized too; without this second rule the
+   line shows an unexplained break where the label used to sit. */
+.diagram-canvas.viz-hide-conn-labels .svc-edge > *:not(path) { display: none; }
+.diagram-canvas.viz-hide-conn-labels .svc-edge path { mask: none; }
+
+/* A service's name sits under its icon as a direct <text> child — hide only that. */
+.diagram-canvas.viz-hide-service-labels .svc-node > text { display: none; }
+
+/* A group box's own boundary + its COMPUTE/MESSAGING-style label are its only direct children —
+   confirmed the rendered DOM is flat: a container's <g> never actually nests the resources drawn
+   "inside" it (those are separate top-level siblings, positioned by absolute coordinates), so
+   there is nothing else in a group's own <g> to protect. Hide everything in it unconditionally. */
+.diagram-canvas.viz-hide-groups .svc-group > * { display: none; }
+
+/* Flowing dashes along each connection, in the direction of the arrow. Tasteful and slow, not
+   frantic — and neutralized under prefers-reduced-motion regardless of what a sigil has saved
+   (see the reduced-motion media query). */
+.diagram-canvas.viz-animate-edges .svc-edge path {
+    stroke-dasharray: 6 6;
+    animation: viz-flow 0.9s linear infinite;
+}
+@keyframes viz-flow {
+    to { stroke-dashoffset: -12; }
+}
+
 /* Floating hover card. Positioned via JS (transform); follows the cursor inside the stage. */
 .svc-tooltip {
     position: absolute;
@@ -1246,6 +1280,8 @@ body {
     .stage-kb-hint         { transition: none; }
     /* Neutralize the subtle hover micro-lifts */
     .auth-submit:hover:not(:disabled) { transform: none; }
+    /* Override the per-sigil "animated flow" preference — an accessibility setting always wins. */
+    .diagram-canvas.viz-animate-edges .svc-edge path { animation: none; }
 }
 
 /* ── 17. SCROLLBARS (thin, monochrome) ────────────────── */
@@ -1680,6 +1716,16 @@ body {
 .so-mixed { color: var(--fn-amber); align-items: flex-start; text-align: left; justify-content: flex-start; }
 .so-mixed svg { flex: none; margin-top: 2px; }
 .so-mixed span { color: var(--text-secondary); font-size: 12.5px; }
+
+/* Diagram display preferences: one row per toggle, same On/Off segment used in Export. */
+.so-viz {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 10px;
+}
+.so-viz-row .ex-row { margin: 0; }
+.so-viz-row .ca-hint { margin: 4px 0 0; }
 
 /* Danger zone: delete, visually separated at the bottom. */
 .so-danger {

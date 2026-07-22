@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { DockviewReact, themeAbyss } from 'dockview-react';
 import { createSocket } from './ws.js';
 import { DeployedContext } from './DeployedContext.js';
@@ -112,6 +112,29 @@ const HIDDEN_KEY = 'viz-dock-hidden-v8';
 const CHAT_KEY = 'viz-current-chat';
 // Set the first time the first-run guide auto-opens "Connect agent", so it only ever happens once.
 const ONBOARDED_KEY = 'viz-onboarded';
+
+// Per-sigil display preferences (Sigil Options → "Diagram display"): purely cosmetic, frontend-
+// only — never sent to the backend, never affects what the agent generates. Defaults match
+// today's actual look (everything shown, no animation) so every existing sigil is pixel-identical
+// until the user opens Options and changes something.
+const VIZ_PREFS_KEY = 'viz-diagram-prefs';
+const DEFAULT_VIZ_PREFS = {
+    showConnectionLabels: true,
+    showServiceLabels: true,
+    showGroupBoxes: true,
+    animateArrows: false
+};
+function loadVizPrefs() {
+    try {
+        const saved = JSON.parse(localStorage.getItem(VIZ_PREFS_KEY) || '{}');
+        return (saved && typeof saved === 'object') ? saved : {};
+    } catch {
+        return {};
+    }
+}
+function saveVizPrefs(prefs) {
+    try { localStorage.setItem(VIZ_PREFS_KEY, JSON.stringify(prefs)); } catch { /* quota */ }
+}
 
 // Per-panel remembered zone, persisted so reopening a panel returns it to where the user
 // last left it. Seeded from the defaults above.
@@ -245,6 +268,9 @@ export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
     });
     const [svg, setSvg] = useState('');
     const [renderError, setRenderError] = useState(null);
+    // Per-sigil display preferences (see VIZ_PREFS_KEY above), keyed by chatId. Loaded once;
+    // `setVizPref` below both updates this and persists it.
+    const [allVizPrefs, setAllVizPrefs] = useState(loadVizPrefs);
     // "Connect agent" pop-up (opened from the toolbar/Guide CTA — it lives in the profile menu
     // too). Self-contained: it fetches its own token data.
     const [connectOpen, setConnectOpen] = useState(false);
@@ -1112,6 +1138,22 @@ export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
     const onboardingActive = onboarding !== null;
     const awaitingFirstSigil = onboardingActive && chats.length === 0;
 
+    // This sigil's own display preferences — falls back to the defaults (today's actual look) when
+    // this chatId has never saved anything. Memoized so Diagram's vizPrefs-keyed effect (which
+    // must NOT re-run on every unrelated render) sees a stable reference between renders.
+    const vizPrefs = useMemo(
+        () => ({ ...DEFAULT_VIZ_PREFS, ...(allVizPrefs[chatId] || {}) }),
+        [allVizPrefs, chatId]
+    );
+    const setVizPref = useCallback((key, value) => {
+        if (!chatId) return;
+        setAllVizPrefs((prev) => {
+            const next = { ...prev, [chatId]: { ...DEFAULT_VIZ_PREFS, ...prev[chatId], [key]: value } };
+            saveVizPrefs(next);
+            return next;
+        });
+    }, [chatId]);
+
     // Step 3 can't come over the WebSocket: the server only pushes to sockets subscribed to a
     // specific chatId, and a brand-new user has no chat selected — so their agent's first push
     // would never reach us. Poll instead, but only while the guide is waiting on it.
@@ -1154,7 +1196,8 @@ export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
         renameError, setRenameError,
         renameChat, cancelRename, startRename, formatDate, copy, copied,
         confirmDelete, setConfirmDelete, deleteChat, deleting,
-        openConnectAgent
+        openConnectAgent,
+        vizPrefs, setVizPref
     };
 
     const isOpen = (id) => openIds.includes(id);

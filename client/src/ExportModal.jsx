@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useDeployed } from './DeployedContext.js';
 import { exportDiagram, exportFilename, svgSize, CANVAS_BG, buildExportSvg } from './exportDiagram.js';
+import { sanitizeId } from './svgClassify.js';
+import Segment from './Segment.jsx';
 
 const FORMATS = [['png', 'PNG'], ['jpg', 'JPG'], ['svg', 'SVG']];
 const SCALES = [1, 2, 3];
@@ -9,34 +11,17 @@ function iconWarningText(n) {
     return `${n} icon${n === 1 ? '' : 's'} could not be loaded and ${n === 1 ? 'is' : 'are'} missing from the file.`;
 }
 
-// Segmented control, same shape as the agent picker in ConnectAgentModal.
-function Segment({ label, options, value, onChange, disabledValues = [] }) {
-    return (
-        <div className="ca-segment" role="group" aria-label={label}>
-            {options.map(([id, text]) => {
-                const disabled = disabledValues.includes(id);
-                return (
-                    <button
-                        key={id}
-                        type="button"
-                        className={`ca-segment-btn ${value === id ? 'is-active' : ''}`}
-                        aria-pressed={value === id}
-                        disabled={disabled}
-                        onClick={() => onChange(id)}
-                    >
-                        {text}
-                    </button>
-                );
-            })}
-        </div>
-    );
-}
-
 // "Export sigil" pop-up: download the current diagram as PNG / JPG / SVG. Exports the SVG the
 // backend rendered (via context) rather than the on-screen DOM, so the file is the clean diagram —
 // no selection glow, no divergence badges, no app CSS it couldn't carry anyway.
 export default function ExportModal({ onClose }) {
-    const { svg, selectedChat } = useDeployed();
+    const { svg, selectedChat, vizPrefs, resources } = useDeployed();
+    // Same sanitized-id membership Diagram.jsx uses live, so the export pipeline tells a semantic
+    // group box apart from a resource node identically to the on-screen canvas.
+    const resourceIds = useMemo(
+        () => new Set((resources || []).map((r) => sanitizeId(r.id)).filter(Boolean)),
+        [resources]
+    );
     const [format, setFormat] = useState('png');
     const [scale, setScale] = useState(2);
     const [transparent, setTransparent] = useState(false);
@@ -69,17 +54,20 @@ export default function ExportModal({ onClose }) {
         ? { width: Math.round(size.width * scale), height: Math.round(size.height * scale) }
         : size;
 
-    // Rebuild the preview only when the diagram or the background choice changes — format (PNG vs
-    // JPG vs SVG) and scale never change what the diagram LOOKS like, only how it's encoded/sized,
-    // so there's no reason to redo icon-fetching for those. `background` already folds in the
+    // Rebuild the preview only when the diagram, the background choice, or the display
+    // preferences (labels/groups/animation, from Sigil Options) change — format (PNG vs JPG vs
+    // SVG) and scale never change what the diagram LOOKS like, only how it's encoded/sized, so
+    // there's no reason to redo icon-fetching for those. `background` already folds in the
     // JPG-forces-opaque rule, so switching format still updates the preview when that rule kicks in.
+    // Including vizPrefs means the preview is honest the moment the modal opens, not just when a
+    // toggle changes while it happens to be open — export always matches what's on screen right now.
     useEffect(() => {
         if (!svg) return;
         let cancelled = false;
         setPreviewLoading(true);
         (async () => {
             try {
-                const { markup, failedIcons } = await buildExportSvg(svg, { background });
+                const { markup, failedIcons } = await buildExportSvg(svg, { background, vizPrefs, resourceIds });
                 if (cancelled) return;
                 const url = URL.createObjectURL(new Blob([markup], { type: 'image/svg+xml;charset=utf-8' }));
                 if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
@@ -93,7 +81,7 @@ export default function ExportModal({ onClose }) {
             }
         })();
         return () => { cancelled = true; };
-    }, [svg, background]);
+    }, [svg, background, vizPrefs, resourceIds]);
 
     // Revoke the last object URL when the modal itself unmounts.
     useEffect(() => () => { if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current); }, []);
@@ -103,7 +91,7 @@ export default function ExportModal({ onClose }) {
         setError('');
         setWarning('');
         try {
-            const { failedIcons } = await exportDiagram(svg, { format, scale, background, name });
+            const { failedIcons } = await exportDiagram(svg, { format, scale, background, name, vizPrefs, resourceIds });
             if (failedIcons > 0) {
                 setWarning(iconWarningText(failedIcons));
             } else {
