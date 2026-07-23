@@ -19,6 +19,11 @@ export const CANVAS_BG = '#070708';
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const XLINK_NS = 'http://www.w3.org/1999/xlink';
 
+// Mirrors Diagram.jsx's own copies of these maps (same duplication convention already used for
+// DEFAULT_VIZ_PREFS) — 'normal' reproduces D2's fixed style.stroke-width:2 / 0.9s duration exactly.
+const LINE_THICKNESS_PX = { thin: 1, normal: 2, thick: 4 };
+const ANIMATION_SPEED_S = { slow: 1.8, normal: 0.9, fast: 0.45 };
+
 // Icon fetches are cached for the session: a diagram usually repeats the same few service icons,
 // and the modal re-runs this on every format/scale change.
 const dataUriCache = new Map();
@@ -104,9 +109,15 @@ function addBackground(svgEl, color) {
 function applyVizPrefs(svgEl, vizPrefs, resourceIds) {
     const {
         showConnectionLabels = true, showServiceLabels = true, showGroupBoxes = true,
-        showExternalActor = true
+        showExternalActor = true, lineThickness = 'normal', dashedLines = false,
+        animateArrows = false
     } = vizPrefs || {};
-    if (showConnectionLabels && showServiceLabels && showGroupBoxes && showExternalActor) return;
+    // Animating implies dashed (an animated solid line has no dashes to move) — computed here, not
+    // written back into dashedLines, so turning animation off later restores the user's own choice.
+    const effectiveDashed = dashedLines === true || animateArrows === true;
+    const thicknessPx = LINE_THICKNESS_PX[lineThickness] ?? 2;
+    if (showConnectionLabels && showServiceLabels && showGroupBoxes && showExternalActor
+        && thicknessPx === 2 && !effectiveDashed) return;
 
     // The external actor (Internet/user/browser…) can't be told apart from a semantic group by an
     // id match alone — it's sometimes purely decorative, with no backing resource at all — so its
@@ -157,6 +168,13 @@ function applyVizPrefs(svgEl, vizPrefs, resourceIds) {
                     else if (child.tagName !== 'marker') child.remove();
                 });
             }
+            // Thickness/dash apply regardless of the labels toggle. Setting .style.strokeWidth
+            // directly overwrites the same inline declaration D2 already wrote for this path — no
+            // !important needed here, unlike the live canvas's CSS-cascade override.
+            g.querySelectorAll('path').forEach((p) => {
+                p.style.strokeWidth = String(thicknessPx);
+                if (effectiveDashed) p.style.strokeDasharray = '6 6';
+            });
             return;
         }
         const path = decodeNodePath(cls);
@@ -186,13 +204,15 @@ function applyVizPrefs(svgEl, vizPrefs, resourceIds) {
 // Embed the actual moving-dashes look as real CSS so the file itself animates when opened in a
 // browser — the only export format a still image can't fake motion for is skipped by the caller
 // (see exportDiagram below): a raster file is one static frame, so it always gets the plain line.
-function applyAnimation(svgEl) {
+// Only adds the MOTION — applyVizPrefs above already applied the dash pattern itself whenever
+// effectiveDashed (animating is always effectiveDashed, so it's guaranteed present here).
+function applyAnimation(svgEl, animationSpeed) {
+    const seconds = ANIMATION_SPEED_S[animationSpeed] ?? 0.9;
     let any = false;
     svgEl.querySelectorAll('g[class]').forEach((g) => {
         if (!isEdgeGroup(g.getAttribute('class'))) return;
         g.querySelectorAll('path').forEach((p) => {
-            p.setAttribute('stroke-dasharray', '6 6');
-            p.style.animation = 'viz-flow 0.9s linear infinite';
+            p.style.animation = `viz-flow ${seconds}s linear infinite`;
             any = true;
         });
     });
@@ -213,7 +233,7 @@ export async function buildExportSvg(svgString, { background, vizPrefs, resource
     const svgEl = parseSvg(svgString);
     const failedIcons = await inlineExternalImages(svgEl);
     if (vizPrefs) applyVizPrefs(svgEl, vizPrefs, resourceIds || new Set());
-    if (embedAnimation && vizPrefs?.animateArrows) applyAnimation(svgEl);
+    if (embedAnimation && vizPrefs?.animateArrows) applyAnimation(svgEl, vizPrefs.animationSpeed);
     if (background) addBackground(svgEl, background);
     if (!svgEl.getAttribute('xmlns')) svgEl.setAttribute('xmlns', SVG_NS);
     return { svgEl, failedIcons, markup: new XMLSerializer().serializeToString(svgEl) };

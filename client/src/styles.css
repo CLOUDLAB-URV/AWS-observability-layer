@@ -541,12 +541,24 @@ body {
 .diagram-canvas.viz-hide-external .svc-external,
 .diagram-canvas.viz-hide-external .svc-edge-external { display: none; }
 
-/* Flowing dashes along each connection, in the direction of the arrow. Tasteful and slow, not
-   frantic — and neutralized under prefers-reduced-motion regardless of what a sigil has saved
-   (see the reduced-motion media query). */
+/* Line thickness: always applied (not gated behind a class) since its CSS-variable default (2)
+   reproduces D2's own fixed style.stroke-width, so this is a no-op until the user changes it.
+   !important is required — D2 sets stroke-width inline/as a presentation attribute per connection,
+   which a plain external rule cannot outrank; !important is the only way to win that fight. */
+.diagram-canvas .svc-edge path { stroke-width: var(--viz-edge-width, 2) !important; }
+
+/* Dashed line style ("separated arrows") — independent of whether they're animated. Turning
+   Animated flow on ORs this in live (Diagram.jsx), it's never written back into the stored
+   preference, so turning animation off later restores whatever style the user actually chose. */
+.diagram-canvas.viz-dashed-edges .svc-edge path { stroke-dasharray: 6 6; }
+
+/* Flowing dashes along each connection, in the direction of the arrow. Speed is user-configurable
+   via --viz-edge-speed; tasteful and slow by default, not frantic — and neutralized under
+   prefers-reduced-motion regardless of what a sigil has saved (see the reduced-motion media
+   query). Relies on .viz-dashed-edges (above) for the dash pattern itself — this rule only adds
+   the motion. */
 .diagram-canvas.viz-animate-edges .svc-edge path {
-    stroke-dasharray: 6 6;
-    animation: viz-flow 0.9s linear infinite;
+    animation: viz-flow var(--viz-edge-speed, 0.9s) linear infinite;
 }
 @keyframes viz-flow {
     to { stroke-dashoffset: -12; }
@@ -1871,6 +1883,11 @@ body {
     color: var(--text-primary);
     box-shadow: var(--shadow-sm);
 }
+.ca-segment-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.4;
+}
+.ca-segment-btn:disabled:hover { color: var(--text-secondary); }
 
 .ca-actions {
     display: flex;

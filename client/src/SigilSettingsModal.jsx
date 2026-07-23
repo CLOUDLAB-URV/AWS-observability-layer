@@ -3,6 +3,9 @@ import { useDeployed } from './DeployedContext.js';
 import Segment from './Segment.jsx';
 
 const ON_OFF = [['on', 'On'], ['off', 'Off']];
+const THICKNESS_OPTIONS = [['thin', 'Thin'], ['normal', 'Normal'], ['thick', 'Thick']];
+const LINE_STYLE_OPTIONS = [['normal', 'Normal'], ['dashed', 'Dashed']];
+const SPEED_OPTIONS = [['slow', 'Slow'], ['normal', 'Normal'], ['fast', 'Fast']];
 
 // One "Diagram display" row: a label, an On/Off segmented control, and a short hint underneath.
 // Purely cosmetic — see Diagram.jsx's vizPrefs effect for how these apply to the canvas, and
@@ -17,6 +20,27 @@ function DisplayRow({ title, hint, value, onChange }) {
                     options={ON_OFF}
                     value={value ? 'on' : 'off'}
                     onChange={(v) => onChange(v === 'on')}
+                />
+            </div>
+            <p className="ca-hint">{hint}</p>
+        </div>
+    );
+}
+
+// Same shape as DisplayRow but for a named-choice control (thickness/speed/style) rather than a
+// boolean On/Off — kept as a separate small component since DisplayRow's boolean<->on/off mapping
+// doesn't fit these.
+function OptionRow({ title, hint, options, value, onChange, disabledValues }) {
+    return (
+        <div className="so-viz-row">
+            <div className="ex-row">
+                <span className="ca-field-label">{title}</span>
+                <Segment
+                    label={title}
+                    options={options}
+                    value={value}
+                    onChange={onChange}
+                    disabledValues={disabledValues}
                 />
             </div>
             <p className="ca-hint">{hint}</p>
@@ -170,11 +194,38 @@ export default function SigilSettingsModal({ onClose }) {
                             value={vizPrefs.showExternalActor}
                             onChange={(v) => setVizPref('showExternalActor', v)}
                         />
+                        <OptionRow
+                            title="Line thickness"
+                            hint="How thick the connection lines are drawn."
+                            options={THICKNESS_OPTIONS}
+                            value={vizPrefs.lineThickness}
+                            onChange={(v) => setVizPref('lineThickness', v)}
+                        />
+                        <OptionRow
+                            title="Line style"
+                            hint={
+                                vizPrefs.animateArrows
+                                    ? 'Locked to Dashed while Animated flow is on.'
+                                    : 'Connections drawn as a continuous line, or as dashed segments.'
+                            }
+                            options={LINE_STYLE_OPTIONS}
+                            value={vizPrefs.dashedLines || vizPrefs.animateArrows ? 'dashed' : 'normal'}
+                            onChange={(v) => setVizPref('dashedLines', v === 'dashed')}
+                            disabledValues={vizPrefs.animateArrows ? ['normal'] : []}
+                        />
                         <DisplayRow
                             title="Animated flow"
                             hint="Dashed lines flow along each connection, in the direction of the arrow."
                             value={vizPrefs.animateArrows}
                             onChange={(v) => setVizPref('animateArrows', v)}
+                        />
+                        <OptionRow
+                            title="Animation speed"
+                            hint="How fast the dashes flow. Only applies while Animated flow is on."
+                            options={SPEED_OPTIONS}
+                            value={vizPrefs.animationSpeed}
+                            onChange={(v) => setVizPref('animationSpeed', v)}
+                            disabledValues={vizPrefs.animateArrows ? [] : ['slow', 'normal', 'fast']}
                         />
                     </div>
 

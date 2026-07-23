@@ -61,8 +61,17 @@ const DEFAULT_VIZ_PREFS = {
     showServiceLabels: true,
     showGroupBoxes: true,
     showExternalActor: true,
-    animateArrows: false
+    lineThickness: 'normal',
+    dashedLines: false,
+    animateArrows: false,
+    animationSpeed: 'normal'
 };
+
+// Today's D2 output always fixes a connection's style.stroke-width at 2 and the animated-flow
+// duration at 0.9s, so 'normal' in each map must reproduce those exact numbers — every existing
+// sigil has to look pixel-identical until the user actually touches these controls.
+const LINE_THICKNESS_PX = { thin: 1, normal: 2, thick: 4 };
+const ANIMATION_SPEED_S = { slow: 1.8, normal: 0.9, fast: 0.45 };
 
 export default function Diagram({
     svg, renderError, resources = [], onSelectResource, selectedId, sigilDeployed = false,
@@ -461,7 +470,15 @@ export default function Diagram({
         canvas.classList.toggle('viz-hide-service-labels', vizPrefs.showServiceLabels === false);
         canvas.classList.toggle('viz-hide-groups', vizPrefs.showGroupBoxes === false);
         canvas.classList.toggle('viz-hide-external', vizPrefs.showExternalActor === false);
+        // Animating implies dashed — an animated solid line has no dashes to move — so the two
+        // classes are driven independently but "dashed" is OR'd with "animated" here rather than
+        // stored back into vizPrefs.dashedLines, so turning animation back off later restores
+        // whatever line style the user had actually chosen instead of a stuck forced value.
+        const dashed = vizPrefs.dashedLines === true || vizPrefs.animateArrows === true;
+        canvas.classList.toggle('viz-dashed-edges', dashed);
         canvas.classList.toggle('viz-animate-edges', vizPrefs.animateArrows === true);
+        canvas.style.setProperty('--viz-edge-width', String(LINE_THICKNESS_PX[vizPrefs.lineThickness] ?? 2));
+        canvas.style.setProperty('--viz-edge-speed', `${ANIMATION_SPEED_S[vizPrefs.animationSpeed] ?? 0.9}s`);
     }, [svg, vizPrefs]);
 
     const zoomIn = () => {

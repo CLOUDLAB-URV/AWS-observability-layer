@@ -123,7 +123,10 @@ const DEFAULT_VIZ_PREFS = {
     showServiceLabels: true,
     showGroupBoxes: true,
     showExternalActor: true,
-    animateArrows: false
+    lineThickness: 'normal',
+    dashedLines: false,
+    animateArrows: false,
+    animationSpeed: 'normal'
 };
 function loadVizPrefs() {
     try {
