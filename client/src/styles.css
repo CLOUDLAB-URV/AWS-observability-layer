@@ -1677,9 +1677,29 @@ body {
     border-radius: 4px;
 }
 
-/* ── Sigil options modal (rename / data / delete) ─────────────────────────
-   Uses the shared modal shell (.modal-box-wide, .ca-head, .ca-body, .ca-field-label). */
-.so-body { gap: 0; }
+/* ── Sigil options side panel (rename / display / data / delete) ──────────
+   A docked panel (right zone by default), mirroring the resource-detail panel's shell: an <aside>
+   with a sticky .rd-header and a scrolling .rd-body. Reuses the shared .ca-field-label / .ca-hint /
+   .ca-segment / .btn primitives. Its rows are width-responsive (see .so-row + the @container query),
+   so it reads well however wide the user drags the dock column. */
+.sigil-options {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    height: 100%;
+    background: var(--surface-panel);
+    /* Establish an inline-size container so the display rows can respond to the PANEL's width
+       (not the viewport) — the whole point of "quede bien según lo ancho del side panel". */
+    container-type: inline-size;
+}
+.dv-pane:has(> .sigil-options) {
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+.dv-pane > .sigil-options { flex: 1; min-height: 0; }
+/* The options body is the sole scroller under the sticky header. */
+.so-body { gap: 0; display: block; }
 /* Rename row: the name input + Save. */
 .so-name {
     display: flex;
@@ -1734,15 +1754,39 @@ body {
 .so-mixed svg { flex: none; margin-top: 2px; }
 .so-mixed span { color: var(--text-secondary); font-size: 12.5px; }
 
-/* Diagram display preferences: one row per toggle, same On/Off segment used in Export. */
+/* Diagram display preferences: one row per control. Each row is STACKED by default (title + hint
+   on top, control full-width below) so segmented controls and sliders stay usable in a narrow dock
+   column; a container query below switches to a compact side-by-side layout when the panel is wide. */
 .so-viz {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 14px;
     margin-top: 10px;
 }
-.so-viz-row .ex-row { margin: 0; }
-.so-viz-row .ca-hint { margin: 4px 0 0; }
+.so-row { display: flex; flex-direction: column; gap: 8px; }
+.so-row-head { min-width: 0; }
+.so-row-head .ca-field-label { margin: 0; }
+.so-row-head .ca-hint { margin: 3px 0 0; }
+.so-row-control { min-width: 0; }
+/* Controls fill the row width when stacked, so a slider spans the panel and a segment reads as a
+   full-width switch rather than a tiny cluster. */
+.so-row-control .ca-segment { display: flex; width: 100%; }
+.so-row-control .ca-segment-btn { flex: 1; text-align: center; }
+.so-row-control .ca-slider { width: 100%; }
+
+/* Wide panel: put the title/hint on the left and the control on the right, aligned — the classic
+   settings look, but only when there's room for it. 300px is the panel's inline size (container),
+   not the viewport. */
+@container (min-width: 300px) {
+    .so-row {
+        flex-direction: row;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+    }
+    .so-row-head { flex: 1; }
+    .so-row-control { flex: none; width: 190px; }
+}
 
 /* Danger zone: delete, visually separated at the bottom. */
 .so-danger {
@@ -1888,6 +1932,61 @@ body {
     opacity: 0.4;
 }
 .ca-segment-btn:disabled:hover { color: var(--text-secondary); }
+
+/* Range slider (Sigil Options: line thickness, animation speed). A themed native input so keyboard
+   and a11y come for free; disabled state matches the segmented control's dimming. */
+.ca-slider { display: flex; flex-direction: column; gap: 4px; }
+.ca-slider-row { display: flex; align-items: center; gap: 10px; }
+.ca-slider-input {
+    flex: 1;
+    min-width: 0;
+    height: 4px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: var(--border-default);
+    border-radius: 999px;
+    outline: none;
+    cursor: pointer;
+}
+.ca-slider-input::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    background: var(--text-primary);
+    border: 2px solid var(--surface-panel);
+    box-shadow: var(--shadow-sm);
+    cursor: pointer;
+    transition: transform 100ms var(--ease);
+}
+.ca-slider-input::-moz-range-thumb {
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    background: var(--text-primary);
+    border: 2px solid var(--surface-panel);
+    box-shadow: var(--shadow-sm);
+    cursor: pointer;
+}
+.ca-slider-input:hover::-webkit-slider-thumb { transform: scale(1.12); }
+.ca-slider-input:focus-visible { box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.4); }
+.ca-slider-readout {
+    flex: none;
+    min-width: 44px;
+    text-align: right;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-secondary);
+}
+.ca-slider-ends {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: var(--text-muted);
+}
+.ca-slider.is-disabled { opacity: 0.4; }
+.ca-slider.is-disabled .ca-slider-input { cursor: not-allowed; }
 
 .ca-actions {
     display: flex;

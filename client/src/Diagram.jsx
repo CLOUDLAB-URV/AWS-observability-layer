@@ -56,22 +56,19 @@ function makeBadge(g, isDeployed) {
     return badge;
 }
 
+// lineThickness is a px stroke width; animationSpeed is a flow-cycle duration in seconds. Defaults
+// reproduce D2's fixed stroke-width:2 and the original 0.9s flow (DeployedState normalizes any
+// legacy string values to numbers before they reach here).
 const DEFAULT_VIZ_PREFS = {
     showConnectionLabels: true,
     showServiceLabels: true,
     showGroupBoxes: true,
     showExternalActor: true,
-    lineThickness: 'normal',
+    lineThickness: 2,
     dashedLines: false,
     animateArrows: false,
-    animationSpeed: 'normal'
+    animationSpeed: 0.9
 };
-
-// Today's D2 output always fixes a connection's style.stroke-width at 2 and the animated-flow
-// duration at 0.9s, so 'normal' in each map must reproduce those exact numbers — every existing
-// sigil has to look pixel-identical until the user actually touches these controls.
-const LINE_THICKNESS_PX = { thin: 1, normal: 2, thick: 4 };
-const ANIMATION_SPEED_S = { slow: 1.8, normal: 0.9, fast: 0.45 };
 
 export default function Diagram({
     svg, renderError, resources = [], onSelectResource, selectedId, sigilDeployed = false,
@@ -477,8 +474,11 @@ export default function Diagram({
         const dashed = vizPrefs.dashedLines === true || vizPrefs.animateArrows === true;
         canvas.classList.toggle('viz-dashed-edges', dashed);
         canvas.classList.toggle('viz-animate-edges', vizPrefs.animateArrows === true);
-        canvas.style.setProperty('--viz-edge-width', String(LINE_THICKNESS_PX[vizPrefs.lineThickness] ?? 2));
-        canvas.style.setProperty('--viz-edge-speed', `${ANIMATION_SPEED_S[vizPrefs.animationSpeed] ?? 0.9}s`);
+        // lineThickness (px) and animationSpeed (seconds) are already numbers by the time they
+        // reach here (DeployedState normalizes legacy strings); Number(...) || fallback guards any
+        // stray value defensively.
+        canvas.style.setProperty('--viz-edge-width', String(Number(vizPrefs.lineThickness) || 2));
+        canvas.style.setProperty('--viz-edge-speed', `${Number(vizPrefs.animationSpeed) || 0.9}s`);
     }, [svg, vizPrefs]);
 
     const zoomIn = () => {

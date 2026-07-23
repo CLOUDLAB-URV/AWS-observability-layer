@@ -10,7 +10,7 @@ import DiagramPanel from './panels/DiagramPanel.jsx';
 import ResourceDetailPanel from './panels/ResourceDetailPanel.jsx';
 import CodePanel from './panels/CodePanel.jsx';
 import AskPanel from './panels/AskPanel.jsx';
-import SigilSettingsModal from './SigilSettingsModal.jsx';
+import SigilOptionsPanel from './panels/SigilOptionsPanel.jsx';
 import DevToolsPanel from './panels/DevToolsPanel.jsx';
 import ExportModal from './ExportModal.jsx';
 import ConnectAgentModal from './ConnectAgentModal.jsx';
@@ -26,6 +26,7 @@ const PANEL_COMPONENTS = {
     'resource-detail': ResourceDetailPanel,
     code: CodePanel,
     ask: AskPanel,
+    settings: SigilOptionsPanel,
     devtools: DevToolsPanel
 };
 // Each panel's DEFAULT zone. The user can move a panel to another zone; that choice is
@@ -34,6 +35,7 @@ const PANEL_META = {
     ask: { title: 'Ask', zone: 'right' },
     'resource-detail': { title: 'Resource', zone: 'right' },
     code: { title: 'Code', zone: 'right' },
+    settings: { title: 'Options', zone: 'right' },
     devtools: { title: 'opencode', zone: 'left' }
 };
 // Zone → the dockview direction used to create that zone's group next to the diagram.
@@ -118,16 +120,30 @@ const ONBOARDED_KEY = 'viz-onboarded';
 // today's actual look (everything shown, no animation) so every existing sigil is pixel-identical
 // until the user opens Options and changes something.
 const VIZ_PREFS_KEY = 'viz-diagram-prefs';
+// lineThickness is a stroke width in px; animationSpeed is a flow-cycle duration in seconds. Both
+// are numbers now (driven by sliders) — defaults reproduce D2's fixed stroke-width:2 and the
+// original 0.9s flow, so every existing sigil stays pixel-identical until the user changes them.
 const DEFAULT_VIZ_PREFS = {
     showConnectionLabels: true,
     showServiceLabels: true,
     showGroupBoxes: true,
     showExternalActor: true,
-    lineThickness: 'normal',
+    lineThickness: 2,
     dashedLines: false,
     animateArrows: false,
-    animationSpeed: 'normal'
+    animationSpeed: 0.9
 };
+// Legacy coercion: earlier builds stored these two as string enums. Map them to the equivalent
+// numbers so a sigil saved before the sliders shipped loads (and renders) identically.
+const LEGACY_THICKNESS = { thin: 1, normal: 2, thick: 4 };
+const LEGACY_SPEED = { slow: 1.8, normal: 0.9, fast: 0.45 };
+// Coerce one merged prefs object so downstream (sliders, Diagram, export) always sees numbers.
+function normalizeVizPrefs(prefs) {
+    const out = { ...prefs };
+    if (typeof out.lineThickness === 'string') out.lineThickness = LEGACY_THICKNESS[out.lineThickness] ?? 2;
+    if (typeof out.animationSpeed === 'string') out.animationSpeed = LEGACY_SPEED[out.animationSpeed] ?? 0.9;
+    return out;
+}
 function loadVizPrefs() {
     try {
         const saved = JSON.parse(localStorage.getItem(VIZ_PREFS_KEY) || '{}');
@@ -281,8 +297,6 @@ export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
     // Token presence, for the first-run guide. The modal fetches /api/tokens for its own purposes;
     // we need the count here to know whether this account can talk to the MCP at all.
     const [tokenInfo, setTokenInfo] = useState({ loading: true, dev: false, count: 0 });
-    // "Sigil options" pop-up (rename / data / delete) — replaces the old dockable Details panel.
-    const [detailsOpen, setDetailsOpen] = useState(false);
     // "Export sigil" pop-up (PNG / JPG / SVG).
     const [exportOpen, setExportOpen] = useState(false);
     const [copied, setCopied] = useState('');
@@ -522,7 +536,7 @@ export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
         }
         setDeleting(false);
         setConfirmDelete(false);
-        setDetailsOpen(false);
+        closePanel('settings');
         closePanel('ask');
         setChatId('');
         loadChats();
@@ -1146,7 +1160,7 @@ export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
     // this chatId has never saved anything. Memoized so Diagram's vizPrefs-keyed effect (which
     // must NOT re-run on every unrelated render) sees a stable reference between renders.
     const vizPrefs = useMemo(
-        () => ({ ...DEFAULT_VIZ_PREFS, ...(allVizPrefs[chatId] || {}) }),
+        () => normalizeVizPrefs({ ...DEFAULT_VIZ_PREFS, ...(allVizPrefs[chatId] || {}) }),
         [allVizPrefs, chatId]
     );
     const setVizPref = useCallback((key, value) => {
@@ -1290,10 +1304,10 @@ export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
                     <button
                         type="button"
                         className="btn btn-ghost"
-                        onClick={() => setDetailsOpen(true)}
-                        aria-haspopup="dialog"
+                        onClick={() => togglePanel('settings')}
+                        aria-expanded={isOpen('settings')}
                         disabled={!chatId}
-                        title="Sigil options — rename, data and delete"
+                        title="Sigil options — rename, display, data and delete"
                     >
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
                             strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -1365,7 +1379,6 @@ export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
             </main>
             {/* Refetch tokens on close so the guide's step 1 ticks as soon as one is generated. */}
             {connectOpen && <ConnectAgentModal onClose={() => { setConnectOpen(false); loadTokens(); }} />}
-            {detailsOpen && selectedChat && <SigilSettingsModal onClose={() => setDetailsOpen(false)} />}
             {exportOpen && <ExportModal onClose={() => setExportOpen(false)} />}
         </DeployedContext.Provider>
     );
