@@ -10,7 +10,7 @@
 // the same classification rules from svgClassify.js so the two views of "the same diagram" never
 // silently disagree about what counts as a label or a group box.
 
-import { decodeNodePath, isEdgeGroup, isSemanticGroup, sanitizeId } from './svgClassify.js';
+import { decodeNodePath, edgeTouchesPath, isEdgeGroup, isExternalNode, isSemanticGroup, sanitizeId } from './svgClassify.js';
 
 // The diagram canvas colour (--stage). Raster exports default to it because the diagram is drawn
 // for a dark canvas — light labels, light arrows, bright icons.
@@ -102,12 +102,47 @@ function addBackground(svgEl, color) {
 // Diagram.jsx uses live on screen. Resources are identified the same way Diagram.jsx does: by
 // sanitized id, so a "resource node" and "a semantic group box" are never confused.
 function applyVizPrefs(svgEl, vizPrefs, resourceIds) {
-    const { showConnectionLabels = true, showServiceLabels = true, showGroupBoxes = true } = vizPrefs || {};
-    if (showConnectionLabels && showServiceLabels && showGroupBoxes) return;
+    const {
+        showConnectionLabels = true, showServiceLabels = true, showGroupBoxes = true,
+        showExternalActor = true
+    } = vizPrefs || {};
+    if (showConnectionLabels && showServiceLabels && showGroupBoxes && showExternalActor) return;
+
+    // The external actor (Internet/user/browser…) can't be told apart from a semantic group by an
+    // id match alone — it's sometimes purely decorative, with no backing resource at all — so its
+    // paths are collected structurally first (see isExternalNode), before the main pass needs them
+    // to recognize both the node and whichever edge touches it.
+    const externalPaths = new Set();
+    if (!showExternalActor) {
+        svgEl.querySelectorAll('g[class]').forEach((g) => {
+            const cls = g.getAttribute('class');
+            if (isEdgeGroup(cls)) return;
+            const path = decodeNodePath(cls);
+            if (path && isExternalNode(path)) externalPaths.add(path);
+        });
+    }
 
     svgEl.querySelectorAll('g[class]').forEach((g) => {
         const cls = g.getAttribute('class');
         if (isEdgeGroup(cls)) {
+            // Hiding the external actor removes its one connecting edge whole. Its <marker> is NOT
+            // always self-contained — D2 can dedupe identical arrowheads into a single <marker>
+            // element that several edges' `marker-end` all reference by the same id (confirmed by
+            // inspecting real output: one <marker> shared across every edge in the diagram), so it
+            // could physically live inside THIS edge's own <g>. Migrate any <marker> out to the
+            // root SVG before deleting the rest of the group, or every other edge sharing it would
+            // silently lose its arrowhead in the exported file.
+            if (!showExternalActor) {
+                for (const path of externalPaths) {
+                    if (edgeTouchesPath(cls, path)) {
+                        [...g.children].forEach((child) => {
+                            if (child.tagName === 'marker') svgEl.appendChild(child);
+                        });
+                        g.remove();
+                        return;
+                    }
+                }
+            }
             // A connection's label + its dark background pill are every child except the line and
             // its <marker> — the marker must be KEPT (not just hidden) here: this is a real DOM
             // removal on a standalone file, and deleting the <marker> element outright would break
@@ -126,6 +161,10 @@ function applyVizPrefs(svgEl, vizPrefs, resourceIds) {
         }
         const path = decodeNodePath(cls);
         if (!path) return;
+        if (!showExternalActor && externalPaths.has(path)) {
+            g.remove();
+            return;
+        }
         if (isSemanticGroup(path, resourceIds)) {
             // The group's own boundary shape + its COMPUTE/MESSAGING-style label are its only
             // direct children — the rendered SVG is flat (a container's <g> never actually nests
@@ -136,7 +175,8 @@ function applyVizPrefs(svgEl, vizPrefs, resourceIds) {
             }
             return;
         }
-        // A resource/service node: its label is a direct <text> child next to the icon.
+        // A resource/service node (including the external actor, when shown): its label is a
+        // direct <text> child next to the icon.
         if (!showServiceLabels) {
             [...g.children].forEach((child) => { if (child.tagName === 'text') child.remove(); });
         }

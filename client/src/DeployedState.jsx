@@ -122,6 +122,7 @@ const DEFAULT_VIZ_PREFS = {
     showConnectionLabels: true,
     showServiceLabels: true,
     showGroupBoxes: true,
+    showExternalActor: true,
     animateArrows: false
 };
 function loadVizPrefs() {

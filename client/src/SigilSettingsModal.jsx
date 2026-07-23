@@ -165,6 +165,12 @@ export default function SigilSettingsModal({ onClose }) {
                             onChange={(v) => setVizPref('showGroupBoxes', v)}
                         />
                         <DisplayRow
+                            title="Internet / external client"
+                            hint="The external actor (Internet, user, browser…) and the connection it makes to your services."
+                            value={vizPrefs.showExternalActor}
+                            onChange={(v) => setVizPref('showExternalActor', v)}
+                        />
+                        <DisplayRow
                             title="Animated flow"
                             hint="Dashed lines flow along each connection, in the direction of the arrow."
                             value={vizPrefs.animateArrows}

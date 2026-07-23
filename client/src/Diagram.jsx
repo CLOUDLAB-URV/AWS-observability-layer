@@ -1,7 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { findArn, shortArn } from './awsLinks.js';
 import { isExternalResource } from './externalResource.js';
-import { decodeNodePath, isEdgeGroup, isSemanticGroup, sanitizeId } from './svgClassify.js';
+import { decodeNodePath, edgeTouchesPath, isEdgeGroup, isExternalNode, isSemanticGroup, sanitizeId } from './svgClassify.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -60,6 +60,7 @@ const DEFAULT_VIZ_PREFS = {
     showConnectionLabels: true,
     showServiceLabels: true,
     showGroupBoxes: true,
+    showExternalActor: true,
     animateArrows: false
 };
 
@@ -329,6 +330,19 @@ export default function Diagram({
 
         const cleanups = [];
         const groups = svgEl.querySelectorAll('g[class]');
+
+        // Cheap pre-scan: the external actor (Internet/user/browser…) can't be told apart from a
+        // semantic group by a `byId` match alone (it's sometimes purely decorative, no backing
+        // resource — see isExternalNode's comment), so its path set is collected structurally
+        // first, before the main pass needs it to classify edges touching it.
+        const externalPaths = new Set();
+        groups.forEach((g) => {
+            const cls = g.getAttribute('class');
+            if (isEdgeGroup(cls)) return;
+            const path = decodeNodePath(cls);
+            if (path && isExternalNode(path)) externalPaths.add(path);
+        });
+
         groups.forEach((g) => {
             const cls = g.getAttribute('class');
             // Tag connection groups and semantic group boxes (COMPUTE/DATA/MESSAGING/…) so the
@@ -336,11 +350,30 @@ export default function Diagram({
             // tooltip/click wiring — that stays scoped to resource nodes only.
             if (isEdgeGroup(cls)) {
                 g.classList.add('svc-edge');
+                for (const path of externalPaths) {
+                    if (edgeTouchesPath(cls, path)) {
+                        g.classList.add('svc-edge-external');
+                        break;
+                    }
+                }
                 return;
             }
             const path = decodeNodePath(cls);
             if (!path) return;
-            if (isSemanticGroup(path, byId)) {
+            if (isExternalNode(path)) {
+                // Visually and behaviorally a service node (icon + label) — reusing .svc-node
+                // means the existing hover/selected styling and the "hide service names" rule
+                // both apply to it for free. Only wire tooltip/click/badge below if a backing
+                // resource actually exists; when it doesn't, it just renders as a plain node.
+                // Cleanup is mandatory here (unlike the effect-wide convention of leaving
+                // svc-edge/svc-group untouched forever): without it, React 18 StrictMode's dev
+                // double-invoke strips only 'svc-node' via the resource-wiring cleanup below and
+                // leaves 'svc-external' behind, corrupting this element's class attribute with a
+                // stray space — which breaks decodeNodePath's no-whitespace guard on the second
+                // pass and silently drops the node's classification.
+                g.classList.add('svc-node', 'svc-external');
+                cleanups.push(() => g.classList.remove('svc-node', 'svc-external'));
+            } else if (isSemanticGroup(path, byId)) {
                 g.classList.add('svc-group');
                 return;
             }
@@ -427,6 +460,7 @@ export default function Diagram({
         canvas.classList.toggle('viz-hide-conn-labels', vizPrefs.showConnectionLabels === false);
         canvas.classList.toggle('viz-hide-service-labels', vizPrefs.showServiceLabels === false);
         canvas.classList.toggle('viz-hide-groups', vizPrefs.showGroupBoxes === false);
+        canvas.classList.toggle('viz-hide-external', vizPrefs.showExternalActor === false);
         canvas.classList.toggle('viz-animate-edges', vizPrefs.animateArrows === true);
     }, [svg, vizPrefs]);
 

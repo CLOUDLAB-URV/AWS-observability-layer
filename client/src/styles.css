@@ -536,6 +536,11 @@ body {
    there is nothing else in a group's own <g> to protect. Hide everything in it unconditionally. */
 .diagram-canvas.viz-hide-groups .svc-group > * { display: none; }
 
+/* The external actor (Internet/user/browser…) and the one connection leaving it — hidden whole,
+   icon + label + arrow together, unlike the other toggles which strip a single detail. */
+.diagram-canvas.viz-hide-external .svc-external,
+.diagram-canvas.viz-hide-external .svc-edge-external { display: none; }
+
 /* Flowing dashes along each connection, in the direction of the arrow. Tasteful and slow, not
    frantic — and neutralized under prefers-reduced-motion regardless of what a sigil has saved
    (see the reduced-motion media query). */
