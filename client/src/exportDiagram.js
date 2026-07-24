@@ -59,11 +59,12 @@ function blobToDataUri(blob) {
     });
 }
 
-// THE critical step for raster export. The stateviz prompt draws services with external icons
-// (`icon: "https://api.iconify.design/logos:aws-lambda.svg"`), which D2 emits as
-// <image href="https://…">. When an SVG is rasterized through <img> the browser refuses to load
-// ANY external reference — so without this every AWS icon would silently vanish from the PNG/JPG
-// with no error at all. Inline each one as a data: URI so the SVG is self-contained.
+// THE critical step for raster export. The stateviz prompt draws services with app-hosted icons
+// (`icon: "/aws-icons/compute/lambda.svg"`), which D2 emits as <image href="/aws-icons/…">.
+// When an SVG is rasterized through <img> the browser refuses to load ANY external reference
+// (even a same-origin URL) — so without this every AWS icon would silently vanish from the PNG/JPG
+// with no error at all. Inline each one as a data: URI so the SVG is self-contained. Because the
+// icons are same-origin the fetch has no CORS concern.
 // Returns how many icons could not be fetched, so the caller can warn instead of failing.
 async function inlineExternalImages(svgEl) {
     const images = [...svgEl.querySelectorAll('image')];

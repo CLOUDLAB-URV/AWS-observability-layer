@@ -63,7 +63,7 @@ The diagram renders on a **dark canvas**. Use dark, tinted container fills, brig
   ```
   client: "Internet" {
     shape: image
-    icon: "https://api.iconify.design/mdi:web.svg?color=%238b949e"
+    icon: "/aws-icons/general/internet.svg"
     style.font-color: "#f0f6fc"
     style.font-size: 18
   }
@@ -84,12 +84,12 @@ The diagram renders on a **dark canvas**. Use dark, tinted container fills, brig
   ```
   aws.lambda: "Lambda" {
     shape: image
-    icon: "https://api.iconify.design/logos:aws-lambda.svg"
+    icon: "/aws-icons/compute/lambda.svg"
     style.font-color: "#f0f6fc"
     style.font-size: 18
   }
   ```
-  A service with NO verified icon slug (see the ICONS list) is a small dark box instead — never guess a slug:
+  A service NOT in the ICONS list is a small dark box instead — never guess a path:
   ```
   aws.thing: "Service" { style.fill: "#161b22"; style.stroke: "#30363d"; style.stroke-width: 1; style.border-radius: 6; style.font-color: "#e6edf3" }
   ```
@@ -121,22 +121,27 @@ The node id must be the sanitized resource id **character-for-character** — it
 - Do NOT split camelCase: `OrdersTable` → `orderstable`, NOT `orders_table`.
 Putting a node inside a semantic group is fine — the id is unchanged; only its full path gains the group prefix (`aws.<group>.<id>`).
 
-### ICONS — USE ONLY THESE VERIFIED SLUGS
+### ICONS — SELF-HOSTED, USE ONLY THESE VERIFIED NAMES
 
-Icon URL format: `https://api.iconify.design/logos:<slug>.svg`. Only use a slug from this list. If the service you need is not here, render the node as a clean labeled box with NO `icon:` line — never guess a slug.
+Icons are hosted **by the app** — no external CDN. Icon URL format: **`/aws-icons/<category>/<name>.svg`**. Build the path from a `<category>` folder header + the exact `<name>` slug in the list below — e.g. Lambda is under `compute/`, so `icon: "/aws-icons/compute/lambda.svg"`; S3 is under `storage/`, so `icon: "/aws-icons/storage/s3.svg"`.
 
-- Compute: `aws-ec2` `aws-ecs` `aws-fargate` `aws-eks` `aws-lambda` `aws-lightsail` `aws-batch` `aws-elastic-beanstalk`
-- Network & delivery: `aws-cloudfront` `aws-elb` (any load balancer) `aws-api-gateway` `aws-route53` `aws-vpc` `aws-waf` `aws-shield`
-- Storage: `aws-s3` `aws-glacier` `aws-backup`
-- Database: `aws-rds` `aws-aurora` `aws-dynamodb` `aws-documentdb` `aws-redshift` `aws-neptune` `aws-elasticache` `aws-timestream` `aws-keyspaces`
-- Messaging & integration: `aws-sqs` `aws-sns` `aws-eventbridge` `aws-step-functions` `aws-mq` `aws-kinesis` `aws-msk` `aws-appsync` `aws-appflow`
-- Analytics: `aws-athena` `aws-glue` `aws-quicksight` `aws-open-search` `aws-cloudsearch` `aws-lake-formation`
-- Security & identity: `aws-iam` `aws-cognito` `aws-kms` `aws-secrets-manager` `aws-certificate-manager`
-- Email: `aws-ses`
-- Management & observability: `aws-cloudwatch` `aws-cloudformation` `aws-cloudtrail` `aws-config` `aws-systems-manager` `aws-opsworks` `aws-xray`
-- Developer tools: `aws-amplify` `aws-codebuild` `aws-codecommit` `aws-codedeploy` `aws-codepipeline` `aws-codestar`
+Only use a `<category>/<name>` pair that appears in this list. If the service you need is NOT here, render the node as a clean labeled box with NO `icon:` line — never invent a name or category (a wrong path is a broken image).
 
-Common mappings: ALB/NLB → `aws-elb`; Aurora → `aws-aurora`; Fargate task → `aws-fargate`; SNS topic → `aws-sns`; EventBridge rule → `aws-eventbridge`.
+- `compute/`: app-runner batch ec2 ec2-auto-scaling ecr ecs eks elastic-beanstalk fargate lambda lightsail
+- `database/`: aurora dms documentdb dynamodb elasticache keyspaces memorydb neptune qldb rds timestream
+- `storage/`: backup ebs efs fsx glacier s3 snowball storage-gateway
+- `networking/`: api-gateway app-mesh client-vpn cloud-map cloudfront direct-connect elb global-accelerator privatelink route53 site-to-site-vpn transit-gateway vpc
+- `messaging/`: appflow appsync eventbridge mq mwaa sns sqs step-functions
+- `security/`: audit-manager certificate-manager cloudhsm cognito detective directory-service firewall-manager guardduty iam inspector kms macie network-firewall secrets-manager security-hub shield single-sign-on waf
+- `analytics/`: athena cloudsearch comprehend data-exchange data-pipeline emr forecast fraud-detector glue kendra kinesis kinesis-data-analytics kinesis-data-streams kinesis-firehose kinesis-video-streams lake-formation lex msk opensearch personalize polly quicksight redshift rekognition sagemaker textract transcribe translate
+- `management/`: appconfig auto-scaling budgets chatbot cloudformation cloudtrail cloudwatch config control-tower cost-explorer fault-injection-simulator license-manager managed-service-for-grafana managed-service-for-prometheus opsworks organizations proton resilience-hub service-catalog systems-manager trusted-advisor well-architected-tool
+- `devtools/`: amplify cloud9 cloudshell codeartifact codebuild codecommit codedeploy codepipeline codestar device-farm location-service x-ray
+- `media/`: elastic-transcoder elemental-mediaconnect elemental-mediaconvert elemental-medialive elemental-mediapackage elemental-mediastore elemental-mediatailor interactive-video-service kinesis-video-streams nimble-studio
+- `iot/`: freertos iot-analytics iot-core iot-device-defender iot-device-management iot-events iot-greengrass iot-sitewise iot-twinmaker
+- `migration/`: application-migration-service datasync migration-hub server-migration-service transfer-family
+- `business/`: appstream chime connect pinpoint ses workdocs workmail workspaces
+
+Common mappings: ALB/NLB → `networking/elb`; API Gateway → `networking/api-gateway`; Aurora → `database/aurora`; Redis/ElastiCache → `database/elasticache`; DynamoDB → `database/dynamodb`; Fargate task → `compute/fargate`; SNS topic → `messaging/sns`; EventBridge rule → `messaging/eventbridge`; Kinesis stream → `analytics/kinesis-data-streams`; OpenSearch/Elasticsearch → `analytics/opensearch`.
 
 ### CONNECTIONS
 
@@ -158,7 +163,7 @@ direction: right
 
 client: "Internet" {
   shape: image
-  icon: "https://api.iconify.design/mdi:web.svg?color=%238b949e"
+  icon: "/aws-icons/general/internet.svg"
   style.font-color: "#f0f6fc"
   style.font-size: 18
 }
@@ -172,7 +177,7 @@ aws: "AWS Cloud (us-east-1)" {
 
   app_alb: "ALB" {
     shape: image
-    icon: "https://api.iconify.design/logos:aws-elb.svg"
+    icon: "/aws-icons/networking/elb.svg"
     style.font-color: "#f0f6fc"
     style.font-size: 18
   }
@@ -187,7 +192,7 @@ aws: "AWS Cloud (us-east-1)" {
 
     i_0a1b2c3d4e5f: "EC2" {
       shape: image
-      icon: "https://api.iconify.design/logos:aws-ec2.svg"
+      icon: "/aws-icons/compute/ec2.svg"
       style.font-color: "#f0f6fc"
       style.font-size: 18
     }
@@ -202,7 +207,7 @@ aws: "AWS Cloud (us-east-1)" {
 
     orders_db: "RDS" {
       shape: image
-      icon: "https://api.iconify.design/logos:aws-rds.svg"
+      icon: "/aws-icons/database/rds.svg"
       style.font-color: "#f0f6fc"
       style.font-size: 18
     }
