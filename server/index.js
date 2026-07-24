@@ -173,6 +173,49 @@ app.get('/api/me/usage', requireSession, async (req, res) => {
     res.json({ llm, llmLimit, sigils: chats.length, sigilLimit });
 });
 
+// Per-user sigil cap (admin-configurable; admins exempt; skipped in DEV — the single dev
+// user is the machine owner, same status as admin). Shared by every route that can bring
+// a brand-new sigil into existence: the implicit-create path in /deployments below, and
+// the explicit POST /api/chats route. Returns an error string, or null if creation is allowed.
+async function sigilCapBlock(userId) {
+    if (DEV) {
+        return null;
+    }
+    const pusher = await authStore.getUser(userId);
+    if (pusher?.role === 'admin') {
+        return null;
+    }
+    const max = await getSetting('maxSigilsPerUser');
+    const owned = (await visualizerStore.listChats(userId)).length;
+    if (owned >= max) {
+        return `Sigil limit reached (max ${max} per account). Delete an existing sigil from the web before creating a new one.`;
+    }
+    return null;
+}
+
+// Explicitly create a brand-new, empty, named sigil. The id is minted here (server-side,
+// visualizerStore.createChat) — this is the ONLY route whose purpose is to mint a new
+// chatId. Kept deliberately minimal (name + mode only): populating it with resources is a
+// separate, immediately-following call to /deployments with the returned chatId, reusing
+// that route's validation/rendering/broadcast instead of duplicating it here.
+app.post('/api/chats', agentGate, requireToken, async (req, res) => {
+    const capError = await sigilCapBlock(req.userId);
+    if (capError) {
+        res.status(403).json({ error: capError });
+        return;
+    }
+    const nameHint = visualizerStore.sanitizeName(req.body?.name) || '';
+    const initialDeployed = req.body?.deployed === true;
+    try {
+        const { chatId, name } = await visualizerStore.createChat(req.userId, nameHint, initialDeployed);
+        res.json({ chatId, name, deployed: initialDeployed });
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error('[chat create failed]', error);
+        res.status(500).json({ error: message });
+    }
+});
+
 // Ingest: the MCP tool POSTs a batch of incremental changes (upsert/delete per
 // resource) for a chat. We merge them into the chat's authoritative state,
 // regenerate the deployed-state D2, render it, and push it live to any web clients
@@ -212,20 +255,14 @@ app.post('/api/chats/:chatId/deployments', agentGate, requireToken, async (req, 
         const exists = Boolean(priorMeta.createdAt);
         const isNewSession = !(priorMeta.name || priorMeta.project);
 
-        // Per-user sigil cap (admin-configurable; admins exempt). Enforced only when the push
-        // would create a brand-new sigil — this route is the sole way sigils come into existence.
-        // Skipped in local dev: the single dev user is the machine owner (same status as admin).
-        if (!exists && !DEV) {
-            const pusher = await authStore.getUser(req.userId);
-            if (pusher?.role !== 'admin') {
-                const max = await getSetting('maxSigilsPerUser');
-                const owned = (await visualizerStore.listChats(req.userId)).length;
-                if (owned >= max) {
-                    res.status(403).json({
-                        error: `Sigil limit reached (max ${max} per account). Delete an existing sigil from the web before creating a new one.`
-                    });
-                    return;
-                }
+        // Enforced only when the push would create a brand-new sigil (this route is also
+        // reachable directly, e.g. a first push to a pinned SIGILUM_SIGIL_ID, not just via
+        // POST /api/chats).
+        if (!exists) {
+            const capError = await sigilCapBlock(req.userId);
+            if (capError) {
+                res.status(403).json({ error: capError });
+                return;
             }
         }
 

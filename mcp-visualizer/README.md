@@ -105,7 +105,7 @@ Global: `~/.config/opencode/opencode.json`. Project: `opencode.json` in the repo
 
 1. Make sure the web app is running and your agent can reach AWS.
 2. In your agent, ask it to deploy something, e.g.
-   *"Create an S3 bucket and an SQS queue under project `my-api`, and visualize it."*
+   *"Create an S3 bucket and an SQS queue, and visualize it."*
 3. The agent deploys with its own tools and then calls **`push_sigil`** with the
    resources it created (`op: "upsert"`). The sigil for the current chat appears.
 4. Open the web app → **Sigils** → pick the sigil from the selector → see it live.
@@ -124,7 +124,7 @@ the sigil, so the agent never has to resend the whole stack.
 
 ## Tools
 
-### `push_sigil({ project, changes })` — the push tool
+### `push_sigil({ changes, newSigilName? })` — the push tool
 
 Report what changed in AWS after a deploy or modification. `changes` is the **delta**,
 one entry per resource that changed:
@@ -156,8 +156,14 @@ one entry per resource that changed:
   web marks divergent nodes on the diagram and shows your note on hover.
 - The backend merges each change onto the sigil's state (upsert sets the resource,
   delete removes it) and regenerates the sigil, evolving the previous one.
+- Sigils are identified **only by name** — ids are an internal backend detail your
+  agent never sees or handles. To start a brand-new, separate architecture instead of
+  continuing whatever is currently active, pass `newSigilName: "some name"` — the
+  backend creates it and it immediately becomes the active sigil for the rest of the
+  session (as if you'd called `load_sigil` on it right after creating it). Leave it
+  unset for every normal call.
 
-### `deploy_sigil({ chat })` — deploy a design sigil
+### `deploy_sigil()` — deploy a design sigil
 
 Marks a **Design** sigil as **Live** and returns the full resource spec; the agent
 then creates each resource in AWS with its own tools and reports the real IDs back
@@ -165,8 +171,8 @@ via `push_sigil`.
 
 ### `list_sigils()` — discover previous sigils
 
-Lists your sigils (newest first) with their name, id, and last-updated time, so you
-can pick one to resume.
+Lists your sigils (newest first) with their name and last-updated time, so you can
+pick one to resume. No ids — sigils are identified by name only.
 
 ### `load_sigil({ name })` — resume a previous sigil
 
@@ -174,8 +180,8 @@ Switches this session to an existing sigil (matched by name, resolved by proximi
 and returns its **current live resources** (real IDs/ARNs, state, relationships).
 After loading, `push_sigil` merges onto that sigil's state.
 
-> `push_sigil` also accepts an optional `chat` argument to target an explicit
-> sigil for a single call.
+> To start a brand-new, unrelated sigil instead of resuming one, use `push_sigil`'s
+> `newSigilName` (see above) rather than calling `load_sigil` with a made-up name.
 
 ---
 

@@ -9,12 +9,18 @@
 // changes, and renders a live architecture sigil of what is actually deployed.
 //
 // Tools:
-//   - push_sigil    : report the delta of changes (the only push tool).
+//   - push_sigil    : report the delta of changes (the only push tool). Pass
+//                     `newSigilName` to start a brand-new, separate sigil instead of
+//                     merging onto the one already active.
 //   - deploy_sigil  : mark a design sigil Live and get the spec to actually build.
 //   - teardown_sigil: mark a live sigil back to Design after tearing down its AWS resources.
 //   - list_sigils   : discover previous sigils by name.
 //   - load_sigil   : resume a previous sigil BY NAME (resolved by proximity)
 //                    and load its full current deployed state into context.
+//
+// Sigils are identified ONLY by name, everywhere. The chat/sigil id is an internal
+// storage key — it is minted by the BACKEND (never by this client, never by the
+// model) and is never surfaced in any tool response.
 //
 // This server targets the hosted web app by default; the only thing most users configure
 // is their API token (SIGILUM_TOKEN). Point it elsewhere (e.g. a local dev backend) with
@@ -48,9 +54,8 @@ const TOKEN = process.env.SIGILUM_TOKEN || process.env.VISUALIZER_TOKEN || '';
 let activeChatId = process.env.SIGILUM_SIGIL_ID || process.env.VISUALIZER_CHAT_ID || randomUUID();
 
 // Upload a batch of incremental changes for a chat to the visualizer backend
-// ({ ok, text, data }). `nameHint` is an optional name hint for a brand-new session
-// (the backend otherwise auto-names it); `chatId` is the storage key.
-async function pushChanges(nameHint, changes, chatId, deployed) {
+// ({ ok, text, data }). `chatId` is the internal storage key — never shown to the model.
+async function pushChanges(changes, chatId, deployed) {
     if (!TOKEN) {
         return { ok: false, text: 'SIGILUM_TOKEN is not set. Generate a token in the web UI and add it to this MCP server config.' };
     }
@@ -59,8 +64,7 @@ async function pushChanges(nameHint, changes, chatId, deployed) {
         response = await fetch(`${BACKEND_URL}/api/chats/${encodeURIComponent(chatId)}/deployments`, {
             method: 'POST',
             headers: { 'content-type': 'application/json', authorization: `Bearer ${TOKEN}` },
-            // `project` is the backend's name-hint field (kept for wire-compat).
-            body: JSON.stringify({ project: nameHint, changes, ...(typeof deployed === 'boolean' ? { deployed } : {}) })
+            body: JSON.stringify({ changes, ...(typeof deployed === 'boolean' ? { deployed } : {}) })
         });
     } catch (error) {
         return { ok: false, text: `Could not reach the visualizer backend at ${BACKEND_URL}: ${error?.message || error}` };
@@ -78,7 +82,41 @@ async function pushChanges(nameHint, changes, chatId, deployed) {
     return { ok: true, text, data };
 }
 
-const server = new McpServer({ name: 'sigilum', version: '1.0.0' });
+// Ask the backend to mint a brand-new sigil (id generated server-side) with this name
+// and mode ({ ok, chatId, name, text }). The returned chatId is only ever used
+// internally (to set activeChatId and build subsequent URLs) — never put it in a
+// tool's `content[].text`.
+async function createSigil(name, deployed) {
+    if (!TOKEN) {
+        return { ok: false, text: 'SIGILUM_TOKEN is not set. Generate a token in the web UI and add it to this MCP server config.' };
+    }
+    let response;
+    try {
+        response = await fetch(`${BACKEND_URL}/api/chats`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', authorization: `Bearer ${TOKEN}` },
+            body: JSON.stringify({ name, ...(typeof deployed === 'boolean' ? { deployed } : {}) })
+        });
+    } catch (error) {
+        return { ok: false, text: `Could not reach the visualizer backend at ${BACKEND_URL}: ${error?.message || error}` };
+    }
+    const text = await response.text();
+    if (!response.ok) {
+        return { ok: false, text: `Could not create a new sigil (HTTP ${response.status}): ${text}` };
+    }
+    let data = {};
+    try {
+        data = JSON.parse(text);
+    } catch {
+        // fall through with empty data
+    }
+    if (!data.chatId) {
+        return { ok: false, text: 'The backend did not return a new sigil id.' };
+    }
+    return { ok: true, chatId: data.chatId, name: data.name || name };
+}
+
+const server = new McpServer({ name: 'sigilum', version: '1.2.0' });
 
 // matchByName (name → chat by proximity) lives in ./match.js so it is unit-testable
 // without booting this server's transport.
@@ -170,25 +208,36 @@ server.registerTool(
             'Live. The backend keeps code you sent earlier if a later push omits it, so once the ' +
             'code is in the design it persists through the deploy into the Live sigil unchanged — ' +
             're-send `code` only when the source itself actually changed.\n\n' +
-            'The session is auto-named from the architecture (the user can rename it). By default ' +
-            'changes go to THIS session\'s sigil; if you called load_sigil, they merge onto that one.',
+            'Sigils are identified ONLY by name — you never see or pass an internal id anywhere. ' +
+            'Changes always go to the currently ACTIVE sigil: this session\'s own sigil by default, ' +
+            'the one you resumed with load_sigil, or the one you just started with `newSigilName` ' +
+            'earlier in this conversation. To continue the active sigil, just call push_sigil ' +
+            'normally. To resume a DIFFERENT existing sigil, call load_sigil with its name first. ' +
+            'To start a brand-new, separate architecture, set `newSigilName` on this call instead — ' +
+            'never reuse resource ids from a different architecture when doing so, they are independent.',
         inputSchema: {
-            project: z
-                .string()
-                .optional()
-                .describe('Optional name hint for a brand-new session. Leave unset — the backend auto-names it from the architecture.'),
             changes: z.array(changeSchema).describe('The resources that changed in this step (upsert/delete each).'),
             deployed: z
                 .boolean()
                 .optional()
                 .describe('Sigil mode. Omit for a DESIGN sketch (nothing created in AWS — the default for a new sigil). Set true only if you ACTUALLY created these resources in AWS. Must match the sigil\'s existing mode.'),
-            chat: z
+            newSigilName: z
                 .string()
+                .min(1)
                 .optional()
-                .describe('Optional internal targeting override — leave unset for normal use. Changes go to the active sigil automatically: this session\'s sigil, or the one you resumed with load_sigil.')
+                .describe(
+                    'Set this ONLY to start a BRAND-NEW, SEPARATE sigil under this name — use it when ' +
+                    'the user explicitly wants to design/report a DIFFERENT architecture than whatever ' +
+                    'is currently active, not to continue or rename the current one. When set: the ' +
+                    'backend creates the new sigil, it becomes the ONLY active sigil for the rest of ' +
+                    'this session (exactly as if you had just called load_sigil on it), and `changes` ' +
+                    'is reported onto it. Leave unset for every normal call — changes then go to ' +
+                    'whatever sigil is already active. Sigils are identified ONLY by name; you never ' +
+                    'see or pass an id anywhere.'
+                )
         }
     },
-    async ({ project, changes, chat, deployed }) => {
+    async ({ changes, deployed, newSigilName }) => {
         if (!TOKEN) {
             return { isError: true, content: [{ type: 'text', text: 'SIGILUM_TOKEN is not set. Generate a token in the web UI and add it to this MCP server config.' }] };
         }
@@ -196,14 +245,25 @@ server.registerTool(
             return { isError: true, content: [{ type: 'text', text: 'No changes to report.' }] };
         }
 
-        const chatId = chat || activeChatId;
-        const result = await pushChanges(project, changes, chatId, deployed);
+        let chatId = activeChatId;
+        let created = null;
+
+        if (newSigilName) {
+            created = await createSigil(newSigilName, deployed);
+            if (!created.ok) {
+                // Do NOT touch activeChatId — whatever was active before stays active.
+                return { isError: true, content: [{ type: 'text', text: created.text }] };
+            }
+            chatId = created.chatId;
+            activeChatId = created.chatId; // adopt immediately, same moment load_sigil does it
+        }
+
+        const result = await pushChanges(changes, chatId, deployed);
         if (!result.ok) {
             return { isError: true, content: [{ type: 'text', text: result.text }] };
         }
 
-        // The backend returns the session name (auto-assigned for a new session).
-        const name = result.data?.name || project || '(unnamed)';
+        const name = result.data?.name || created?.name || '(unnamed)';
         const mode = result.data?.deployed ? 'LIVE (deployed to AWS)' : 'DESIGN (not deployed — a sketch)';
         const upserts = changes.filter((c) => c.op !== 'delete').length;
         const deletes = changes.length - upserts;
@@ -213,13 +273,19 @@ server.registerTool(
         const nextHint = result.data?.deployed
             ? ''
             : '\n\nThis sigil is a DESIGN — nothing is created in AWS yet. When the user approves it, call deploy_sigil to deploy it.';
+        const createdHint = created
+            ? `\n\nStarted a BRAND-NEW sigil, "${name}". THIS is now the ONLY active architecture and ` +
+              `the only valid context for the rest of this session — any architecture you were ` +
+              `reporting on earlier belongs to a DIFFERENT sigil and must be ignored from now on. ` +
+              `Every later push_sigil call (without newSigilName) merges onto "${name}".`
+            : '';
         return {
             content: [
                 {
                     type: 'text',
                     text: `Reported ${changes.length} change(s) for "${name}" — mode: ${mode}: ${upserts} upsert, ${deletes} delete.\n\n` +
                         `${lines.join('\n')}\n\n` +
-                        `Sigil updated at ${WEB_URL} (Sigils → ${name}).${nextHint}`
+                        `Sigil updated at ${WEB_URL} (Sigils → ${name}).${nextHint}${createdHint}`
                 }
             ]
         };
@@ -251,21 +317,17 @@ server.registerTool(
             'down the deployed architecture — destroy the AWS resources yourself, then call ' +
             'teardown_sigil to flip the sigil back to Design.',
         inputSchema: {
-            chat: z
-                .string()
-                .optional()
-                .describe('Optional internal targeting override — leave unset. Defaults to this session\'s active sigil (this session\'s, or the one you resumed with load_sigil).'),
             resources: z
                 .array(z.record(z.any()))
                 .optional()
                 .describe('Optional: the sigil detail JSON you have in context. Ignored if it differs — the backend\'s stored state is the source of truth and is returned to you.')
         }
     },
-    async ({ chat }) => {
+    async () => {
         if (!TOKEN) {
             return { isError: true, content: [{ type: 'text', text: 'SIGILUM_TOKEN is not set. Generate a token in the web UI and add it to this MCP server config.' }] };
         }
-        const chatId = chat || activeChatId;
+        const chatId = activeChatId;
         let response;
         try {
             response = await fetch(`${BACKEND_URL}/api/chats/${encodeURIComponent(chatId)}/deploy`, {
@@ -321,18 +383,13 @@ server.registerTool(
             'teardown; that would erase the design. Only delete a resource when the user ' +
             'EXPLICITLY asks to remove that specific resource from the diagram. Only works on a ' +
             'LIVE sigil (a Design one is not deployed, so there is nothing to tear down).',
-        inputSchema: {
-            chat: z
-                .string()
-                .optional()
-                .describe('Optional internal targeting override — leave unset. Defaults to this session\'s active sigil (this session\'s, or the one you resumed with load_sigil).')
-        }
+        inputSchema: {}
     },
-    async ({ chat }) => {
+    async () => {
         if (!TOKEN) {
             return { isError: true, content: [{ type: 'text', text: 'SIGILUM_TOKEN is not set. Generate a token in the web UI and add it to this MCP server config.' }] };
         }
-        const chatId = chat || activeChatId;
+        const chatId = activeChatId;
         let response;
         try {
             response = await fetch(`${BACKEND_URL}/api/chats/${encodeURIComponent(chatId)}/teardown`, {
@@ -401,7 +458,9 @@ server.registerTool(
             'IDs/ARNs, relationships, details AND the `code` each one runs — so you resume with ' +
             'the complete diagram, nothing omitted. That becomes the one and only architecture in ' +
             'context, and every later push_sigil merges onto it (code you don\'t re-send is kept). ' +
-            'Use this when the user wants to keep working on infrastructure designed or deployed earlier.',
+            'Use this when the user wants to keep working on infrastructure designed or deployed ' +
+            'earlier. To start a brand-new, UNRELATED sigil instead of resuming one, do NOT call ' +
+            'load_sigil with a made-up name — use push_sigil\'s `newSigilName` instead.',
         inputSchema: {
             name: z
                 .string()
@@ -478,10 +537,13 @@ server.registerTool(
         title: 'List previous sigils',
         description:
             'List the sigils available for your account (newest first), each with ' +
-            'its name and last-updated time. This is the FIRST step when the user wants to ' +
-            'resume earlier work: look at the names, pick the one closest semantically to what ' +
-            'the user means, then pass that NAME to load_sigil (load_sigil resolves it by ' +
-            'proximity). If no name is a reasonable match, tell the user there is no similar sigil.',
+            'its name and last-updated time (no ids — sigils are identified by name only, the ' +
+            'id is an internal backend detail you never see or need). This is the FIRST step ' +
+            'when the user wants to resume earlier work: look at the names, pick the one closest ' +
+            'semantically to what the user means, then pass that NAME to load_sigil (load_sigil ' +
+            'resolves it by proximity). If no name is a reasonable match, tell the user there is ' +
+            'no similar sigil — or, if they want a NEW architecture instead, use push_sigil\'s ' +
+            '`newSigilName`.',
         inputSchema: {}
     },
     async () => {
