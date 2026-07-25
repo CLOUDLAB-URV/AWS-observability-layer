@@ -1,0 +1,10 @@
+import { readFile, unlink } from "node:fs/promises";
+import { renderDeployedDiagram } from "./diagram.js";
+const d2 = await readFile("persistence/deployed-state/usr_localdev/ee55c56d-dca3-45ce-8457-346ab95f02ff/diagram.d2","utf8");
+const { svg, svgProtocol, error } = await renderDeployedDiagram(d2);
+console.log("error:", error);
+console.log("svg action bytes:", svg.length, "| svg protocol bytes:", svgProtocol.length);
+const labels = (s) => [...s.matchAll(/<text[^>]*>([^<]*)<\/text>/g)].map(m=>m[1]).filter(t=>/\/|:|Read|Publish|request|Event|orders/.test(t));
+console.log("ACTION labels:", JSON.stringify(labels(svg)));
+console.log("PROTOCOL labels:", JSON.stringify(labels(svgProtocol)));
+console.log("stray || -> action:", svg.includes("||"), "protocol:", svgProtocol.includes("||"));

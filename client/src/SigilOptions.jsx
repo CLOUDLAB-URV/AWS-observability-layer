@@ -4,6 +4,7 @@ import Slider from './Slider.jsx';
 
 const ON_OFF = [['on', 'On'], ['off', 'Off']];
 const LINE_STYLE_OPTIONS = [['normal', 'Normal'], ['dashed', 'Dashed']];
+const LABEL_MODE_OPTIONS = [['action', 'Action'], ['protocol', 'Protocol']];
 
 // Line thickness slider bounds (px) and animation-speed slider bounds (seconds per flow cycle).
 // SPEED is inverted in the UI so dragging RIGHT = faster while the stored value stays a duration:
@@ -134,10 +135,16 @@ export default function SigilOptions({ onClose }) {
                     agent generates, and carries into exports of this sigil too) */}
                 <div className="ca-field-label ca-field-label-spaced">Diagram display</div>
                 <div className="so-viz">
-                    <Row title="Connection labels" hint="Protocol and port shown on each connection (e.g. &quot;HTTPS :443&quot;).">
+                    <Row title="Connection labels" hint="Show a label on each connection. Choose what it says below.">
                         <Segment label="Connection labels" options={ON_OFF}
                             value={vizPrefs.showConnectionLabels ? 'on' : 'off'}
                             onChange={(v) => setVizPref('showConnectionLabels', v === 'on')} />
+                    </Row>
+                    <Row title="Label style" hint="Action = what the connection does (e.g. &quot;GET /api/ec2&quot;). Protocol = transport and port (e.g. &quot;HTTPS :443&quot;).">
+                        <Segment label="Label style" options={LABEL_MODE_OPTIONS}
+                            value={vizPrefs.connectionLabelMode === 'protocol' ? 'protocol' : 'action'}
+                            onChange={(v) => setVizPref('connectionLabelMode', v)}
+                            disabledValues={vizPrefs.showConnectionLabels ? [] : ['action', 'protocol']} />
                     </Row>
                     <Row title="Service names" hint="The AWS service name shown under each icon (e.g. &quot;S3&quot;, &quot;DynamoDB&quot;).">
                         <Segment label="Service names" options={ON_OFF}

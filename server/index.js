@@ -16,7 +16,7 @@ for (const file of ['.env.local', '.env']) {
 import http from 'node:http';
 import express from 'express';
 import { WebSocketServer } from 'ws';
-import { renderDiagramSvg } from './diagram.js';
+import { renderDeployedDiagram } from './diagram.js';
 import * as visualizerStore from './visualizerStore.js';
 import * as tokenStore from './tokenStore.js';
 import { features } from './features.js';
@@ -307,8 +307,8 @@ app.post('/api/chats/:chatId/deployments', agentGate, requireToken, async (req, 
         }
 
         const d2 = await runStateViz(req.userId, chatId);
-        const { svg, error } = await renderDiagramSvg(d2);
-        broadcastToChat(req.userId, chatId, { type: 'render-svg', svg, renderError: error });
+        const { svg, svgProtocol, error } = await renderDeployedDiagram(d2);
+        broadcastToChat(req.userId, chatId, { type: 'render-svg', svg, svgProtocol, renderError: error });
         res.json({ ok: true, chat: chatId, name, deployed, changes: changes.length, resources: resources.length, rendered: Boolean(svg) });
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -405,8 +405,8 @@ app.post('/api/chats/:chatId/teardown', agentGate, requireToken, async (req, res
     // LLM is unreachable) but the state flip already landed, so don't fail the request over it.
     try {
         const d2 = await runStateViz(req.userId, chatId);
-        const { svg, error } = await renderDiagramSvg(d2);
-        broadcastToChat(req.userId, chatId, { type: 'render-svg', svg, renderError: error });
+        const { svg, svgProtocol, error } = await renderDeployedDiagram(d2);
+        broadcastToChat(req.userId, chatId, { type: 'render-svg', svg, svgProtocol, renderError: error });
     } catch (error) {
         console.error('[teardown re-render failed]', error);
     }
@@ -457,8 +457,8 @@ app.get('/api/chats/:chatId/diagram', agentGate, requireSession, async (req, res
         return;
     }
     const d2 = await visualizerStore.readDiagram(req.userId, chatId);
-    const { svg, error } = await renderDiagramSvg(d2);
-    res.json({ chat: chatId, svg, renderError: error });
+    const { svg, svgProtocol, error } = await renderDeployedDiagram(d2);
+    res.json({ chat: chatId, svg, svgProtocol, renderError: error });
 });
 
 // The persisted diagram Q&A ("Ask") history for a chat. Web-only — the chat is a UI
@@ -611,8 +611,8 @@ vizWss.on('connection', (socket) => {
             // socket._userId was bound to the logged-in user at upgrade time.
             socket._chatId = chatId;
             const d2 = await visualizerStore.readDiagram(socket._userId, chatId);
-            const { svg, error } = await renderDiagramSvg(d2);
-            socket.send(JSON.stringify({ type: 'init', chat: chatId, svg, renderError: error }));
+            const { svg, svgProtocol, error } = await renderDeployedDiagram(d2);
+            socket.send(JSON.stringify({ type: 'init', chat: chatId, svg, svgProtocol, renderError: error }));
         }
     });
 });
