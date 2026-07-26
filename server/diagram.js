@@ -51,26 +51,72 @@ export function mapEdgeLabels(diagramText, fn) {
     });
 }
 
-// The text one VIEW shows for a segmented label: action vs protocol content, optionally prefixed
-// with the workflow step number. `mode: 'none'` yields '' — a `""` label that keeps the connection
-// and its `{ style … }` map while reserving no layout space.
+// The text one VIEW shows for a segmented label. A connection label always shows the ACTION segment,
+// optionally prefixed with the workflow step number; the trailing protocol segment is still parsed
+// (stored diagrams keep emitting it) but is never displayed. `mode: 'none'` yields '' — a `""` label
+// that keeps the connection and its `{ style … }` map while reserving no layout space.
 function viewText(parts, { mode = 'action', steps = false } = {}) {
     if (mode === 'none') return '';
-    let step = null;
-    let action;
-    let protocol;
-    if (parts.length >= 3) {
-        [step, action, protocol] = parts;
-    } else {
-        [action, protocol] = parts;
-    }
-    let body = mode === 'protocol' ? protocol : action;
+    // 3 segments = "<step> || <action> || <protocol>"; 2 = "<action> || <protocol>" (pre-steps D2).
+    const [step, action] = parts.length >= 3 ? parts : [null, parts[0]];
+    let body = action;
     if (steps && step && step.trim()) body = `${step.trim()}. ${body}`;
     return body;
 }
 
+// Labels shorter than this read fine on one line and are never worth breaking. Set above the length
+// of a protocol label ("4. HTTPS :443") on purpose: a transport and its port are one unit, and
+// splitting them across lines looks broken even when it would technically free up some room.
+const WRAP_MIN_CHARS = 16;
+
+// The two-line form of a label, or null when it shouldn't/can't be broken. Splits at the space that
+// balances the two lines best (minimising the longer one), which keeps the label as narrow as
+// possible — the whole point of wrapping, since a narrower label intrudes less on a left-to-right
+// diagram. The step number never ends up alone on the first line ("5." reads as a typo).
+// D2 renders a `\n` in a label natively, as one <text> with a <tspan> per line.
+export function wrapLabel(text) {
+    if (typeof text !== 'string') return null;
+    const trimmed = text.trim();
+    if (trimmed.length < WRAP_MIN_CHARS) return null;
+    const words = trimmed.split(/\s+/);
+    if (words.length < 2) return null;
+    let best = null;
+    for (let i = 1; i < words.length; i++) {
+        const head = words.slice(0, i).join(' ');
+        const tail = words.slice(i).join(' ');
+        if (/^\d+\.$/.test(head)) continue; // don't orphan the step number
+        const longest = Math.max(head.length, tail.length);
+        if (!best || longest < best.longest) best = { longest, text: `${head}\\n${tail}` };
+    }
+    return best ? best.text : null;
+}
+
+// A harvested `label` holds a REAL newline (D2 resolved the `\n` escape at compile time). Writing
+// one straight back into a quoted D2 string would break the source, so re-escape it first.
+function toD2Label(text) {
+    return String(text ?? '').replace(/\r?\n/g, '\\n');
+}
+
+// `wrap: true` renders each label in its two-line form where one exists (labels that shouldn't be
+// broken stay on one line, so this is always safe to apply wholesale — it is used to MEASURE the
+// wrapped candidate of every label in one compile).
 export function composeLabel(diagramText, opts = {}) {
-    return mapEdgeLabels(diagramText, (parts) => viewText(parts, opts));
+    return mapEdgeLabels(diagramText, (parts) => {
+        const text = viewText(parts, opts);
+        return (opts.wrap && wrapLabel(text)) || text;
+    });
+}
+
+// Whether any label in this view has a two-line form at all — if not, the wrapped harvest compile
+// would be byte-identical to the single-line one, so it can be skipped.
+function viewHasWrappable(diagramText, opts) {
+    let found = false;
+    mapEdgeLabels(diagramText, (parts) => {
+        const text = viewText(parts, opts);
+        if (wrapLabel(text)) found = true;
+        return text;
+    });
+    return found;
 }
 
 // True when the D2 has at least one segmented (sentinel) edge label — i.e. an emptied "no labels"
@@ -85,13 +131,12 @@ function diagramHasSteps(diagramText) {
         && /"[^"\n]*\|\|[^"\n]*\|\|[^"\n]*"/.test(diagramText);
 }
 
-// The label views the client can switch between, in render order. `svg` (action, no step numbers)
-// is the default and is kept first for backward compatibility.
+// The label views the client can switch between, in render order. Connection labels always show the
+// ACTION segment; the protocol segment is still carried in the stored D2 (so nothing has to be
+// regenerated) but is no longer rendered. `svg` (no step numbers) is the default.
 const LABEL_VIEWS = [
     ['svg', { mode: 'action' }],
-    ['svgProtocol', { mode: 'protocol' }],
     ['svgActionSteps', { mode: 'action', steps: true }],
-    ['svgProtocolSteps', { mode: 'protocol', steps: true }],
 ];
 
 // The per-connection label fields D2 fills in at compile time (it measures the text itself) and
@@ -109,15 +154,6 @@ function applyLabels(diagram, labels) {
     if (!Array.isArray(labels) || labels.length !== conns.length) return false;
     conns.forEach((conn, i) => { for (const f of LABEL_FIELDS) conn[f] = labels[i][f]; });
     return true;
-}
-
-function clearLabels(diagram) {
-    for (const conn of diagram?.connections || []) {
-        conn.label = '';
-        conn.labelWidth = 0;
-        conn.labelHeight = 0;
-        conn.labelPosition = '';
-    }
 }
 
 // Where D2 draws a connection's label: the midpoint of its route BY ARC LENGTH (not the middle
@@ -172,38 +208,101 @@ function leafShapeBoxes(diagram) {
         .map((s) => ({ x0: s.pos.x, x1: s.pos.x + s.width, y0: s.pos.y, y1: s.pos.y + s.height }));
 }
 
-// Indices of the connections whose label would collide on this layout — with a leaf node or with
-// another label. These are the only edges that need space reserved for them.
-function findMisfitLabels(diagram, labels) {
-    const conns = diagram?.connections || [];
-    const nodes = leafShapeBoxes(diagram);
-    const boxes = conns.map((conn, i) => labelBoxOf(conn, labels[i]));
-    const misfits = new Set();
-    boxes.forEach((box, i) => {
-        if (!box) return;
-        if (nodes.some((n) => boxesOverlap(box, n))) misfits.add(i);
-        for (let j = i + 1; j < boxes.length; j++) {
-            if (boxes[j] && boxesOverlap(box, boxes[j])) { misfits.add(i); misfits.add(j); }
-        }
-    });
-    return misfits;
+// Does an axis-aligned route segment pass through a box?
+function segmentHitsBox(a, b, box) {
+    const seg = {
+        x0: Math.min(a.x, b.x), x1: Math.max(a.x, b.x),
+        y0: Math.min(a.y, b.y), y1: Math.max(a.y, b.y),
+    };
+    return boxesOverlap(seg, box);
 }
 
-// Per edge, the widest label across all views (normally the step-numbered one). A single geometry
-// serves every view, so space must be reserved for the widest text any view can show — otherwise
-// switching Action→Protocol could overflow a gap that was only sized for the shorter one.
-function widestLabels(harvests) {
-    const count = harvests[0]?.length || 0;
-    const out = [];
+// How badly a label placed at `box` (belonging to connection `index`) collides here.
+//   severe — it sits on a service icon or on another label: unreadable, must be fixed by giving the
+//            layout more room.
+//   mild   — another connection's LINE crosses it. Only lines drawn AFTER this label count: D2 emits
+//            connections in order, so an earlier line ends up hidden behind this label's opaque dark
+//            pill, while a later one is painted over the text. The label's own route is excluded —
+//            D2 already masks a gap in it.
+function labelCollisions(diagram, index, box, boxes, nodes) {
+    let severe = 0;
+    let mild = 0;
+    if (!box) return { severe, mild };
+    for (const node of nodes) if (boxesOverlap(box, node)) severe++;
+    boxes.forEach((other, j) => {
+        if (j !== index && other && boxesOverlap(box, other)) severe++;
+    });
+    const conns = diagram?.connections || [];
+    for (let j = index + 1; j < conns.length; j++) {
+        const route = conns[j].route;
+        if (!Array.isArray(route)) continue;
+        for (let k = 1; k < route.length; k++) {
+            if (segmentHitsBox(route[k - 1], route[k], box)) { mild++; break; }
+        }
+    }
+    return { severe, mild };
+}
+
+// A severe collision outweighs any number of mild ones.
+const SEVERE_WEIGHT = 1000;
+
+// Above this single-line width (px) a label is long enough that two lines simply read better — more
+// compact, less of a banner stretched across the diagram. Below it, one line is cleaner. This is the
+// tie-break used when both forms are equally free of collisions.
+const WRAP_PREFER_WIDTH = 150;
+
+// Per connection, pick the label form that interferes least: the single-line text or its two-line
+// version. Wrapping trades width for height, which helps on a cramped horizontal run but HURTS where
+// a taller label reaches a neighbouring line — so it genuinely differs per label, and a blanket
+// wrap measurably makes things worse. Ties go to the single line, which reads better.
+// Returns the chosen label metrics per connection plus the set of connections still severely stuck.
+function chooseLabelForms(diagram, singleLabels, wrappedLabels) {
+    const conns = diagram?.connections || [];
+    const nodes = leafShapeBoxes(diagram);
+    // Score against the single-line placement of every OTHER label: a stable reference, so the
+    // choice doesn't depend on the order connections happen to be visited in.
+    const refBoxes = conns.map((conn, i) => labelBoxOf(conn, singleLabels[i]));
+    const chosen = [];
+    const stuck = new Set();
+    const evaluate = (conn, i, label) => {
+        const { severe, mild } = labelCollisions(diagram, i, labelBoxOf(conn, label), refBoxes, nodes);
+        return { label, severe, score: severe * SEVERE_WEIGHT + mild };
+    };
+    conns.forEach((conn, i) => {
+        const single = evaluate(conn, i, singleLabels[i]);
+        const wrappedLabel = wrappedLabels?.[i];
+        const wrapped = wrappedLabel && wrappedLabel.label !== singleLabels[i].label
+            ? evaluate(conn, i, wrappedLabel)
+            : null;
+        let best;
+        if (!wrapped) best = single;
+        else if (wrapped.score !== single.score) best = wrapped.score < single.score ? wrapped : single;
+        // Equally clean either way: break long labels, keep short ones on one line.
+        else best = (singleLabels[i].labelWidth || 0) > WRAP_PREFER_WIDTH ? wrapped : single;
+        chosen.push(best.label);
+        if (best.severe > 0) stuck.add(i);
+    });
+    return { chosen, stuck };
+}
+
+// Per edge, the widest CHOSEN label across all views (normally the step-numbered one). One geometry
+// serves every view, so space must be reserved for the widest form any view will actually show —
+// otherwise switching Action→Protocol could overflow a gap sized only for the shorter one. Also
+// unions the per-view "still severely stuck" sets: an edge cramped in any view needs the room.
+function widestLabels(chosenPerView, picks) {
+    const count = chosenPerView[0]?.length || 0;
+    const widest = [];
     for (let i = 0; i < count; i++) {
         let best = null;
-        for (const harvest of harvests) {
-            const label = harvest[i];
+        for (const chosen of chosenPerView) {
+            const label = chosen[i];
             if (label && (!best || (label.labelWidth || 0) > (best.labelWidth || 0))) best = label;
         }
-        out.push(best);
+        widest.push(best);
     }
-    return out;
+    const misfits = new Set();
+    for (const pick of picks || []) for (const i of pick.stuck) misfits.add(i);
+    return { widest, misfits };
 }
 
 // Render the label-view matrix of a deployed-state diagram from a single stored D2, so the client
@@ -223,10 +322,7 @@ export async function renderDeployedDiagram(diagramText) {
         const only = await renderDiagramSvg(diagramText);
         return {
             svg: only.svg,
-            svgProtocol: only.svg,
             svgActionSteps: only.svg,
-            svgProtocolSteps: only.svg,
-            svgNoLabels: only.svg,
             hasSteps: false,
             error: only.error,
         };
@@ -235,30 +331,39 @@ export async function renderDeployedDiagram(diagramText) {
 }
 
 async function _renderLabelViews(diagramText, hasSteps) {
-    // Without step numbers the steps variants are identical to the plain ones — don't render them.
-    const views = hasSteps ? LABEL_VIEWS : LABEL_VIEWS.slice(0, 2);
+    // Without step numbers the numbered view is identical to the plain one — don't render it.
+    const views = hasSteps ? LABEL_VIEWS : LABEL_VIEWS.slice(0, 1);
     try {
-        // 1. Let D2 measure each view's labels (compile fills in labelWidth/labelHeight). The
-        //    layout these compiles produce is thrown away; only the measurements are kept.
-        const harvests = [];
+        // 1. Let D2 measure BOTH candidate forms of every label — one line and two lines (compile
+        //    fills in labelWidth/labelHeight). The layouts these compiles produce are thrown away;
+        //    only the measurements are kept, so a per-label choice can mix the two with exact sizes.
+        const singleHarvests = [];
+        const wrappedHarvests = [];
         for (const [, opts] of views) {
-            harvests.push(harvestLabels(await compileLaidOut(composeLabel(diagramText, opts))));
+            singleHarvests.push(harvestLabels(await compileLaidOut(composeLabel(diagramText, opts))));
+            wrappedHarvests.push(viewHasWrappable(diagramText, opts)
+                ? harvestLabels(await compileLaidOut(composeLabel(diagramText, { ...opts, wrap: true })))
+                : null);
         }
 
         // 2. The tight, label-free layout every view will share.
         let layout = await compileLaidOut(composeLabel(diagramText, { mode: 'none' }));
         const connCount = (layout.diagram?.connections || []).length;
-        if (harvests.some((h) => h.length !== connCount)) {
+        if (singleHarvests.some((h) => h.length !== connCount)) {
             throw new Error('label/connection count mismatch — falling back to laid-out labels');
         }
 
-        // 3. Adaptive second pass: re-lay-out reserving space ONLY for the labels that collide,
-        //    using their real text so D2 measures the reservation exactly. One extra pass at most.
-        const widest = widestLabels(harvests);
-        const misfits = findMisfitLabels(layout.diagram, widest);
-        if (misfits.size) {
+        // 3. Pick each label's form on this geometry, then — only for the ones still sitting on an
+        //    icon or another label — re-lay-out reserving space for exactly those, using the chosen
+        //    text (newline included) so D2 measures the reservation. One extra pass at most. Mild
+        //    line crossings never widen the diagram; they're already minimised by the form choice.
+        let picks = views.map((_, v) => chooseLabelForms(layout.diagram, singleHarvests[v], wrappedHarvests[v]));
+        const stuck = widestLabels(picks.map((p) => p.chosen), picks);
+        if (stuck.misfits.size) {
             layout = await compileLaidOut(mapEdgeLabels(diagramText, (parts, i) =>
-                (misfits.has(i) ? (widest[i]?.label || '') : '')));
+                (stuck.misfits.has(i) ? toD2Label(stuck.widest[i]?.label) : '')));
+            // Geometry moved — re-pick on the layout that actually ships.
+            picks = views.map((_, v) => chooseLabelForms(layout.diagram, singleHarvests[v], wrappedHarvests[v]));
         }
 
         // 4. Render each view onto that one geometry. Clone per view so the injected labels of one
@@ -266,17 +371,10 @@ async function _renderLabelViews(diagramText, hasSteps) {
         const out = { hasSteps, error: null };
         for (let i = 0; i < views.length; i++) {
             const diagram = structuredClone(layout.diagram);
-            if (!applyLabels(diagram, harvests[i])) throw new Error('label injection failed');
+            if (!applyLabels(diagram, picks[i].chosen)) throw new Error('label injection failed');
             out[views[i][0]] = await renderCompiled({ diagram, renderOptions: layout.renderOptions });
         }
-        const bare = structuredClone(layout.diagram);
-        clearLabels(bare);
-        out.svgNoLabels = await renderCompiled({ diagram: bare, renderOptions: layout.renderOptions });
-
-        if (!hasSteps) {
-            out.svgActionSteps = out.svg;
-            out.svgProtocolSteps = out.svgProtocol;
-        }
+        if (!hasSteps) out.svgActionSteps = out.svg;
         return out;
     } catch (error) {
         // Any failure in the injection pipeline falls back to plain per-view renders (the wider,
@@ -289,20 +387,12 @@ async function _renderLabelViews(diagramText, hasSteps) {
 // the queued task, so it uses the unqueued primitive directly (renderDiagramSvg would deadlock).
 async function _renderLabelViewsPlain(diagramText, hasSteps, cause) {
     const action = await _doRender(composeLabel(diagramText, { mode: 'action' }));
-    const protocol = await _doRender(composeLabel(diagramText, { mode: 'protocol' }));
     const actionSteps = hasSteps
         ? await _doRender(composeLabel(diagramText, { mode: 'action', steps: true }))
         : action;
-    const protocolSteps = hasSteps
-        ? await _doRender(composeLabel(diagramText, { mode: 'protocol', steps: true }))
-        : protocol;
-    const noLabels = await _doRender(composeLabel(diagramText, { mode: 'none' }));
     return {
         svg: action.svg,
-        svgProtocol: protocol.svg,
         svgActionSteps: actionSteps.svg,
-        svgProtocolSteps: protocolSteps.svg,
-        svgNoLabels: noLabels.svg,
         hasSteps,
         error: action.error || (cause ? String(cause.message || cause) : null),
     };
