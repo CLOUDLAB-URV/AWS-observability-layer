@@ -125,7 +125,7 @@ const VIZ_PREFS_KEY = 'viz-diagram-prefs';
 // original 0.9s flow, so every existing sigil stays pixel-identical until the user changes them.
 const DEFAULT_VIZ_PREFS = {
     showConnectionLabels: true,
-    connectionLabelMode: 'action', // 'action' = what the connection does; 'protocol' = transport + port
+    showStepNumbers: true, // prefix each connection label with its workflow step number (e.g. "2. ...")
     showServiceLabels: true,
     showGroupBoxes: true,
     showExternalActor: true,
@@ -288,9 +288,11 @@ export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
         try { return localStorage.getItem(CHAT_KEY) || ''; } catch { return ''; }
     });
     const [svg, setSvg] = useState('');
-    // Protocol-view variant of the same diagram (rendered server-side from the same D2). The
-    // displayed SVG is picked from these two by vizPrefs.connectionLabelMode — see displaySvg below.
-    const [svgProtocol, setSvgProtocol] = useState('');
+    // The step-numbered variant of the same diagram, rendered server-side from the same D2 and
+    // sharing its exact geometry — see displaySvg below. `hasSteps` is false when the diagram has no
+    // workflow step numbers (then the Step-numbers toggle is disabled).
+    const [svgActionSteps, setSvgActionSteps] = useState('');
+    const [hasSteps, setHasSteps] = useState(false);
     const [renderError, setRenderError] = useState(null);
     // Per-sigil display preferences (see VIZ_PREFS_KEY above), keyed by chatId. Loaded once;
     // `setVizPref` below both updates this and persists it.
@@ -446,7 +448,8 @@ export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
             case 'init':
             case 'render-svg':
                 setSvg(message.svg || '');
-                setSvgProtocol(message.svgProtocol || '');
+                setSvgActionSteps(message.svgActionSteps || '');
+                setHasSteps(Boolean(message.hasSteps));
                 setRenderError(message.renderError || null);
                 // Force a resource/mode refetch even if the SVG didn't change (e.g. a teardown keeps
                 // the same nodes but flips every resource to undeployed and the sigil to Design).
@@ -1176,12 +1179,17 @@ export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
             return next;
         });
     }, [chatId]);
-    // Which of the two rendered variants to show. Flipping the toggle swaps the SVG that Diagram
-    // injects (its effect is keyed on `svg`), so the label style changes instantly — no server call.
-    // Falls back to the action SVG for legacy sigils whose D2 has no protocol variant.
+    // The SVG to display. Deliberately independent of every display PREFERENCE: swapping the string
+    // makes React replace the whole injected SVG, which flashes, re-wires all the tooltip/badge
+    // listeners, and (via Diagram's fit-on-new-svg effect) throws away the user's zoom and pan. So
+    // the toggles never change this — hiding labels is a CSS class on the already-injected SVG
+    // (`viz-hide-conn-labels`), and hiding step numbers is an in-place text edit. Both are possible
+    // because every rendered variant shares one geometry: labels are injected onto a layout computed
+    // without them, so the labelled and label-free views are pixel-identical apart from the text.
+    // Only genuinely new server data changes this value.
     const displaySvg = useMemo(
-        () => (vizPrefs.connectionLabelMode === 'protocol' ? (svgProtocol || svg) : svg),
-        [svg, svgProtocol, vizPrefs.connectionLabelMode]
+        () => (hasSteps ? (svgActionSteps || svg) : svg),
+        [svg, svgActionSteps, hasSteps]
     );
 
     // Step 3 can't come over the WebSocket: the server only pushes to sockets subscribed to a
@@ -1217,7 +1225,7 @@ export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
 
     const ctx = {
         onboarding,
-        svg: displaySvg, renderError, resources,
+        svg: displaySvg, hasSteps, renderError, resources,
         selectResource, diagramSelectedId,
         codeView, setCodeView, openCode,
         chatId, chatsCount: chats.length,

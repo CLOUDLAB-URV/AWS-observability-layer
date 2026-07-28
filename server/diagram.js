@@ -29,13 +29,11 @@ export function renderDiagramSvg(diagramText) {
     return enqueue(() => _doRender(diagramText));
 }
 
-// Edge labels are emitted by the stateviz prompt as a segmented string
-// `"<step> || <action> || <protocol>"` (see server/agents/stateviz/prompt.md, CONNECTIONS).
-// `composeLabel` collapses each label to the requested VIEW so we can render variants of the SAME
-// diagram: pick action vs protocol content, optionally prefix the workflow step number, or empty
-// every edge label (`mode: 'none'`) so ELK reserves no label space and packs services tightly.
-// The sentinel ` || ` only ever appears in edge labels; node/container/style/icon strings and any
-// legacy single-label diagram.d2 have no sentinel and pass through untouched — full backward compat.
+// Edge labels are emitted by the stateviz prompt as a segmented string `"<step> || <action>"`
+// (see server/agents/stateviz/prompt.md, CONNECTIONS). `composeLabel` collapses each label to the
+// requested VIEW so we can render variants of the SAME diagram — with or without the step number
+// prefix. The sentinel ` || ` only ever appears in edge labels; node/container/style/icon strings
+// and any legacy single-label diagram.d2 have no sentinel and pass through untouched.
 const LABEL_SEP = ' || ';
 
 // Rewrite every EDGE label in a D2 source through `fn(parts, edgeIndex)`, where `parts` are the
@@ -51,22 +49,32 @@ export function mapEdgeLabels(diagramText, fn) {
     });
 }
 
-// The text one VIEW shows for a segmented label. A connection label always shows the ACTION segment,
-// optionally prefixed with the workflow step number; the trailing protocol segment is still parsed
-// (stored diagrams keep emitting it) but is never displayed. `mode: 'none'` yields '' — a `""` label
-// that keeps the connection and its `{ style … }` map while reserving no layout space.
-function viewText(parts, { mode = 'action', steps = false } = {}) {
-    if (mode === 'none') return '';
-    // 3 segments = "<step> || <action> || <protocol>"; 2 = "<action> || <protocol>" (pre-steps D2).
-    const [step, action] = parts.length >= 3 ? parts : [null, parts[0]];
-    let body = action;
-    if (steps && step && step.trim()) body = `${step.trim()}. ${body}`;
-    return body;
+// A segmented label's parts. The current form is `"<step> || <action>"`; older stored diagrams carry
+// a trailing protocol segment that is no longer displayed (`"<step> || <action> || <protocol>"`),
+// and the oldest carry no step at all (`"<action> || <protocol>"`). A step is always a BARE integer,
+// which tells those two 2-segment forms apart with no ambiguity — so every stored diagram, of any
+// vintage, keeps rendering the right text.
+function splitLabel(parts) {
+    return parts.length >= 2 && /^\d+$/.test(parts[0].trim())
+        ? { step: parts[0].trim(), action: parts[1] }
+        : { step: null, action: parts[0] };
 }
 
-// Labels shorter than this read fine on one line and are never worth breaking. Set above the length
-// of a protocol label ("4. HTTPS :443") on purpose: a transport and its port are one unit, and
-// splitting them across lines looks broken even when it would technically free up some room.
+// The text one VIEW shows for a segmented label: the action, optionally prefixed with its workflow
+// step number.
+function viewText(parts, { steps = false } = {}) {
+    const { step, action } = splitLabel(parts);
+    return steps && step ? `${step}. ${action}` : action;
+}
+
+// Empty every edge label, so ELK reserves no label space and packs the services tightly. A `""`
+// label keeps the connection and its `{ style … }` map — only the text (and its layout cost) goes.
+function stripLabels(diagramText) {
+    return mapEdgeLabels(diagramText, () => '');
+}
+
+// Labels shorter than this read fine on one line and are never worth breaking: two stubby lines look
+// worse than the sliver of width they save, and a label this short barely intrudes to begin with.
 const WRAP_MIN_CHARS = 16;
 
 // The two-line form of a label, or null when it shouldn't/can't be broken. Splits at the space that
@@ -125,18 +133,21 @@ function diagramHasLabels(diagramText) {
     return typeof diagramText === 'string' && diagramText.includes(LABEL_SEP);
 }
 
-// True when the D2 has at least one 3-segment edge label (a workflow step number present).
+// True when at least one edge label carries a workflow step number.
 function diagramHasSteps(diagramText) {
-    return typeof diagramText === 'string'
-        && /"[^"\n]*\|\|[^"\n]*\|\|[^"\n]*"/.test(diagramText);
+    let found = false;
+    mapEdgeLabels(diagramText, (parts) => {
+        if (splitLabel(parts).step) found = true;
+        return '';
+    });
+    return found;
 }
 
-// The label views the client can switch between, in render order. Connection labels always show the
-// ACTION segment; the protocol segment is still carried in the stored D2 (so nothing has to be
-// regenerated) but is no longer rendered. `svg` (no step numbers) is the default.
+// The label views the client can switch between, in render order. Both show the action; they differ
+// only in whether the step number is prefixed. `svg` (no step numbers) is the default.
 const LABEL_VIEWS = [
-    ['svg', { mode: 'action' }],
-    ['svgActionSteps', { mode: 'action', steps: true }],
+    ['svg', { steps: false }],
+    ['svgActionSteps', { steps: true }],
 ];
 
 // The per-connection label fields D2 fills in at compile time (it measures the text itself) and
@@ -287,7 +298,7 @@ function chooseLabelForms(diagram, singleLabels, wrappedLabels) {
 
 // Per edge, the widest CHOSEN label across all views (normally the step-numbered one). One geometry
 // serves every view, so space must be reserved for the widest form any view will actually show —
-// otherwise switching Action→Protocol could overflow a gap sized only for the shorter one. Also
+// otherwise turning step numbers on could overflow a gap sized only for the unnumbered form. Also
 // unions the per-view "still severely stuck" sets: an edge cramped in any view needs the room.
 function widestLabels(chosenPerView, picks) {
     const count = chosenPerView[0]?.length || 0;
@@ -347,7 +358,7 @@ async function _renderLabelViews(diagramText, hasSteps) {
         }
 
         // 2. The tight, label-free layout every view will share.
-        let layout = await compileLaidOut(composeLabel(diagramText, { mode: 'none' }));
+        let layout = await compileLaidOut(stripLabels(diagramText));
         const connCount = (layout.diagram?.connections || []).length;
         if (singleHarvests.some((h) => h.length !== connCount)) {
             throw new Error('label/connection count mismatch — falling back to laid-out labels');
@@ -386,9 +397,9 @@ async function _renderLabelViews(diagramText, hasSteps) {
 // Fallback: render each view the straightforward way, letting ELK lay the labels out. Runs INSIDE
 // the queued task, so it uses the unqueued primitive directly (renderDiagramSvg would deadlock).
 async function _renderLabelViewsPlain(diagramText, hasSteps, cause) {
-    const action = await _doRender(composeLabel(diagramText, { mode: 'action' }));
+    const action = await _doRender(composeLabel(diagramText, { steps: false }));
     const actionSteps = hasSteps
-        ? await _doRender(composeLabel(diagramText, { mode: 'action', steps: true }))
+        ? await _doRender(composeLabel(diagramText, { steps: true }))
         : action;
     return {
         svg: action.svg,

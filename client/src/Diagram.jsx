@@ -479,6 +479,22 @@ export default function Diagram({
         // stray value defensively.
         canvas.style.setProperty('--viz-edge-width', String(Number(vizPrefs.lineThickness) || 2));
         canvas.style.setProperty('--viz-edge-speed', `${Number(vizPrefs.animationSpeed) || 0.9}s`);
+        // Step numbers ("2. GET /orders") live INSIDE the edge label text. The diagram is always
+        // injected with the numbered variant, so the layout already reserves the number's width;
+        // showing/hiding it is a pure in-place text edit on the already-injected <text> nodes — no
+        // SVG swap, so flipping this toggle never re-lays-out or flashes the diagram (unlike swapping
+        // to a differently-rendered variant). The original numbered text is stashed once per <text>
+        // (dataset.stepFull) so the toggle is reversible; a fresh SVG injection re-stashes it.
+        const showSteps = vizPrefs.showStepNumbers !== false;
+        canvas.querySelectorAll('.svc-edge text').forEach((t) => {
+            // A label broken over two lines is ONE <text> holding a <tspan> per line, and the step
+            // number lives in the first one — so edit that tspan, never the <text>: writing its
+            // textContent would delete the tspans and collapse the label back onto a single line.
+            const target = t.querySelector('tspan') || t;
+            if (target.dataset.stepFull == null) target.dataset.stepFull = target.textContent;
+            const full = target.dataset.stepFull;
+            target.textContent = showSteps ? full : full.replace(/^\s*\d+\.\s+/, '');
+        });
     }, [svg, vizPrefs]);
 
     const zoomIn = () => {

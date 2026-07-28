@@ -150,13 +150,12 @@ Common mappings: ALB/NLB → `networking/elb`; API Gateway → `networking/api-g
   - ❌ `client -> api_gateway`, `lambda -> rds` (unqualified — D2 silently spawns empty phantom boxes).
 - **WHY THIS MATTERS (the #1 bug):** D2 silently creates a brand-new EMPTY box for any path that doesn't match a defined node, so an unqualified name spawns a separate, icon-less box outside the AWS Cloud while your real service sits unconnected. The arrow must land on the actual service node.
 - Before returning, verify every `A -> B`: both endpoints must be the exact full path of a node you defined.
-- **Connection labels carry THREE segments in one string** — a **step number**, an **action** and a **protocol** — separated by ` || ` (space, two pipes, space), in that order: `"<STEP> || <ACTION> || <PROTOCOL>"`. The app renders the action or protocol content depending on a user toggle, and shows or hides the step number with another toggle; you always emit all three. Draw EVERY arrow the SAME way — a light stroke with a legible light-grey label sitting on a dark pill (`style.fill: "#0d1117"`, which hides the line behind the text so labels never collide with the arrows or each other) — so the diagram stays clean and in harmony on the dark canvas (no per-protocol colors):
-  - `{ style.stroke: "#e6edf3"; style.stroke-width: 2; style.font-color: "#c9d1d9"; style.font-size: 17; style.fill: "#0d1117" }` with the segmented label, e.g. `"1 || GET /api/ec2 || HTTPS :443"`, `"2 || Query orders || TCP :5432"`, `"3 || Publish order.created || Event"`.
+- **Connection labels carry TWO segments in one string** — a **step number** and an **action** — separated by ` || ` (space, two pipes, space), in that order: `"<STEP> || <ACTION>"`. The app always shows the action, and shows or hides the step number with a user toggle; you always emit both. Draw EVERY arrow the SAME way — a light stroke with a legible light-grey label sitting on a dark pill (`style.fill: "#0d1117"`, which hides the line behind the text so labels never collide with the arrows or each other) — so the diagram stays clean and in harmony on the dark canvas:
+  - `{ style.stroke: "#e6edf3"; style.stroke-width: 2; style.font-color: "#c9d1d9"; style.font-size: 17; style.fill: "#0d1117" }` with the segmented label, e.g. `"1 || GET /api/ec2"`, `"2 || Query orders"`, `"3 || Publish order.created"`.
   - **`<STEP>`** — a BARE integer giving the connection's position in the workflow. Number the edges in **execution / request order**: start at `1` at the entry point (the external client, or the front-most service if there is no external actor) and increase as the flow moves downstream; edges that fan out in parallel from the same source take the next consecutive numbers. EVERY edge gets a step number. Emit just the digit — no `"step"`, `"#"`, or trailing dot (the UI formats it as `N. `).
-  - **`<PROTOCOL>`** — the transport, exactly as before: `"HTTPS :443"`, `"TCP :5432"`, `"SSH :22"`, `"Event"`, `"gRPC :50051"`.
   - **`<ACTION>`** — a SHORT English phrase saying what actually happens, GROUNDED in the inventory. Use real data when the resource records / their `details` provide it: an API Gateway's HTTP method + route path to each backend (`"GET /api/ec2"`, `"POST /orders"`), or a queue/topic/stream/event name (`"Publish order.created"`, `"Consume orders-q"`). When no concrete route/name is available, fall back to a short generic verb chosen from the two service kinds + the connection's protocol/kind: `"Invoke"`, `"Query"`, `"Read/write"`, `"Publish"`, `"Consume"`, `"Store"`, `"Authenticate"`. **Never invent** a specific path or name that is not in the inventory — when unsure, use the generic verb.
-- The sentinel ` || ` appears ONLY inside connection labels — never in a node or container label, and never inside any single segment.
-- Keep the action and protocol segments concise so ELK can route cleanly; one segmented label per connection.
+- The sentinel ` || ` appears ONLY inside connection labels — never in a node or container label, and never inside either segment.
+- Keep the action segment concise so ELK can route cleanly; one segmented label per connection.
 - Do NOT draw Security Groups, AMIs, Route Tables, ENIs, NAT/Internet Gateways as boxes.
 - Keep diagrams **minimal**: draw only the resources in the inventory and the connections it states — fewer, well-connected nodes render far cleaner.
 
@@ -218,9 +217,9 @@ aws: "AWS Cloud (us-east-1)" {
   }
 }
 
-client -> aws.app_alb: "1 || HTTPS request || HTTPS :443" { style.stroke: "#e6edf3"; style.stroke-width: 2; style.font-color: "#c9d1d9"; style.font-size: 17; style.fill: "#0d1117" }
-aws.app_alb -> aws.vpc.i_0a1b2c3d4e5f: "2 || Forward /app || HTTP :8080" { style.stroke: "#e6edf3"; style.stroke-width: 2; style.font-color: "#c9d1d9"; style.font-size: 17; style.fill: "#0d1117" }
-aws.vpc.i_0a1b2c3d4e5f -> aws.data.orders_db: "3 || Query orders || TCP :5432" { style.stroke: "#e6edf3"; style.stroke-width: 2; style.font-color: "#c9d1d9"; style.font-size: 17; style.fill: "#0d1117" }
+client -> aws.app_alb: "1 || HTTPS request" { style.stroke: "#e6edf3"; style.stroke-width: 2; style.font-color: "#c9d1d9"; style.font-size: 17; style.fill: "#0d1117" }
+aws.app_alb -> aws.vpc.i_0a1b2c3d4e5f: "2 || Forward /app" { style.stroke: "#e6edf3"; style.stroke-width: 2; style.font-color: "#c9d1d9"; style.font-size: 17; style.fill: "#0d1117" }
+aws.vpc.i_0a1b2c3d4e5f -> aws.data.orders_db: "3 || Query orders" { style.stroke: "#e6edf3"; style.stroke-width: 2; style.font-color: "#c9d1d9"; style.font-size: 17; style.fill: "#0d1117" }
 ```
 
 ### OUTPUT FORMAT (STRICT)
