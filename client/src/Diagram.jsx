@@ -493,7 +493,9 @@ export default function Diagram({
             const target = t.querySelector('tspan') || t;
             if (target.dataset.stepFull == null) target.dataset.stepFull = target.textContent;
             const full = target.dataset.stepFull;
-            target.textContent = showSteps ? full : full.replace(/^\s*\d+\.\s+/, '');
+            // Root step / sub-step: "3. " or "3.1 ". Requiring an inner dot OR a trailing one keeps
+            // an action that merely starts with digits ("200 OK response") from losing its number.
+            target.textContent = showSteps ? full : full.replace(/^\s*\d+(?:(?:\.\d+)+|\.)\s+/, '');
         });
     }, [svg, vizPrefs]);
 

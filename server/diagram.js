@@ -51,26 +51,121 @@ export function mapEdgeLabels(diagramText, fn) {
 
 // A segmented label's parts. The current form is `"<step> || <action>"`; older stored diagrams carry
 // a trailing protocol segment that is no longer displayed (`"<step> || <action> || <protocol>"`),
-// and the oldest carry no step at all (`"<action> || <protocol>"`). A step is always a BARE integer,
-// which tells those two 2-segment forms apart with no ambiguity — so every stored diagram, of any
-// vintage, keeps rendering the right text.
+// and the oldest carry no step at all (`"<action> || <protocol>"`). A step is always DIGITS AND DOTS
+// only (`3`, or the sub-step `3.1` that renumberSteps assigns), which tells those two 2-segment forms
+// apart with no ambiguity — so every stored diagram, of any vintage, keeps rendering the right text.
 function splitLabel(parts) {
-    return parts.length >= 2 && /^\d+$/.test(parts[0].trim())
+    return parts.length >= 2 && /^\d+(?:\.\d+)*$/.test(parts[0].trim())
         ? { step: parts[0].trim(), action: parts[1] }
         : { step: null, action: parts[0] };
 }
 
 // The text one VIEW shows for a segmented label: the action, optionally prefixed with its workflow
-// step number.
+// step number. A root step keeps the trailing dot it has always had ("3. Query orders"); a sub-step
+// already reads as a number on its own, so a second dot would only clutter it ("3.1 Query orders").
 function viewText(parts, { steps = false } = {}) {
     const { step, action } = splitLabel(parts);
-    return steps && step ? `${step}. ${action}` : action;
+    if (!steps || !step) return action;
+    return step.includes('.') ? `${step} ${action}` : `${step}. ${action}`;
 }
 
 // Empty every edge label, so ELK reserves no label space and packs the services tightly. A `""`
 // label keeps the connection and its `{ style … }` map — only the text (and its layout cost) goes.
 function stripLabels(diagramText) {
     return mapEdgeLabels(diagramText, () => '');
+}
+
+// A connection line in a generated diagram: declared at the top level, one per line, with the full
+// path on both ends — `aws.networking.apigw -> aws.compute.orders_fn: "3 || POST /api/orders" { … }`
+// (the stateviz prompt mandates exactly this shape). Anything else — `<->`, `--`, a chained
+// `a -> b -> c`, two connections on one line — simply fails to match, which trips the count check in
+// renumberSteps and leaves the diagram's own numbers alone.
+const EDGE_LINE = /^\s*([\w.]+)\s*->\s*([\w.]+)\s*:\s*"([^"\n]*)"/;
+
+// The edges of a diagram, in source order, keeping ONLY the ones whose label carries the sentinel —
+// the same subset, in the same order, that `mapEdgeLabels` hands an `edgeIndex` to. That shared index
+// is how renumbered steps are written back.
+function parseEdges(diagramText) {
+    const edges = [];
+    for (const line of diagramText.split('\n')) {
+        const match = EDGE_LINE.exec(line);
+        if (!match || !match[3].includes(LABEL_SEP)) continue;
+        const { step } = splitLabel(match[3].split(LABEL_SEP));
+        edges.push({ src: match[1], dst: match[2], step: step === null ? null : Number(step) });
+    }
+    return edges;
+}
+
+// Re-derive every step number from the SHAPE of the flow, so the numbers tell the diagram's story
+// instead of a flat 1..N that pretends everything is sequential.
+//
+// A flat count breaks down the moment the architecture splits: an API Gateway fanning out to three
+// lambdas gives 3/4/5, and what those lambdas then do becomes 6..11 — so "7. Publish order event"
+// reads as if it followed 6, when it actually follows 3. The fix is a sub-level: what happens INSIDE
+// branch 3 is 3.1, 3.2.
+//
+// Sub-numbering is reserved for the case it was asked for — the diagram genuinely SPLITTING
+// FUNCTIONALITY (several endpoints, a lambda each, every one with its own flow behind it). The
+// objective stand-in for that is "at least two of the branches carry on with more edges": a router
+// feeding three lambdas that each go on to do things qualifies; one lambda writing to a table and
+// publishing an event does not — that's two outputs of the SAME functionality, and it stays flat.
+// Only the root level ever descends, so a label never grows past one dot.
+//
+// The LLM's own numbers are not the output — they are the TRAVERSAL ORDER (which branch comes
+// first), the one thing the model knows and the topology cannot say. Anything unexpected (an edge
+// with no number, a line this can't parse, a label/edge count that disagrees) returns the diagram
+// untouched, so the worst case is exactly today's numbering.
+export function renumberSteps(diagramText) {
+    if (typeof diagramText !== 'string' || !diagramText.includes(LABEL_SEP)) return diagramText;
+    const edges = parseEdges(diagramText);
+    if (!edges.length || edges.some((e) => !Number.isFinite(e.step))) return diagramText;
+    let labelCount = 0;
+    mapEdgeLabels(diagramText, (parts) => { labelCount++; return parts.join(LABEL_SEP); });
+    if (labelCount !== edges.length) return diagramText;
+
+    // Outgoing edges per node, walked in the order the model numbered them.
+    const outgoing = new Map();
+    edges.forEach((edge, i) => {
+        if (!outgoing.has(edge.src)) outgoing.set(edge.src, []);
+        outgoing.get(edge.src).push(i);
+    });
+    for (const list of outgoing.values()) list.sort((a, b) => edges[a].step - edges[b].step);
+
+    const numbers = new Array(edges.length).fill(null);
+    const taken = new Array(edges.length).fill(false);
+    const pending = (node) => (outgoing.get(node) || []).filter((i) => !taken[i]);
+
+    // Number the flow leaving `node` at `prefix` level, starting at `counter`; returns the next free
+    // counter at that level. Each edge is numbered on first visit only, so cycles terminate.
+    const walk = (node, prefix, counter) => {
+        let next = counter;
+        const siblings = pending(node);
+        if (!siblings.length) return next;
+        // Edges leaving one node are SIBLINGS: consecutive numbers at the current level, never
+        // children of each other.
+        for (const i of siblings) {
+            taken[i] = true;
+            numbers[i] = prefix ? `${prefix}.${next}` : String(next);
+            next++;
+        }
+        const carryOn = siblings.filter((i) => pending(edges[i].dst).length);
+        if (!prefix && siblings.length > 1 && carryOn.length > 1) {
+            // A real split: each branch continues inside its own number.
+            for (const i of siblings) walk(edges[i].dst, numbers[i], 1);
+            return next;
+        }
+        for (const i of siblings) next = walk(edges[i].dst, prefix, next);
+        return next;
+    };
+
+    // Start where the model says the flow starts, then pick up anything left over (a disconnected
+    // piece, or an edge only reachable through a cycle) as a fresh top-level run.
+    const entry = edges.reduce((a, b) => (b.step < a.step ? b : a));
+    let counter = walk(entry.src, '', 1);
+    edges.forEach((edge, i) => { if (!taken[i]) counter = walk(edge.src, '', counter); });
+    if (numbers.some((n) => n === null)) return diagramText;
+
+    return mapEdgeLabels(diagramText, (parts, i) => [numbers[i], ...parts.slice(1)].join(LABEL_SEP));
 }
 
 // Labels shorter than this read fine on one line and are never worth breaking: two stubby lines look
@@ -92,7 +187,7 @@ export function wrapLabel(text) {
     for (let i = 1; i < words.length; i++) {
         const head = words.slice(0, i).join(' ');
         const tail = words.slice(i).join(' ');
-        if (/^\d+\.$/.test(head)) continue; // don't orphan the step number
+        if (/^\d+(?:\.\d+)*\.?$/.test(head)) continue; // don't orphan the step number ("5." / "5.1")
         const longest = Math.max(head.length, tail.length);
         if (!best || longest < best.longest) best = { longest, text: `${head}\\n${tail}` };
     }
@@ -326,7 +421,11 @@ function widestLabels(chosenPerView, picks) {
 // measured labels afterwards, giving every view the tight geometry. Only the few labels that would
 // then collide get space reserved for them, in one adaptive second pass, so labels are always shown
 // complete and at full size. Every view shares one geometry, so switching view never moves anything.
-export async function renderDeployedDiagram(diagramText) {
+export async function renderDeployedDiagram(storedText) {
+    // Steps are re-derived from the flow's shape at render time, never written back to the stored
+    // diagram.d2 — so every diagram already on disk gets the structured numbering without being
+    // regenerated, and what the model wrote stays intact.
+    const diagramText = renumberSteps(storedText);
     const hasSteps = diagramHasSteps(diagramText);
     // Legacy diagrams (no ` || ` sentinel) have nothing to compose: one render serves every view.
     if (!diagramHasLabels(diagramText)) {
