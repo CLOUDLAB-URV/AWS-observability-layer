@@ -595,7 +595,7 @@ function centerConnectionEndpoints(diagram) {
 
     // Group every connection-endpoint touching a shape by (shape, side) so each group can be
     // evenly redistributed together.
-    const groups = new Map(); // `${shapeId} ${side}` -> [{ point, adjacent, axis, orderVal }]
+    const groups = new Map(); // `${shapeId}\x00${side}` -> [{ point, adjacent, axis, orderVal }]
     for (const conn of diagram.connections || []) {
         const route = conn.route;
         if (!route || route.length < 2) continue;
@@ -610,7 +610,7 @@ function centerConnectionEndpoints(diagram) {
             const side = sideOf(point, shape);
             if (!side) continue;
             const axis = side === 'left' || side === 'right' ? 'y' : 'x';
-            const key = `${shapeId} ${side}`;
+            const key = `${shapeId}\x00${side}`;
             if (!groups.has(key)) groups.set(key, []);
             groups.get(key).push({ point, adjacent, otherEnd, axis, orderVal: point[axis], shape });
         }

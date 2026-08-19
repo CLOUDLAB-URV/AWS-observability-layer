@@ -9,6 +9,10 @@
 export const MAX_CODE_CHARS = 20000;
 export const MAX_CODE_FILES = 12;
 
+// A resource's `purpose` is one sentence describing its role; it is shown in the web and goes
+// into every prompt built from the inventory, so it is capped like `deploy_note`.
+export const MAX_PURPOSE_CHARS = 300;
+
 // Coerce and cap the per-resource `code` array. Returns a trimmed array or undefined (so the
 // caller can drop the key entirely when there is nothing usable).
 export function normalizeCode(code) {
@@ -71,6 +75,15 @@ export function normalizeChanges(body) {
                 normalized.deploy_note = note.slice(0, 300);
             } else {
                 delete normalized.deploy_note;
+            }
+            // What the resource DOES in this architecture: one line, trimmed and capped. Collapsed
+            // to a single line because it renders as a paragraph in the web and is fed to the
+            // diagram model, where stray newlines would break the inventory block's shape.
+            const purpose = typeof change.purpose === 'string' ? change.purpose.replace(/\s+/g, ' ').trim() : '';
+            if (purpose) {
+                normalized.purpose = purpose.slice(0, MAX_PURPOSE_CHARS);
+            } else {
+                delete normalized.purpose;
             }
             // Source code the resource runs: capped and cleaned, or dropped if unusable.
             const code = normalizeCode(change.code);

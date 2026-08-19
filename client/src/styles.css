@@ -736,6 +736,13 @@ body {
 /* External actors (internet / end user): neutral — outside AWS is their normal state. */
 .rd-cloud-status.is-external   { color: var(--text-muted); }
 .rd-cloud-status.is-external + .rd-deploy-note { border-left-color: var(--border-default); background: rgba(255, 255, 255, 0.04); }
+/* The resource's role in this architecture — leads the panel, above the deployment status. */
+.rd-purpose {
+    margin: 0 0 14px;
+    font-size: 13.5px;
+    line-height: 1.55;
+    color: var(--text-primary);
+}
 .rd-deploy-note {
     margin: 8px 0 0;
     padding: 8px 10px;

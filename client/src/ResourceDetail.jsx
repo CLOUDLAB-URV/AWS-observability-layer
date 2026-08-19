@@ -25,7 +25,7 @@ const TOP_FIELDS = [
 // resource carries.
 const HANDLED = new Set([
     ...TOP_FIELDS.map(([k]) => k),
-    'type', 'connections', 'details', 'code', 'deployed', 'deploy_note', 'consoleUrl'
+    'type', 'connections', 'details', 'code', 'deployed', 'deploy_note', 'purpose', 'consoleUrl'
 ]);
 
 // Nicely cased service name for the header, from the raw inventory `type`. Falls back to a
@@ -170,6 +170,10 @@ export default function ResourceDetail({ resource, onClose, onViewCode }) {
             )}
 
             <div className="rd-body">
+                {/* What this resource does in THIS architecture, as reported by the agent. It leads
+                    the panel because it is the question a reader has before any identifier. */}
+                {resource.purpose && <p className="rd-purpose">{resource.purpose}</p>}
+
                 <section className="rd-section rd-deployment">
                     <h4 className="rd-section-title">Deployment</h4>
                     <div className={`rd-cloud-status ${external ? 'is-external' : deployed ? 'is-deployed' : 'is-undeployed'}`}>

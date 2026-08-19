@@ -2,7 +2,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeChanges, MAX_CODE_CHARS, MAX_CODE_FILES } from './normalizeChanges.js';
+import { normalizeChanges, MAX_CODE_CHARS, MAX_CODE_FILES, MAX_PURPOSE_CHARS } from './normalizeChanges.js';
 
 const base = { op: 'upsert', type: 'lambda', id: 'fn-1' };
 const one = (code) => normalizeChanges({ changes: [{ ...base, code }] })[0];
@@ -46,4 +46,25 @@ test('code: a non-array (or all-invalid) code field drops the key entirely', () 
     assert.equal('code' in one('not-an-array'), false);
     assert.equal('code' in one([{ name: '', content: '' }]), false);
     assert.equal('code' in one(undefined), false);
+});
+
+const purposed = (purpose) => normalizeChanges({ changes: [{ ...base, purpose }] })[0];
+
+test('purpose: a plain sentence is kept, trimmed', () => {
+    assert.equal(purposed('  Writes the order to DynamoDB.  ').purpose, 'Writes the order to DynamoDB.');
+});
+
+test('purpose: newlines collapse to a single line', () => {
+    assert.equal(purposed('Validates the payload\n\nand stores it.').purpose, 'Validates the payload and stores it.');
+});
+
+test('purpose: it is capped to MAX_PURPOSE_CHARS', () => {
+    assert.equal(purposed('x'.repeat(MAX_PURPOSE_CHARS + 200)).purpose.length, MAX_PURPOSE_CHARS);
+});
+
+test('purpose: empty, blank or non-string values drop the key entirely', () => {
+    assert.equal('purpose' in purposed(''), false);
+    assert.equal('purpose' in purposed('   '), false);
+    assert.equal('purpose' in purposed(42), false);
+    assert.equal('purpose' in purposed(undefined), false);
 });

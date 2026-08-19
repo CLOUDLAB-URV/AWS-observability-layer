@@ -244,3 +244,23 @@ test('uniqueName: returns the base when free, else appends the first free numeri
 test.after(async () => {
     await fs.rm(tmp, { recursive: true, force: true });
 });
+
+test('purpose survives the deploy re-report and is replaced only by a new one', async () => {
+    const fn = (extra) => ({ op: 'upsert', type: 'lambda', id: 'fn', name: 'Orders service', ...extra });
+    // Design phase: the agent explains what the resource is for.
+    await store.applyChanges(USER, 'purpose-life', [fn({ purpose: 'Validates the order and writes it to the table.' })]);
+    assert.equal(
+        (await store.readState(USER, 'purpose-life')).fn.purpose,
+        'Validates the order and writes it to the table.'
+    );
+
+    // Deploy re-report: real ARN, no purpose repeated — the role must not be erased.
+    await store.applyChanges(USER, 'purpose-life', [fn({ arn: 'arn:aws:lambda:us-east-1:1:function:fn' })]);
+    const afterDeploy = (await store.readState(USER, 'purpose-life')).fn;
+    assert.equal(afterDeploy.purpose, 'Validates the order and writes it to the table.', 'role kept');
+    assert.equal(afterDeploy.arn, 'arn:aws:lambda:us-east-1:1:function:fn');
+
+    // A genuinely changed role replaces the stored one.
+    await store.applyChanges(USER, 'purpose-life', [fn({ purpose: 'Now only enqueues the order.' })]);
+    assert.equal((await store.readState(USER, 'purpose-life')).fn.purpose, 'Now only enqueues the order.');
+});

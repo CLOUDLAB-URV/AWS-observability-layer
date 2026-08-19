@@ -116,7 +116,7 @@ async function createSigil(name, deployed) {
     return { ok: true, chatId: data.chatId, name: data.name || name };
 }
 
-const server = new McpServer({ name: 'sigilum', version: '1.2.0' });
+const server = new McpServer({ name: 'sigilum', version: '1.3.0' });
 
 // matchByName (name → chat by proximity) lives in ./match.js so it is unit-testable
 // without booting this server's transport.
@@ -138,6 +138,20 @@ const changeSchema = z
         type: z.string().describe('AWS service type, e.g. "ec2", "rds", "s3", "lambda", "vpc". For EXTERNAL actors that are part of the architecture but NOT AWS resources (the end user, their browser/mobile app, "the internet"), use type "client" (or "internet") with deployed:false and a short deploy_note — the web draws them as part of the diagram but never counts or flags them as pending deployment.'),
         id: z.string().describe('Stable identifier of the resource (InstanceId / ARN / bucket name). This is the key the backend stores it under.'),
         name: z.string().optional().describe('Friendly name, if any.'),
+        purpose: z
+            .string()
+            .optional()
+            .describe(
+                'ONE short sentence, in plain language, saying what THIS resource DOES in THIS ' +
+                'architecture — its role, not the definition of the AWS service. Write it from what ' +
+                'the user actually asked for: "a Lambda function" is useless, "validates the order ' +
+                'payload and writes it to the orders table" or "buffers checkout requests so payment ' +
+                'processing can retry independently" is what the reader needs. Include it on EVERY ' +
+                'upsert, in the DESIGN phase too: it is shown in the web when the user clicks the node, ' +
+                'and it grounds the diagram\'s connection labels. The backend keeps the purpose you sent ' +
+                'earlier if a later push omits it, so re-send it only when the resource\'s role really ' +
+                'changed.'
+            ),
         region: z.string().optional().describe('AWS region, e.g. "us-east-1". Include it whenever known — it powers the "Open in AWS Console" link in the web.'),
         state: z.string().optional().describe('Lifecycle state, e.g. "running", "available".'),
         deployed: z
@@ -177,7 +191,9 @@ server.registerTool(
             'resources to create or modify (include all their detail), and `op:"delete"` (just ' +
             '`type` + `id`) for removed ones. ALWAYS include the relationships in `connections` ' +
             '(which resource each one talks to, with protocol and port) and containment in ' +
-            '`vpc`/`subnet`, because the sigil draws those edges. The backend keeps the full ' +
+            '`vpc`/`subnet`, because the sigil draws those edges. Give every upserted resource a ' +
+            'one-sentence `purpose` too — what it does in THIS architecture — so the user reads the ' +
+            'role of each node, not just the service kind. The backend keeps the full ' +
             'authoritative state by merging your changes.\n\n' +
             'A sigil is EITHER "Design" (a sketch — NOTHING is created in AWS) OR "Live" ' +
             '(the resources really exist in AWS). It is never a mix of both. Control this with ' +
