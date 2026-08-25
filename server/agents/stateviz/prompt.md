@@ -83,22 +83,22 @@ The diagram renders on a **dark canvas**. Use dark, tinted container fills, brig
   }
   ```
 - **NETWORK CONTAINMENT — VPC and subnet boxes.** A resource with a `subnet` goes inside THAT subnet's box; one with a `vpc` but no `subnet` goes directly inside that VPC's box. The boxes nest `aws` → VPC → subnet → nodes. Each box's id is the **sanitized id of its own resource** (see "NODE IDS"), so several VPCs and any number of subnets can coexist. If a `vpc`/`subnet` value names something the inventory never lists as a resource, still draw the box, sanitizing that string as the id — just leave its label to the bare id.
-  **VPC box** (purple accent; label = `"VPC"` + name + CIDR, using whichever the inventory gives). Give it NO `icon:` — an icon on a container renders as a filled badge sitting on the border and shoves the label to the far edge; the purple dashed boundary plus the `VPC` word in the label is the identity:
+  **VPC box** (purple accent; label = `"VPC · <CIDR>"`, or just `"VPC"` when the CIDR is unknown). Keep it to that: the NAME goes nowhere near the label — the user reads it by clicking the box, and a long title only stretches the diagram sideways. Give it NO `icon:` — an icon on a container renders as a filled badge sitting on the border and shoves the label to the far edge; the purple dashed boundary plus the `VPC` word in the label is the identity:
   ```
-  aws.vpc_0abc: "VPC · main · 10.0.0.0/16" {
+  aws.vpc_0abc: "VPC · 10.0.0.0/16" {
     style.fill: "#171226"; style.stroke: "#a855f7"; style.stroke-width: 2; style.stroke-dash: 3; style.border-radius: 10; style.font-color: "#c4b5fd"
   }
   ```
-  **Subnet boxes** — the subnet's `scope` decides the color, so public and private read apart instantly. Label = the scope in CAPS + name + CIDR + availability zone, joined with ` · `, using ONLY the parts the inventory actually provides (never invent a CIDR or an AZ). A subnet with no `scope` at all uses the private styling but drops the `PRIVATE` word from its label.
+  **Subnet boxes** — label = `"SUBNET · <CIDR> · <AZ>"`, joined with ` · `, using ONLY the parts the inventory actually provides (never invent a CIDR or an AZ). The NAME and whether it is public or private are NOT in the label: the name is read by clicking, and the scope is carried by the COLOR. That makes the color load-bearing — it is the only thing on the diagram that says public or private, so pick it from the subnet's `scope` every single time, never by taste. A subnet with no `scope` at all uses the private styling.
   ```
-  aws.vpc_0abc.subnet_1a2b: "PUBLIC · web · 10.0.1.0/24 · us-east-1a" {
+  aws.vpc_0abc.subnet_1a2b: "SUBNET · 10.0.1.0/24 · us-east-1a" {
     style.fill: "#0d1f12"; style.stroke: "#3FB950"; style.stroke-width: 2; style.stroke-dash: 4; style.border-radius: 8; style.font-color: "#7ee787"
   }
-  aws.vpc_0abc.subnet_3c4d: "PRIVATE · data · 10.0.2.0/24 · us-east-1b" {
+  aws.vpc_0abc.subnet_3c4d: "SUBNET · 10.0.2.0/24 · us-east-1b" {
     style.fill: "#0c1a2e"; style.stroke: "#388BFD"; style.stroke-width: 2; style.stroke-dash: 4; style.border-radius: 8; style.font-color: "#79c0ff"
   }
   ```
-  The two subnet accents `#3FB950` (green = public) and `#388BFD` (blue = private) sit OUTSIDE the AWS category palette below and are **RESERVED**: a semantic group never uses either, so those two colors always mean exactly that.
+  The two subnet accents `#3FB950` (green = public) and `#388BFD` (blue = private) sit OUTSIDE the AWS category palette below and are **RESERVED**: a semantic group never uses either, so on this diagram green and blue mean public and private and nothing else. Since the label no longer says which is which, getting this color wrong is not a style slip — it tells the reader the opposite of the truth.
 - **Service nodes** — the AWS icon ONLY (no card, no box) with a **single-word service label** under it (see below). Use `shape: image` with the icon, add NO fill/stroke, and ALWAYS set a bright label so the name is clearly legible on the dark canvas: `style.font-color: "#f0f6fc"` and `style.font-size: 18`:
   ```
   aws.lambda: "Lambda" {
@@ -151,7 +151,7 @@ Only use a `<category>/<name>` pair that appears in this list. If the service yo
 - `compute/`: app-runner batch ec2 ec2-auto-scaling ecr ecs eks elastic-beanstalk fargate lambda lightsail
 - `database/`: aurora dms documentdb dynamodb elasticache keyspaces memorydb neptune qldb rds timestream
 - `storage/`: backup ebs efs fsx glacier s3 snowball storage-gateway
-- `networking/`: api-gateway app-mesh client-vpn cloud-map cloudfront direct-connect elb global-accelerator privatelink route53 site-to-site-vpn transit-gateway vpc
+- `networking/`: api-gateway app-mesh client-vpn cloud-map cloudfront customer-gateway direct-connect elb global-accelerator internet-gateway nat-gateway privatelink route53 site-to-site-vpn transit-gateway virtual-private-gateway vpc vpc-endpoint vpc-peering
 - `messaging/`: appflow appsync eventbridge mq mwaa sns sqs step-functions
 - `security/`: audit-manager certificate-manager cloudhsm cognito detective directory-service firewall-manager guardduty iam inspector kms macie network-firewall secrets-manager security-hub shield single-sign-on waf
 - `analytics/`: athena cloudsearch comprehend data-exchange data-pipeline emr forecast fraud-detector glue kendra kinesis kinesis-data-analytics kinesis-data-streams kinesis-firehose kinesis-video-streams lake-formation lex msk opensearch personalize polly quicksight redshift rekognition sagemaker textract transcribe translate
@@ -162,7 +162,7 @@ Only use a `<category>/<name>` pair that appears in this list. If the service yo
 - `migration/`: application-migration-service datasync migration-hub server-migration-service transfer-family
 - `business/`: appstream chime connect pinpoint ses workdocs workmail workspaces
 
-Common mappings: ALB/NLB → `networking/elb`; API Gateway → `networking/api-gateway`; Aurora → `database/aurora`; Redis/ElastiCache → `database/elasticache`; DynamoDB → `database/dynamodb`; Fargate task → `compute/fargate`; SNS topic → `messaging/sns`; EventBridge rule → `messaging/eventbridge`; Kinesis stream → `analytics/kinesis-data-streams`; OpenSearch/Elasticsearch → `analytics/opensearch`.
+Common mappings: Internet Gateway → `networking/internet-gateway`; NAT Gateway → `networking/nat-gateway`; VPC Endpoint/PrivateLink endpoint → `networking/vpc-endpoint`; VPC Peering → `networking/vpc-peering`; Virtual Private/VPN Gateway → `networking/virtual-private-gateway`; Customer Gateway → `networking/customer-gateway`; ALB/NLB → `networking/elb`; API Gateway → `networking/api-gateway`; Aurora → `database/aurora`; Redis/ElastiCache → `database/elasticache`; DynamoDB → `database/dynamodb`; Fargate task → `compute/fargate`; SNS topic → `messaging/sns`; EventBridge rule → `messaging/eventbridge`; Kinesis stream → `analytics/kinesis-data-streams`; OpenSearch/Elasticsearch → `analytics/opensearch`.
 
 ### CONNECTIONS
 
@@ -178,7 +178,11 @@ Common mappings: ALB/NLB → `networking/elb`; API Gateway → `networking/api-g
   - **`<ACTION>`** — a SHORT English phrase saying what actually happens, GROUNDED in the inventory. Use real data when the resource records, their `purpose` or their `details` provide it: an API Gateway's HTTP method + route path to each backend (`"GET /api/ec2"`, `"POST /orders"`), or a queue/topic/stream/event name (`"Publish order.created"`, `"Consume orders-q"`). When no concrete route/name is available, fall back to a short generic verb chosen from the two service kinds + the connection's protocol/kind: `"Invoke"`, `"Query"`, `"Read/write"`, `"Publish"`, `"Consume"`, `"Store"`, `"Authenticate"`. **Never invent** a specific path or name that is not in the inventory — when unsure, use the generic verb.
 - The sentinel ` || ` appears ONLY inside connection labels — never in a node or container label, and never inside either segment.
 - Keep the action segment concise so ELK can route cleanly; one segmented label per connection.
-- **Never draw a SUPPORTING resource** — one that only exists to make another one work, and means nothing on its own. That is: Security Groups, IAM roles and policies, launch templates, target groups, log groups, key pairs, instance profiles, subnet groups, parameter groups, AMIs, Route Tables, ENIs and NAT/Internet Gateways. VPCs and subnets are the ONLY supporting primitives that get drawn (as boxes). Everything else on that list lives in the resource record the user reads by clicking the service it belongs to — drawing them turns the diagram into an unreadable mess, which is exactly what it must not become.
+- **Never draw a CONFIGURATION resource** — one that only DESCRIBES how something behaves and carries no traffic itself: Security Groups, IAM roles and policies, launch templates, target groups, log groups, key pairs, instance profiles, subnet groups, parameter groups, AMIs, Route Tables, Network ACLs, ENIs, flow logs and Elastic IPs. These live in the resource record the user reads by clicking the service they belong to — drawing them turns the diagram into an unreadable mess, which is exactly what it must not become.
+- **DO draw the NETWORK PATH primitives**, when the inventory lists them: an **Internet Gateway**, a **NAT Gateway**, a **VPC Endpoint**, a **VPC Peering connection**, a **Virtual Private Gateway** or a **Customer Gateway**. The packets really travel through these, so without them the diagram cannot say how traffic reaches the internet or why one subnet is public. They are ordinary icon nodes (`shape: image`, the `networking/` icon for their kind), NOT boxes:
+  - where they sit follows the same containment rule as everything else — one with a `subnet` goes inside that subnet (a NAT Gateway lives in the public one), one with only a `vpc` goes straight inside the VPC box (an Internet Gateway), and one with neither stays outside `aws` next to the external actor (a Customer Gateway is on the customer's own premises);
+  - **they CAN be the endpoint of a connection**, unlike the VPC and subnet boxes — that is the whole point of drawing them. `aws.vpc_x.subnet_priv.i_1 -> aws.vpc_x.subnet_pub.nat_1 -> aws.vpc_x.igw_1 -> client` is the story a reader needs;
+  - their label is the short kind, like any other node: `"Internet Gateway"`, `"NAT Gateway"`, `"VPC Endpoint"`.
 - Keep diagrams **minimal**: draw only the resources in the inventory and the connections it states — fewer, well-connected nodes render far cleaner.
 
 ### EXAMPLE OUTPUT
@@ -200,7 +204,7 @@ aws: "AWS Cloud (us-east-1)" {
   style.border-radius: 12
   style.font-color: "#e6edf3"
 
-  vpc_0abc: "VPC · main · 10.0.0.0/16" {
+  vpc_0abc: "VPC · 10.0.0.0/16" {
     style.fill: "#171226"
     style.stroke: "#a855f7"
     style.stroke-width: 2
@@ -208,7 +212,7 @@ aws: "AWS Cloud (us-east-1)" {
     style.border-radius: 10
     style.font-color: "#c4b5fd"
 
-    subnet_1a2b: "PUBLIC · web · 10.0.1.0/24 · us-east-1a" {
+    subnet_1a2b: "SUBNET · 10.0.1.0/24 · us-east-1a" {
       style.fill: "#0d1f12"
       style.stroke: "#3FB950"
       style.stroke-width: 2
@@ -224,7 +228,7 @@ aws: "AWS Cloud (us-east-1)" {
       }
     }
 
-    subnet_3c4d: "PRIVATE · data · 10.0.2.0/24 · us-east-1b" {
+    subnet_3c4d: "SUBNET · 10.0.2.0/24 · us-east-1b" {
       style.fill: "#0c1a2e"
       style.stroke: "#388BFD"
       style.stroke-width: 2

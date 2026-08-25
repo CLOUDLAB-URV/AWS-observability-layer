@@ -46,7 +46,11 @@ const SERVICE_LABELS = {
     'launch-template': 'Launch template', 'target-group': 'Target group', 'log-group': 'Log group',
     'key-pair': 'Key pair', 'instance-profile': 'Instance profile',
     'subnet-group': 'Subnet group', 'parameter-group': 'Parameter group',
-    'ec2-auto-scaling': 'Auto Scaling group', 'auto-scaling': 'Auto Scaling group', asg: 'Auto Scaling group'
+    'ec2-auto-scaling': 'Auto Scaling group', 'auto-scaling': 'Auto Scaling group', asg: 'Auto Scaling group',
+    // Network path primitives — drawn as nodes, so their panel header needs a proper name.
+    'internet-gateway': 'Internet gateway', 'nat-gateway': 'NAT gateway',
+    'vpc-endpoint': 'VPC endpoint', 'vpc-peering': 'VPC peering connection',
+    'virtual-private-gateway': 'Virtual private gateway', 'customer-gateway': 'Customer gateway'
 };
 
 // The fields of an attachment shown as rows when it is expanded, in display order. `type`, `name`

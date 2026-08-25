@@ -2,7 +2,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { renumberSteps, mapEdgeLabels, wrapLabel } from './diagram.js';
+import { renumberSteps, mapEdgeLabels, wrapLabel, wrapBoxLabels } from './diagram.js';
 
 const STYLE = '{ style.stroke: "#e6edf3"; style.stroke-width: 2 }';
 
@@ -158,4 +158,63 @@ test('a trailing protocol segment survives renumbering', () => {
 test('wrapLabel never orphans a step number on the first line', () => {
     assert.equal(wrapLabel('3. Publish order event'), '3. Publish\\norder event');
     assert.equal(wrapLabel('3.1 Publish order event'), '3.1 Publish\\norder event');
+});
+
+// --- wrapBoxLabels (VPC / subnet box titles) --------------------------------------------------
+
+test('wrapBoxLabels breaks at the separator that balances the two lines, not the first one', () => {
+    const src = 'aws.v.s: "SUBNET · 10.0.1.0/24 · us-east-1a" {';
+    // Splitting after "SUBNET" gives 6/24; after the CIDR gives 20/10 — the second is narrower.
+    assert.equal(wrapBoxLabels(src), 'aws.v.s: "SUBNET · 10.0.1.0/24\\nus-east-1a" {');
+});
+
+test('wrapBoxLabels leaves a title that is under the threshold on one line', () => {
+    const src = 'aws.v: "VPC · 10.0.0.0/16" {';
+    assert.equal(wrapBoxLabels(src), src, '17 chars is not worth a second line');
+});
+
+test('wrapBoxLabels never touches an edge label, even one containing the box separator', () => {
+    const src = `aws.a -> aws.b: "3 || Query orders · fast" ${STYLE}`;
+    assert.equal(wrapBoxLabels(src), src, 'the || sentinel marks it as an edge, hands off');
+});
+
+test('wrapBoxLabels is idempotent — an already-broken title is left alone', () => {
+    const once = wrapBoxLabels('aws.v.s: "SUBNET · 10.0.1.0/24 · us-east-1a" {');
+    assert.equal(wrapBoxLabels(once), once);
+});
+
+test('wrapBoxLabels leaves a diagram with no box separator byte-identical', () => {
+    const src = [
+        'direction: right',
+        'aws: "AWS Cloud (us-east-1)" {',
+        '  compute: "COMPUTE" {',
+        '    fn: "Lambda" { shape: image; icon: "/aws-icons/compute/lambda.svg" }',
+        '  }',
+        '}',
+        `aws.compute.fn -> aws.compute.fn2: "1 || Invoke" ${STYLE}`
+    ].join('\n');
+    assert.equal(wrapBoxLabels(src), src);
+});
+
+test('wrapBoxLabels rewrites every box in a real diagram and nothing else', () => {
+    const src = [
+        'aws: "AWS Cloud (us-east-1)" {',
+        '  vpc_0abc: "VPC · 10.0.0.0/16" {',
+        '    subnet_1a2b: "SUBNET · 10.0.1.0/24 · us-east-1a" {',
+        '      alb_web: "ALB" { shape: image; icon: "/aws-icons/networking/elb.svg" }',
+        '    }',
+        '    subnet_3c4d: "SUBNET · 10.0.2.0/24 · us-east-1b" {',
+        '      i_0a1b2c: "EC2" { style.font-color: "#f0f6fc" }',
+        '    }',
+        '  }',
+        '}',
+        `client -> aws.vpc_0abc.subnet_1a2b.alb_web: "1 || HTTPS request" ${STYLE}`
+    ].join('\n');
+    const out = wrapBoxLabels(src).split('\n');
+    assert.match(out[2], /"SUBNET · 10\.0\.1\.0\/24\\nus-east-1a"/);
+    assert.match(out[5], /"SUBNET · 10\.0\.2\.0\/24\\nus-east-1b"/);
+    // The short VPC title, the service labels, the icon path and the edge label are untouched.
+    assert.equal(out[1], '  vpc_0abc: "VPC · 10.0.0.0/16" {');
+    assert.equal(out[3], '      alb_web: "ALB" { shape: image; icon: "/aws-icons/networking/elb.svg" }');
+    assert.equal(out[10], `client -> aws.vpc_0abc.subnet_1a2b.alb_web: "1 || HTTPS request" ${STYLE}`);
 });

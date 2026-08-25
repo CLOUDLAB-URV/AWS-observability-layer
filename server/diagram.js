@@ -194,6 +194,47 @@ export function wrapLabel(text) {
     return best ? best.text : null;
 }
 
+// The separator the stateviz prompt joins a network box label with: `"VPC · 10.0.0.0/16"`,
+// `"SUBNET · 10.0.1.0/24 · us-east-1a"`. It plays the same role for BOX labels that ` || ` plays for
+// edge labels — it is the one signal that says "this quoted string is a VPC/subnet title". Nothing
+// else in a generated diagram carries it: service labels are one word ("Lambda"), group labels too
+// ("COMPUTE"), the cloud boundary has none ("AWS Cloud (us-east-1)"), and icon paths and colours are
+// plain strings.
+const BOX_SEP = ' · ';
+
+// A box label only earns a second line past this. Higher than WRAP_MIN_CHARS because a container is
+// wide by nature — breaking a short title would just make the box taller for nothing.
+const BOX_WRAP_MIN_CHARS = 24;
+
+// Break the VPC / subnet box titles over two lines so a long one stops setting its box's minimum
+// width and stretching the whole diagram sideways. Splits at the ` · ` that MINIMISES THE LONGER
+// LINE — the same criterion wrapLabel uses on spaces, and for the same reason: on a left-to-right
+// diagram the narrowest label intrudes least. The separator itself is dropped at the break, since
+// the line break already separates.
+//
+// Everything else passes through byte for byte: strings without the separator, strings carrying the
+// edge sentinel (belt and braces — an action segment could in principle contain a "·"), labels
+// already broken (so this is idempotent), and anything with no split point that helps.
+export function wrapBoxLabels(diagramText) {
+    if (typeof diagramText !== 'string' || !diagramText.includes(BOX_SEP)) return diagramText;
+    return diagramText.replace(/"([^"\n]*)"/g, (full, inner) => {
+        if (!inner.includes(BOX_SEP) || inner.includes(LABEL_SEP)) return full;
+        if (inner.includes('\\n') || inner.length < BOX_WRAP_MIN_CHARS) return full;
+        const parts = inner.split(BOX_SEP);
+        if (parts.length < 2) return full;
+        let best = null;
+        for (let i = 1; i < parts.length; i++) {
+            const head = parts.slice(0, i).join(BOX_SEP);
+            const tail = parts.slice(i).join(BOX_SEP);
+            const longest = Math.max(head.length, tail.length);
+            if (!best || longest < best.longest) best = { longest, text: `${head}\\n${tail}` };
+        }
+        // A split always narrows the longest line (head + tail + 3 === inner.length), so any
+        // candidate found is an improvement.
+        return best ? `"${best.text}"` : full;
+    });
+}
+
 // A harvested `label` holds a REAL newline (D2 resolved the `\n` escape at compile time). Writing
 // one straight back into a quoted D2 string would break the source, so re-escape it first.
 function toD2Label(text) {
@@ -443,7 +484,9 @@ export async function renderDeployedDiagram(storedText) {
     // Steps are re-derived from the flow's shape at render time, never written back to the stored
     // diagram.d2 — so every diagram already on disk gets the structured numbering without being
     // regenerated, and what the model wrote stays intact.
-    const diagramText = renumberSteps(storedText);
+    // Box titles are likewise re-wrapped at render time, never written back: a stored diagram with a
+    // long VPC/subnet title gets the narrower two-line form without being regenerated.
+    const diagramText = wrapBoxLabels(renumberSteps(storedText));
     const hasSteps = diagramHasSteps(diagramText);
     // Legacy diagrams (no ` || ` sentinel) have nothing to compose: one render serves every view.
     if (!diagramHasLabels(diagramText)) {

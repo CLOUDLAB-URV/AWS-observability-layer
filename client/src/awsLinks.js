@@ -73,6 +73,10 @@ function serviceKey(type) {
         bucket: 's3', s3bucket: 's3',
         instance: 'ec2', ec2instance: 'ec2',
         securitygroup: 'sg', natgateway: 'nat', internetgateway: 'igw',
+        // Network path primitives: each has its own page in the VPC console.
+        natgw: 'nat', igw: 'igw', vpcendpoint: 'endpoint', endpoints: 'endpoint',
+        vpcpeering: 'peering', peeringconnection: 'peering',
+        virtualprivategateway: 'vgw', vpngateway: 'vgw', customergateway: 'cgw',
         // Attachment types (a resource's supporting pieces, shown inside its panel): map them onto
         // the console builders that already exist rather than adding near-duplicate ones.
         iamrole: 'iam', iampolicy: 'iam', role: 'iam', instanceprofile: 'iam',
@@ -145,6 +149,10 @@ const BUILDERS = {
     },
     nat({ region }) { return `${REGION_HOST(region)}/vpcconsole/home?region=${region}#NatGateways:`; },
     igw({ region }) { return `${REGION_HOST(region)}/vpcconsole/home?region=${region}#igws:`; },
+    endpoint({ region }) { return `${REGION_HOST(region)}/vpcconsole/home?region=${region}#Endpoints:`; },
+    peering({ region }) { return `${REGION_HOST(region)}/vpcconsole/home?region=${region}#PeeringConnections:`; },
+    vgw({ region }) { return `${REGION_HOST(region)}/vpcconsole/home?region=${region}#VpnGateways:`; },
+    cgw({ region }) { return `${REGION_HOST(region)}/vpcconsole/home?region=${region}#CustomerGateways:`; },
     // Attachment kinds with a console page of their own — worth a builder rather than an alias onto
     // a generic list, so expanding one lands on the exact thing being read.
     launchtemplate({ id, region }) {
