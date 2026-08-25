@@ -9,6 +9,13 @@
 export const MAX_CODE_CHARS = 20000;
 export const MAX_CODE_FILES = 12;
 
+// A resource's `attachments` are the supporting pieces that only exist to serve it — its security
+// group, the IAM role it assumes, an auto scaling group's launch template. They are deliberately NOT
+// resources of their own: they get no node on the diagram, they are read inside their parent's
+// panel. Capped like `code`, for the same reason (state.json is loaded whole and summarised into
+// every prompt built from the inventory).
+export const MAX_ATTACHMENTS = 12;
+
 // A resource's `purpose` is one sentence describing its role; it is shown in the web and goes
 // into every prompt built from the inventory, so it is capped like `deploy_note`.
 export const MAX_PURPOSE_CHARS = 300;
@@ -45,6 +52,48 @@ export function normalizeCode(code) {
         }
     }
     return files.length ? files : undefined;
+}
+
+// Coerce and cap the per-resource `attachments` array. Mirrors normalizeCode: an entry needs the
+// same identity a real change needs (a `type` and a stable `id`), the free text is trimmed and
+// capped, and `details` is passed through untouched exactly like a resource's own `details` is.
+// Returns a trimmed array or undefined (so the caller can drop the key entirely).
+export function normalizeAttachments(attachments) {
+    if (!Array.isArray(attachments)) {
+        return undefined;
+    }
+    const out = [];
+    for (const entry of attachments) {
+        if (!entry || typeof entry !== 'object') {
+            continue;
+        }
+        const type = String(entry.type ?? '').trim().slice(0, 60);
+        const id = String(entry.id ?? '').trim().slice(0, 200);
+        if (!type || !id) {
+            continue;
+        }
+        const item = { type, id };
+        for (const field of ['name', 'arn', 'region']) {
+            const value = String(entry[field] ?? '').trim().slice(0, 200);
+            if (value) {
+                item[field] = value;
+            }
+        }
+        // What this attachment does FOR ITS PARENT, collapsed to one line and capped like the
+        // resource-level `purpose` it mirrors.
+        const purpose = typeof entry.purpose === 'string' ? entry.purpose.replace(/\s+/g, ' ').trim() : '';
+        if (purpose) {
+            item.purpose = purpose.slice(0, MAX_PURPOSE_CHARS);
+        }
+        if (entry.details && typeof entry.details === 'object') {
+            item.details = entry.details;
+        }
+        out.push(item);
+        if (out.length >= MAX_ATTACHMENTS) {
+            break;
+        }
+    }
+    return out.length ? out : undefined;
 }
 
 // Normalize the incremental changes the MCP tool uploaded into the canonical shape
@@ -123,6 +172,14 @@ export function normalizeChanges(body) {
                 normalized.code = code;
             } else {
                 delete normalized.code;
+            }
+            // The supporting pieces that live INSIDE this resource (security group, IAM role,
+            // launch template…) rather than getting their own node.
+            const attachments = normalizeAttachments(change.attachments);
+            if (attachments) {
+                normalized.attachments = attachments;
+            } else {
+                delete normalized.attachments;
             }
             return normalized;
         })

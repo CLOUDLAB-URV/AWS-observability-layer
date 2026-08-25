@@ -19,9 +19,14 @@ const D2_MARKER = '===D2===';
 // edges and containment), truncate the verbose `details` blob, and replace the `code`
 // bodies with a tiny per-file summary. Both full forms are preserved in state.json; the
 // model only needs to KNOW code exists (so it can mention it), not read every byte.
+//
+// `attachments` get the same treatment as `code`, and for the same reason: their `details` (an IAM
+// policy document, a launch template body) are the bulkiest thing in the record and no prompt needs
+// them. They are summarised rather than dropped because the Ask agent shares this function and must
+// still be able to answer "which role does this lambda assume?".
 export function compactResources(resources) {
     return resources.map((resource) => {
-        const { details, code, ...rest } = resource;
+        const { details, code, attachments, ...rest } = resource;
         const entry = { ...rest };
         if (details && typeof details === 'object') {
             let blob = JSON.stringify(details);
@@ -35,6 +40,14 @@ export function compactResources(resources) {
                 name: file?.name,
                 language: file?.language,
                 bytes: typeof file?.content === 'string' ? file.content.length : 0
+            }));
+        }
+        if (Array.isArray(attachments) && attachments.length) {
+            entry.attachments = attachments.map((item) => ({
+                type: item?.type,
+                id: item?.id,
+                name: item?.name,
+                purpose: item?.purpose
             }));
         }
         return entry;

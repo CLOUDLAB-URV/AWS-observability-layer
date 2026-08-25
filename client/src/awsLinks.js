@@ -73,6 +73,13 @@ function serviceKey(type) {
         bucket: 's3', s3bucket: 's3',
         instance: 'ec2', ec2instance: 'ec2',
         securitygroup: 'sg', natgateway: 'nat', internetgateway: 'igw',
+        // Attachment types (a resource's supporting pieces, shown inside its panel): map them onto
+        // the console builders that already exist rather than adding near-duplicate ones.
+        iamrole: 'iam', iampolicy: 'iam', role: 'iam', instanceprofile: 'iam',
+        loggroup: 'cloudwatch', cloudwatchloggroup: 'cloudwatch',
+        launchtemplate: 'launchtemplate', targetgroup: 'targetgroup', keypair: 'keypair',
+        subnetgroup: 'vpc', parametergroup: 'rds',
+        autoscaling: 'asg', autoscalinggroup: 'asg', ec2autoscaling: 'asg',
         userpool: 'cognito', cognitouserpool: 'cognito',
         queue: 'sqs', topic: 'sns', stream: 'kinesis',
         db: 'rds', database: 'rds', aurora: 'rds'
@@ -138,6 +145,18 @@ const BUILDERS = {
     },
     nat({ region }) { return `${REGION_HOST(region)}/vpcconsole/home?region=${region}#NatGateways:`; },
     igw({ region }) { return `${REGION_HOST(region)}/vpcconsole/home?region=${region}#igws:`; },
+    // Attachment kinds with a console page of their own — worth a builder rather than an alias onto
+    // a generic list, so expanding one lands on the exact thing being read.
+    launchtemplate({ id, region }) {
+        return /^lt-/.test(id)
+            ? `${REGION_HOST(region)}/ec2/home?region=${region}#LaunchTemplateDetails:launchTemplateId=${id}`
+            : `${REGION_HOST(region)}/ec2/home?region=${region}#LaunchTemplates:`;
+    },
+    targetgroup({ region }) { return `${REGION_HOST(region)}/ec2/home?region=${region}#TargetGroups:`; },
+    keypair({ region }) { return `${REGION_HOST(region)}/ec2/home?region=${region}#KeyPairs:`; },
+    asg({ name, id, region }) {
+        return `${REGION_HOST(region)}/ec2/home?region=${region}#AutoScalingGroupDetails:id=${encodeURIComponent(name || id)}`;
+    },
     apigateway({ id, region }) {
         // REST/HTTP api ids are short tokens; anything else lands on the API list.
         if (/^[a-z0-9]{8,12}$/i.test(id)) {

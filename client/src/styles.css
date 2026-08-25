@@ -908,6 +908,65 @@ body {
 }
 /* Code section in the resource detail panel: one row per source file with a "View code" button
    that opens the dedicated Code window. */
+/* Attachments: the supporting pieces (IAM role, security group, launch template…) folded inside the
+   resource that owns them. One collapsed row each, matching the .rd-code-row rhythm below; opening
+   one reveals its purpose, its fields and its console link without leaving the panel. */
+.rd-att { border-bottom: 1px solid var(--border-default); }
+.rd-att:last-child { border-bottom: none; }
+.rd-att-head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    width: 100%;
+    padding: 7px 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+.rd-att-chevron {
+    flex: none;
+    align-self: center;
+    color: var(--text-muted);
+    transition: transform 120ms ease;
+}
+.rd-att.is-open .rd-att-chevron { transform: rotate(90deg); }
+.rd-att-kind {
+    flex: none;
+    font-size: 10px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+.rd-att-name {
+    font-family: var(--font-mono, monospace);
+    font-size: 12px;
+    color: var(--text-secondary);
+    word-break: break-all;
+}
+.rd-att-head:hover .rd-att-name { color: var(--text-primary); }
+/* Indented under its row so a long list still reads as a list, with the open one clearly nested. */
+.rd-att-body {
+    padding: 2px 0 10px 20px;
+    border-left: 1px solid var(--border-default);
+    margin-left: 5px;
+}
+.rd-att-purpose {
+    margin: 0 0 8px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-secondary);
+}
+.rd-att-console {
+    display: inline-block;
+    margin-top: 8px;
+    font-size: 11px;
+    color: var(--accent, #58a6ff);
+    text-decoration: none;
+}
+.rd-att-console:hover { text-decoration: underline; }
+
 .rd-code-row {
     display: flex;
     align-items: center;

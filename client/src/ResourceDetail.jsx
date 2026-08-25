@@ -26,7 +26,7 @@ const TOP_FIELDS = [
 const HANDLED = new Set([
     ...TOP_FIELDS.map(([k]) => k),
     'type', 'connections', 'details', 'code', 'deployed', 'deploy_note', 'purpose', 'consoleUrl',
-    'scope'
+    'scope', 'attachments'
 ]);
 
 // Nicely cased service name for the header, from the raw inventory `type`. Falls back to a
@@ -40,8 +40,18 @@ const SERVICE_LABELS = {
     documentdb: 'DocumentDB', opensearch: 'OpenSearch', msk: 'MSK', mq: 'MQ',
     fargate: 'Fargate', lambda: 'Lambda', kinesis: 'Kinesis', glue: 'Glue', athena: 'Athena',
     redshift: 'Redshift', aurora: 'Aurora', cognito: 'Cognito', route53: 'Route 53',
-    'step-functions': 'Step Functions', 'secrets-manager': 'Secrets Manager'
+    'step-functions': 'Step Functions', 'secrets-manager': 'Secrets Manager',
+    // Attachment kinds — without these, humanize() would render "Iam Role" and "Vpc".
+    'iam-role': 'IAM role', 'iam-policy': 'IAM policy', 'security-group': 'Security group',
+    'launch-template': 'Launch template', 'target-group': 'Target group', 'log-group': 'Log group',
+    'key-pair': 'Key pair', 'instance-profile': 'Instance profile',
+    'subnet-group': 'Subnet group', 'parameter-group': 'Parameter group',
+    'ec2-auto-scaling': 'Auto Scaling group', 'auto-scaling': 'Auto Scaling group', asg: 'Auto Scaling group'
 };
+
+// The fields of an attachment shown as rows when it is expanded, in display order. `type`, `name`
+// and `purpose` are already in its header, and `details` gets its own nested block below.
+const ATTACHMENT_FIELDS = [['id', 'ID'], ['arn', 'ARN'], ['region', 'Region']];
 
 function humanize(key) {
     return String(key)
@@ -119,16 +129,65 @@ function KVRow({ label, value, onOpen }) {
     );
 }
 
+// One supporting piece of a resource (its IAM role, security group, launch template…), collapsed to
+// a single row until the user opens it. It is deliberately NOT a tab or a link out: the whole point
+// is that these live inside the service they belong to, so expanding keeps the reader where they are.
+function AttachmentRow({ item, open, onToggle }) {
+    const rows = ATTACHMENT_FIELDS.filter(([key]) => item[key] != null && item[key] !== '');
+    const details = item.details && typeof item.details === 'object' ? item.details : null;
+    return (
+        <div className={`rd-att${open ? ' is-open' : ''}`}>
+            <button type="button" className="rd-att-head" onClick={onToggle} aria-expanded={open}>
+                <svg className="rd-att-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"
+                    aria-hidden="true">
+                    <polyline points="9 18 15 12 9 6" />
+                </svg>
+                <span className="rd-att-kind">{serviceLabel(item.type)}</span>
+                <span className="rd-att-name">{item.name || item.id}</span>
+            </button>
+            {open && (
+                <div className="rd-att-body">
+                    {item.purpose && <p className="rd-att-purpose">{item.purpose}</p>}
+                    {rows.map(([key, label]) => (
+                        <KVRow key={key} label={label} value={item[key]} />
+                    ))}
+                    {details && Object.entries(details).map(([key, value]) => (
+                        <KVRow key={key} label={humanize(key)} value={value} />
+                    ))}
+                    <a
+                        className="rd-att-console"
+                        href={consoleUrl(item)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                    >
+                        Open in AWS Console →
+                    </a>
+                </div>
+            )}
+        </div>
+    );
+}
+
 export default function ResourceDetail({ resource, onClose, onViewCode, onOpenResource }) {
+    // Which attachments are expanded, by index — several can be open at once, and the set resets
+    // when the panel binds to a different resource (see the effect below).
+    const [openAttachments, setOpenAttachments] = useState(() => new Set());
     // "Copied" feedback for the ARN copy button (auto-clears).
     const [copied, setCopied] = useState(false);
     const copiedTimer = useRef(null);
     useEffect(() => () => clearTimeout(copiedTimer.current), []);
+    // A plain click RETARGETS the open tab at another resource instead of remounting this component
+    // (see DeployedState.retargetResourceTab), so without this the expanded indices would carry over
+    // and open unrelated attachments on the resource the user just clicked.
+    useEffect(() => setOpenAttachments(new Set()), [resource?.id]);
 
     if (!resource) return null;
 
     const connections = Array.isArray(resource.connections) ? resource.connections : [];
     const details = resource.details && typeof resource.details === 'object' ? resource.details : null;
+    // The supporting pieces that belong to this resource and get no node of their own.
+    const attachments = Array.isArray(resource.attachments) ? resource.attachments : [];
     // Source files this resource runs (Lambda handler, EC2 user-data, …). Each opens in the
     // dedicated Code window via onViewCode; keep only well-formed entries.
     const codeFiles = (Array.isArray(resource.code) ? resource.code : []).filter(
@@ -296,6 +355,24 @@ export default function ResourceDetail({ resource, onClose, onViewCode, onOpenRe
                                     </span>
                                 )}
                             </div>
+                        ))}
+                    </section>
+                )}
+
+                {attachments.length > 0 && (
+                    <section className="rd-section">
+                        <h4 className="rd-section-title">Attached ({attachments.length})</h4>
+                        {attachments.map((item, i) => (
+                            <AttachmentRow
+                                key={`${item.type}-${item.id}-${i}`}
+                                item={item}
+                                open={openAttachments.has(i)}
+                                onToggle={() => setOpenAttachments((prev) => {
+                                    const next = new Set(prev);
+                                    if (next.has(i)) next.delete(i); else next.add(i);
+                                    return next;
+                                })}
+                            />
                         ))}
                     </section>
                 )}

@@ -2,7 +2,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeChanges, MAX_CODE_CHARS, MAX_CODE_FILES, MAX_PURPOSE_CHARS } from './normalizeChanges.js';
+import { normalizeChanges, MAX_CODE_CHARS, MAX_CODE_FILES, MAX_PURPOSE_CHARS, MAX_ATTACHMENTS } from './normalizeChanges.js';
 
 const base = { op: 'upsert', type: 'lambda', id: 'fn-1' };
 const one = (code) => normalizeChanges({ changes: [{ ...base, code }] })[0];
@@ -121,4 +121,66 @@ test('containment: a missing or non-string value drops the key, meaning "unchang
     assert.equal('vpc' in placed({}), false);
     assert.equal('vpc' in placed({ vpc: null }), false);
     assert.equal('subnet' in placed({ subnet: 7 }), false);
+});
+
+// --- attachments (the supporting pieces folded into a resource) ------------------------------
+
+const attached = (attachments) => normalizeChanges({ changes: [{ ...base, attachments }] })[0];
+
+test('attachments: a well-formed entry keeps its identity, purpose and details', () => {
+    const details = { Policies: ['AWSLambdaBasicExecutionRole'] };
+    const res = attached([{
+        type: 'iam-role',
+        id: 'checkout-fn-role',
+        name: 'checkout-fn-role',
+        purpose: '  Lets the function read the orders table.  ',
+        arn: 'arn:aws:iam::1:role/checkout-fn-role',
+        region: 'us-east-1',
+        details
+    }]);
+    assert.deepEqual(res.attachments, [{
+        type: 'iam-role',
+        id: 'checkout-fn-role',
+        name: 'checkout-fn-role',
+        arn: 'arn:aws:iam::1:role/checkout-fn-role',
+        region: 'us-east-1',
+        purpose: 'Lets the function read the orders table.',
+        details
+    }]);
+});
+
+test('attachments: entries missing type or id are dropped', () => {
+    const res = attached([
+        { type: 'iam-role' },
+        { id: 'sg-1' },
+        { type: '  ', id: 'x' },
+        { type: 'security-group', id: 'sg-0ab1' }
+    ]);
+    assert.deepEqual(res.attachments.map((a) => a.id), ['sg-0ab1']);
+});
+
+test('attachments: purpose collapses to one line and is capped', () => {
+    const res = attached([{ type: 'iam-role', id: 'r', purpose: 'Reads the table\n\nand writes.' }]);
+    assert.equal(res.attachments[0].purpose, 'Reads the table and writes.');
+    const long = attached([{ type: 'iam-role', id: 'r', purpose: 'x'.repeat(MAX_PURPOSE_CHARS + 100) }]);
+    assert.equal(long.attachments[0].purpose.length, MAX_PURPOSE_CHARS);
+});
+
+test('attachments: the count is capped to MAX_ATTACHMENTS', () => {
+    const many = Array.from({ length: MAX_ATTACHMENTS + 5 }, (_, i) => ({ type: 'security-group', id: `sg-${i}` }));
+    const res = attached(many);
+    assert.equal(res.attachments.length, MAX_ATTACHMENTS);
+    assert.equal(res.attachments[0].id, 'sg-0', 'keeps the first entries in order');
+});
+
+test('attachments: an empty array, a non-array or all-unusable entries drop the key', () => {
+    assert.equal('attachments' in attached([]), false);
+    assert.equal('attachments' in attached('sg-1'), false);
+    assert.equal('attachments' in attached(undefined), false);
+    assert.equal('attachments' in attached([{ name: 'no type or id' }]), false);
+});
+
+test('attachments: a non-object details is dropped, not coerced', () => {
+    const res = attached([{ type: 'log-group', id: '/aws/lambda/fn', details: 'oops' }]);
+    assert.equal('details' in res.attachments[0], false);
 });

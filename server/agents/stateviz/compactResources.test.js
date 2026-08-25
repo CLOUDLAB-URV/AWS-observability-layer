@@ -18,3 +18,33 @@ test('compactResources leaves resources without code untouched (no code key adde
     const [entry] = compactResources([{ id: 's3', type: 's3', name: 'bucket' }]);
     assert.equal('code' in entry, false);
 });
+
+test('compactResources keeps an attachment identity + purpose but drops its details', () => {
+    const [entry] = compactResources([
+        {
+            id: 'fn',
+            type: 'lambda',
+            attachments: [{
+                type: 'iam-role',
+                id: 'checkout-fn-role',
+                name: 'checkout-fn-role',
+                purpose: 'Lets the function read the orders table.',
+                arn: 'arn:aws:iam::1:role/checkout-fn-role',
+                details: { AssumeRolePolicyDocument: 'SECRETPOLICYBLOB', Policies: ['AWSLambdaBasicExecutionRole'] }
+            }]
+        }
+    ]);
+    assert.deepEqual(entry.attachments, [{
+        type: 'iam-role',
+        id: 'checkout-fn-role',
+        name: 'checkout-fn-role',
+        purpose: 'Lets the function read the orders table.'
+    }]);
+    // The bulky policy documents must never reach a prompt.
+    assert.ok(!JSON.stringify(entry).includes('SECRETPOLICYBLOB'), 'attachment details leaked');
+});
+
+test('compactResources leaves resources without attachments untouched (no attachments key added)', () => {
+    const [entry] = compactResources([{ id: 's3', type: 's3', name: 'bucket' }]);
+    assert.equal('attachments' in entry, false);
+});

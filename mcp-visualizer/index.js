@@ -116,7 +116,7 @@ async function createSigil(name, deployed) {
     return { ok: true, chatId: data.chatId, name: data.name || name };
 }
 
-const server = new McpServer({ name: 'sigilum', version: '1.4.0' });
+const server = new McpServer({ name: 'sigilum', version: '1.5.0' });
 
 // matchByName (name → chat by proximity) lives in ./match.js so it is unit-testable
 // without booting this server's transport.
@@ -132,6 +132,30 @@ const connectionSchema = z
     .passthrough();
 
 // One incremental change to a single resource.
+// A supporting piece that belongs to ONE resource and never gets its own node: the security group
+// on an EC2, the role a Lambda assumes, the launch template behind an auto scaling group. Shaped
+// like a resource minus every relationship field — an attachment cannot connect to anything and
+// cannot live in a subnet, because it is not on the diagram at all.
+const attachmentSchema = z
+    .object({
+        type: z.string().describe('What kind of supporting thing this is: "security-group", "iam-role", "iam-policy", "launch-template", "target-group", "log-group", "key-pair", "instance-profile", "subnet-group", "parameter-group".'),
+        id: z.string().describe('Its real identifier: "sg-0ab1c2", the role name, the launch template id, the log group path.'),
+        name: z.string().optional().describe('Friendly name, if it has one distinct from the id.'),
+        purpose: z
+            .string()
+            .optional()
+            .describe(
+                'ONE short sentence saying what this does FOR ITS PARENT — the whole reason it is ' +
+                'worth showing. NOT what the AWS concept is: "an IAM role" is useless, "lets the ' +
+                'function read the orders table and write to the jobs queue" or "allows HTTPS from ' +
+                'the load balancer only" is what the reader needs. Send it on every attachment.'
+            ),
+        arn: z.string().optional().describe('Full ARN, when it has one — it powers the "Open in AWS Console" link for this attachment.'),
+        region: z.string().optional().describe('AWS region, when it is regional.'),
+        details: z.record(z.any()).optional().describe('Its full describe output, kept verbatim: the policy documents and trust policy of a role, the rules of a security group, the block device mappings and instance type of a launch template. This is what the user reads when they expand it.')
+    })
+    .passthrough();
+
 const changeSchema = z
     .object({
         op: z.enum(['upsert', 'delete']).describe('"upsert" = created or modified (send full detail); "delete" = removed (type + id are enough). Use "delete" ONLY when the user EXPLICITLY asks to remove that resource from the diagram — it makes the node disappear. To record a teardown of the whole architecture, do NOT delete the resources: call teardown_sigil, which keeps them and just marks them undeployed.'),
@@ -178,6 +202,10 @@ const changeSchema = z
             )
             .optional()
             .describe('Source code THIS resource runs — the Lambda handler body, the EC2 user-data / bootstrap script, a Step Functions state machine definition, etc. Include the entry source you authored so the user can read it in the web (NOT vendored dependencies or build artifacts). Attach it in the DESIGN phase too — draft the code together with the architecture so the user reviews it before deploying. The backend caps each file and the number of files, and keeps the code you sent earlier if a later push omits it (so it survives the deploy into the Live sigil).'),
+        attachments: z
+            .array(attachmentSchema)
+            .optional()
+            .describe('The supporting pieces that belong to THIS resource and get NO node of their own: its security group(s), the IAM role it assumes, its launch template, target group, log group, key pair, instance profile, subnet group or parameter group. The web shows them inside this resource\'s panel, each expandable with its own details and console link. Send them in the DESIGN phase too; the backend keeps the ones you sent earlier if a later push omits them.'),
         source_command: z.string().optional().describe('Optional: the aws CLI command that produced this change (audit only).')
     })
     .passthrough();
@@ -195,6 +223,7 @@ server.registerTool(
             'those edges. Give every upserted resource a one-sentence `purpose` too — what it does ' +
             'in THIS architecture — so the user reads the role of each node, not just the service ' +
             'kind. The backend keeps the full authoritative state by merging your changes.\n\n' +
+            'ATTACHMENTS — the supporting pieces go INSIDE the resource they serve, never on their own. A security group, an IAM role or policy, a launch template, a target group, a log group, a key pair, an instance profile, a subnet group, a parameter group: these exist only to make another resource work and mean nothing by themselves, so do NOT push them as resources — they would each become a node and turn the diagram into an unreadable mess. Put them in the parent\'s `attachments` array instead, each with a one-line `purpose` saying what it does FOR that parent and its describe output in `details`. A Lambda that assumes a role carries that role in its own `attachments`; an auto scaling group carries its launch template; an EC2 carries its security groups. The user then clicks the service and reads them there. Anything that IS meaningful on its own stays a normal resource with its own node — a dead-letter queue, for instance, is a real SQS queue, not an attachment.\n\n' +
             'NETWORKING — push the VPC and its subnets as RESOURCES, not just as strings. A VPC ' +
             '(`type:"vpc"`) and each subnet (`type:"subnet"`) get their own upsert with a `name`, ' +
             'a `purpose`, and their describe output in `details` (CIDR, availability zone, route ' +

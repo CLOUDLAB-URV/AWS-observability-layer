@@ -310,3 +310,24 @@ test('a subnet keeps its public/private scope across a partial upsert', async ()
     await store.applyChanges(USER, CHAT, [subnet({ scope: 'private' })]);
     assert.equal((await store.readState(USER, CHAT))['subnet-1a2b'].scope, 'private');
 });
+
+test('attachments survive the deploy re-report and are replaced only by a new array', async () => {
+    const fn = (extra) => ({ op: 'upsert', type: 'lambda', id: 'checkout-fn', ...extra });
+    const CHAT = 'attachments-life';
+    const role = { type: 'iam-role', id: 'checkout-fn-role', purpose: 'Reads the orders table.' };
+
+    // Design phase: the role is planned alongside the function.
+    await store.applyChanges(USER, CHAT, [fn({ attachments: [role] })]);
+    assert.deepEqual((await store.readState(USER, CHAT))['checkout-fn'].attachments, [role]);
+
+    // Deploy re-report: real ARN, attachments not repeated — the role must not be erased.
+    await store.applyChanges(USER, CHAT, [fn({ arn: 'arn:aws:lambda:us-east-1:1:function:checkout-fn' })]);
+    const live = (await store.readState(USER, CHAT))['checkout-fn'];
+    assert.deepEqual(live.attachments, [role], 'attachments kept');
+    assert.equal(live.arn, 'arn:aws:lambda:us-east-1:1:function:checkout-fn');
+
+    // A new array replaces the stored one wholesale.
+    const sg = { type: 'security-group', id: 'sg-0ab1' };
+    await store.applyChanges(USER, CHAT, [fn({ attachments: [sg] })]);
+    assert.deepEqual((await store.readState(USER, CHAT))['checkout-fn'].attachments, [sg]);
+});

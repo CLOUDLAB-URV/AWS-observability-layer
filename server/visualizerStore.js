@@ -350,6 +350,13 @@ export function applyChanges(userId, chatId, changes, initialName, initialDeploy
                 if (resource.code === undefined && Array.isArray(state[key]?.code)) {
                     resource.code = state[key].code;
                 }
+                // Attachments (security group, IAM role, launch template…) are planned in the DESIGN
+                // phase alongside the resource and almost never repeated afterwards, so the same
+                // full-replace hazard applies: the deploy→Live re-report carries real ARNs and no
+                // attachments, and would otherwise wipe them. A new array always replaces.
+                if (resource.attachments === undefined && Array.isArray(state[key]?.attachments)) {
+                    resource.attachments = state[key].attachments;
+                }
                 // Same reasoning for the resource's role: it is written once in the DESIGN phase and
                 // rarely repeated, so the deploy→Live re-report (real ARNs, no purpose) and every
                 // partial follow-up would otherwise erase it. A new purpose always replaces.
