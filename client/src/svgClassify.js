@@ -48,6 +48,21 @@ export function isSemanticGroup(path, byId) {
     return !byId.has(leafId);
 }
 
+// Whether a node path is a CONTAINER (a box something is drawn inside) rather than a leaf shape.
+// D2 gives a container and a leaf the exact same markup, so the only available signal is the path
+// set: a container is a path some other path is nested under. Same structural rule the server uses
+// on the compiled diagram (`leafShapeBoxes` in diagram.js). Used to tell a clickable VPC/subnet box
+// apart from a clickable service icon — both are backed by a resource, but a box is styled and
+// hit-tested differently because it is huge and holds the others.
+export function isContainerPath(path, allPaths) {
+    if (!path) return false;
+    const prefix = `${path}.`;
+    for (const other of allPaths) {
+        if (other !== path && other.startsWith(prefix)) return true;
+    }
+    return false;
+}
+
 // The external actor (Internet / end-user / browser…), per the stateviz prompt: drawn as a plain
 // top-level node, sibling of "aws", never nested under it. It's sometimes backed by a real
 // `resources` entry and sometimes purely decorative (the prompt allows drawing it whenever "the

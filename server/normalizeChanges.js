@@ -13,6 +13,11 @@ export const MAX_CODE_FILES = 12;
 // into every prompt built from the inventory, so it is capped like `deploy_note`.
 export const MAX_PURPOSE_CHARS = 300;
 
+// A subnet's `scope` says whether it routes to an Internet Gateway. It is the one network fact the
+// diagram shows without being clicked (public subnets and private ones get different accents), so
+// only these two words are accepted — anything else is dropped rather than drawn wrong.
+export const SUBNET_SCOPES = ['public', 'private'];
+
 // Coerce and cap the per-resource `code` array. Returns a trimmed array or undefined (so the
 // caller can drop the key entirely when there is nothing usable).
 export function normalizeCode(code) {
@@ -84,6 +89,33 @@ export function normalizeChanges(body) {
                 normalized.purpose = purpose.slice(0, MAX_PURPOSE_CHARS);
             } else {
                 delete normalized.purpose;
+            }
+            // Whether a subnet is public or private. Accepted only as one of the two known words;
+            // when the agent omits it we fall back to `MapPublicIpOnLaunch`, the field AWS's own
+            // DescribeSubnets returns, so an agent that just forwards the describe output still
+            // gets the public/private split right for free.
+            const rawScope = typeof change.scope === 'string' ? change.scope.trim().toLowerCase() : '';
+            const derivedScope = type.toLowerCase() === 'subnet' && change.details?.MapPublicIpOnLaunch === true
+                ? 'public'
+                : '';
+            const scope = SUBNET_SCOPES.includes(rawScope) ? rawScope : derivedScope;
+            if (scope) {
+                normalized.scope = scope;
+            } else {
+                delete normalized.scope;
+            }
+            // Containment: references to the id of a pushed `vpc`/`subnet` resource. These are
+            // sticky downstream (see visualizerStore.applyChanges), so the two "empty" cases must
+            // stay distinguishable and an EMPTY STRING is kept verbatim as a sentinel:
+            //   key absent     → the push says nothing; the merge carries the stored value forward.
+            //   key === ''     → the agent deliberately pulled the resource OUT of its container.
+            // Anything that is not a string at all is treated as saying nothing.
+            for (const field of ['vpc', 'subnet']) {
+                if (typeof change[field] === 'string') {
+                    normalized[field] = change[field].trim();
+                } else {
+                    delete normalized[field];
+                }
             }
             // Source code the resource runs: capped and cleaned, or dropped if unusable.
             const code = normalizeCode(change.code);

@@ -506,6 +506,21 @@ body {
     filter: drop-shadow(0 0 2px #3b82f6) drop-shadow(0 0 4px rgba(59, 130, 246, 0.7));
 }
 
+/* A VPC / subnet boundary is also a clickable resource, but it is a huge box rather than an icon,
+   so the icon-sized treatments read wrong on it: a drop-shadow on a box that wide just muddies the
+   canvas, and the box sits UNDER the nodes it holds, so a lift would fight with them. Brighten its
+   own outline instead, and keep the hover cue off the fill so the services inside stay readable. */
+.diagram-canvas g.svc-container:hover { filter: none; }
+.diagram-canvas g.svc-container:hover > rect,
+.diagram-canvas g.svc-container:hover > path {
+    filter: brightness(1.45);
+}
+.diagram-canvas g.svc-container.svc-selected { filter: none; }
+.diagram-canvas g.svc-container.svc-selected > rect,
+.diagram-canvas g.svc-container.svc-selected > path {
+    filter: drop-shadow(0 0 3px #3b82f6) drop-shadow(0 0 6px rgba(59, 130, 246, 0.8));
+}
+
 /* Shift held over the canvas: nodes advertise that a click will open them in their OWN detail
    tab (rather than retargeting the shared one). Green, to read as "additive". */
 .stage.is-shift .diagram-canvas g.svc-node { cursor: copy; }
@@ -527,8 +542,10 @@ body {
 .diagram-canvas.viz-hide-conn-labels .svc-edge > *:not(path) { display: none; }
 .diagram-canvas.viz-hide-conn-labels .svc-edge path { mask: none; }
 
-/* A service's name sits under its icon as a direct <text> child — hide only that. */
-.diagram-canvas.viz-hide-service-labels .svc-node > text { display: none; }
+/* A service's name sits under its icon as a direct <text> child — hide only that. A VPC/subnet
+   box is excluded: "PUBLIC · web · 10.0.1.0/24" is the identity of a boundary, not a service label,
+   and dropping it would leave two anonymous coloured rectangles. */
+.diagram-canvas.viz-hide-service-labels .svc-node:not(.svc-container) > text { display: none; }
 
 /* A group box's own boundary + its COMPUTE/MESSAGING-style label are its only direct children —
    confirmed the rendered DOM is flat: a container's <g> never actually nests the resources drawn
@@ -803,6 +820,12 @@ body {
 .rd-conn-proto { margin-left: auto; color: var(--text-muted); font-size: 11px; white-space: nowrap; }
 .rd-badge-type { background: var(--surface-app); color: var(--text-muted); font-family: var(--font-mono, monospace); }
 
+/* A subnet's public/private scope. Deliberately the SAME green and blue the subnet boxes use on the
+   diagram, so the badge and the box the user just clicked read as the same fact. */
+.rd-badge-scope { text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; }
+.rd-scope-public { background: rgba(63, 185, 80, 0.16); color: #3fb950; }
+.rd-scope-private { background: rgba(56, 139, 253, 0.16); color: #388bfd; }
+
 /* Deployed resources: full ARN row with a copy button (Identity section). */
 .rd-arn-row {
     display: flex;
@@ -846,6 +869,21 @@ body {
 }
 .rd-kv-key { flex-shrink: 0; min-width: 92px; max-width: 46%; color: var(--text-muted); }
 .rd-kv-val { color: var(--text-secondary); word-break: break-word; text-align: right; margin-left: auto; }
+
+/* An identity value that names another resource (the parent VPC / subnet): a real button, so it is
+   keyboard reachable, styled to sit flush with the plain values around it rather than as a control. */
+.rd-kv-link {
+    border: 0;
+    padding: 0;
+    background: none;
+    font: inherit;
+    cursor: pointer;
+    color: var(--accent, #58a6ff);
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    text-underline-offset: 2px;
+}
+.rd-kv-link:hover { text-decoration-style: solid; }
 .rd-kv-block { padding: 5px 0; border-bottom: 1px solid var(--border-default); }
 .rd-kv-block > .rd-kv-key { display: block; margin-bottom: 4px; }
 .rd-kv-nested {

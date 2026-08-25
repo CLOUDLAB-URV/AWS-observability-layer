@@ -356,6 +356,21 @@ export function applyChanges(userId, chatId, changes, initialName, initialDeploy
                 if (resource.purpose === undefined && typeof state[key]?.purpose === 'string') {
                     resource.purpose = state[key].purpose;
                 }
+                // Network placement (which VPC / subnet box the node is drawn in) and a subnet's
+                // public/private scope. Same reasoning again, and it matters most on the deploy
+                // path: the Design push states the containment, then the Live re-report sends the
+                // real ARNs and typically NOT the vpc/subnet, which would otherwise drop the node
+                // straight out of its box. An empty string is the agent's explicit "take it out of
+                // the container" gesture (normalizeChanges keeps it as a sentinel), so it clears
+                // instead of carrying forward.
+                for (const field of ['vpc', 'subnet', 'scope']) {
+                    if (resource[field] === undefined && typeof state[key]?.[field] === 'string') {
+                        resource[field] = state[key][field];
+                    }
+                    if (resource[field] === '') {
+                        delete resource[field];
+                    }
+                }
                 state[key] = resource;
             }
         }

@@ -264,3 +264,49 @@ test('purpose survives the deploy re-report and is replaced only by a new one', 
     await store.applyChanges(USER, 'purpose-life', [fn({ purpose: 'Now only enqueues the order.' })]);
     assert.equal((await store.readState(USER, 'purpose-life')).fn.purpose, 'Now only enqueues the order.');
 });
+
+test('network placement survives the deploy re-report and clears only on an explicit empty string', async () => {
+    const ec2 = (extra) => ({ op: 'upsert', type: 'ec2', id: 'i-1', name: 'app', ...extra });
+    const CHAT = 'placement-life';
+
+    // Design phase: the agent states where the instance sits.
+    await store.applyChanges(USER, CHAT, [ec2({ vpc: 'vpc-0abc', subnet: 'subnet-3c4d' })]);
+    const designed = (await store.readState(USER, CHAT))['i-1'];
+    assert.equal(designed.vpc, 'vpc-0abc');
+    assert.equal(designed.subnet, 'subnet-3c4d');
+
+    // Deploy re-report: real ARN, containment not repeated. The node must stay inside its subnet —
+    // this is the regression that used to drop it straight out of the box.
+    await store.applyChanges(USER, CHAT, [ec2({ arn: 'arn:aws:ec2:us-east-1:1:instance/i-1' })]);
+    const live = (await store.readState(USER, CHAT))['i-1'];
+    assert.equal(live.vpc, 'vpc-0abc', 'VPC kept');
+    assert.equal(live.subnet, 'subnet-3c4d', 'subnet kept');
+    assert.equal(live.arn, 'arn:aws:ec2:us-east-1:1:instance/i-1');
+
+    // A new value replaces the stored one.
+    await store.applyChanges(USER, CHAT, [ec2({ subnet: 'subnet-1a2b' })]);
+    assert.equal((await store.readState(USER, CHAT))['i-1'].subnet, 'subnet-1a2b');
+
+    // The empty-string sentinel takes it back out of the container for good.
+    await store.applyChanges(USER, CHAT, [ec2({ vpc: '', subnet: '' })]);
+    const freed = (await store.readState(USER, CHAT))['i-1'];
+    assert.equal('vpc' in freed, false);
+    assert.equal('subnet' in freed, false);
+});
+
+test('a subnet keeps its public/private scope across a partial upsert', async () => {
+    const subnet = (extra) => ({ op: 'upsert', type: 'subnet', id: 'subnet-1a2b', ...extra });
+    const CHAT = 'scope-life';
+
+    await store.applyChanges(USER, CHAT, [subnet({ scope: 'public', vpc: 'vpc-0abc' })]);
+    assert.equal((await store.readState(USER, CHAT))['subnet-1a2b'].scope, 'public');
+
+    // Later push carries only the real AZ: the scope must not be lost, or the box loses its colour.
+    await store.applyChanges(USER, CHAT, [subnet({ details: { AvailabilityZone: 'us-east-1a' } })]);
+    const after = (await store.readState(USER, CHAT))['subnet-1a2b'];
+    assert.equal(after.scope, 'public');
+    assert.equal(after.vpc, 'vpc-0abc');
+
+    await store.applyChanges(USER, CHAT, [subnet({ scope: 'private' })]);
+    assert.equal((await store.readState(USER, CHAT))['subnet-1a2b'].scope, 'private');
+});

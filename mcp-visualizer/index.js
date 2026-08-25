@@ -116,7 +116,7 @@ async function createSigil(name, deployed) {
     return { ok: true, chatId: data.chatId, name: data.name || name };
 }
 
-const server = new McpServer({ name: 'sigilum', version: '1.3.0' });
+const server = new McpServer({ name: 'sigilum', version: '1.4.0' });
 
 // matchByName (name → chat by proximity) lives in ./match.js so it is unit-testable
 // without booting this server's transport.
@@ -135,7 +135,7 @@ const connectionSchema = z
 const changeSchema = z
     .object({
         op: z.enum(['upsert', 'delete']).describe('"upsert" = created or modified (send full detail); "delete" = removed (type + id are enough). Use "delete" ONLY when the user EXPLICITLY asks to remove that resource from the diagram — it makes the node disappear. To record a teardown of the whole architecture, do NOT delete the resources: call teardown_sigil, which keeps them and just marks them undeployed.'),
-        type: z.string().describe('AWS service type, e.g. "ec2", "rds", "s3", "lambda", "vpc". For EXTERNAL actors that are part of the architecture but NOT AWS resources (the end user, their browser/mobile app, "the internet"), use type "client" (or "internet") with deployed:false and a short deploy_note — the web draws them as part of the diagram but never counts or flags them as pending deployment.'),
+        type: z.string().describe('AWS service type, e.g. "ec2", "rds", "s3", "lambda". NETWORK CONTAINERS: push each VPC as type "vpc" and each subnet as type "subnet" — they are real resources like any other (give them a `name`, a `purpose` and their describe output in `details`), and the sigil draws them as the BOXES the other resources sit inside, not as icons. For EXTERNAL actors that are part of the architecture but NOT AWS resources (the end user, their browser/mobile app, "the internet"), use type "client" (or "internet") with deployed:false and a short deploy_note — the web draws them as part of the diagram but never counts or flags them as pending deployment.'),
         id: z.string().describe('Stable identifier of the resource (InstanceId / ARN / bucket name). This is the key the backend stores it under.'),
         name: z.string().optional().describe('Friendly name, if any.'),
         purpose: z
@@ -163,8 +163,9 @@ const changeSchema = z
             .optional()
             .describe('Short human reason why this resource diverges from the sigil mode — e.g. "user asked to keep it design-only for now" or "create failed: AccessDenied (missing iam:CreateRole)". Shown to the user on the diagram badge and in the resource panel.'),
         arn: z.string().optional().describe('Full AWS ARN of the resource (arn:aws:…). Always include it on Live sigils once the resource really exists in AWS — it powers the "Open in AWS Console" link and the copyable ARN in the web.'),
-        vpc: z.string().optional().describe('VPC id this resource lives in (for containment in the diagram).'),
-        subnet: z.string().optional().describe('Subnet id this resource lives in.'),
+        vpc: z.string().optional().describe('The `id` of the VPC resource this one lives in — it must match a resource you pushed with type "vpc" (same rule as `connections.to`), because the sigil draws that VPC as a box and puts this resource inside it. Send "" to explicitly take the resource back OUT of its VPC; omitting the field leaves the current placement untouched.'),
+        subnet: z.string().optional().describe('The `id` of the subnet resource this one sits in — it must match a resource you pushed with type "subnet". The sigil nests the boxes (VPC > subnet > this resource), so send `vpc` as well. Send "" to take it out of the subnet; omitting the field leaves the current placement untouched.'),
+        scope: z.enum(['public', 'private']).optional().describe('ONLY for type "subnet": "public" if the subnet routes to an Internet Gateway, "private" otherwise. The sigil colours the two differently so the reader tells them apart at a glance, so send it on every subnet. If you omit it, the backend infers it from `details.MapPublicIpOnLaunch`.'),
         connections: z.array(connectionSchema).optional().describe('Relationships to OTHER resources (who it talks to, protocol, port). Always include these so the diagram draws the edges.'),
         details: z.record(z.any()).optional().describe('Full describe/create output for this resource (kept verbatim in the backend state JSON).'),
         code: z
@@ -190,11 +191,20 @@ server.registerTool(
             'DELTA — the resources that are new or changed, not the whole stack. Use `op:"upsert"` for ' +
             'resources to create or modify (include all their detail), and `op:"delete"` (just ' +
             '`type` + `id`) for removed ones. ALWAYS include the relationships in `connections` ' +
-            '(which resource each one talks to, with protocol and port) and containment in ' +
-            '`vpc`/`subnet`, because the sigil draws those edges. Give every upserted resource a ' +
-            'one-sentence `purpose` too — what it does in THIS architecture — so the user reads the ' +
-            'role of each node, not just the service kind. The backend keeps the full ' +
-            'authoritative state by merging your changes.\n\n' +
+            '(which resource each one talks to, with protocol and port), because the sigil draws ' +
+            'those edges. Give every upserted resource a one-sentence `purpose` too — what it does ' +
+            'in THIS architecture — so the user reads the role of each node, not just the service ' +
+            'kind. The backend keeps the full authoritative state by merging your changes.\n\n' +
+            'NETWORKING — push the VPC and its subnets as RESOURCES, not just as strings. A VPC ' +
+            '(`type:"vpc"`) and each subnet (`type:"subnet"`) get their own upsert with a `name`, ' +
+            'a `purpose`, and their describe output in `details` (CIDR, availability zone, route ' +
+            'table…), plus `scope:"public"|"private"` on every subnet. The sigil then draws them as ' +
+            'nested BOXES — VPC > subnet > the resources inside — and the user clicks a box to read ' +
+            'those details, so anything you leave out is simply not visible to them. Every other ' +
+            'resource that lives in the network then points at them by id via `vpc` and `subnet`. ' +
+            'Do NOT push security groups, route tables, ENIs, NAT or Internet Gateways as their own ' +
+            'resources: they are not drawn, so keep them inside the `details` of the VPC or subnet ' +
+            'they belong to.\n\n' +
             'A sigil is EITHER "Design" (a sketch — NOTHING is created in AWS) OR "Live" ' +
             '(the resources really exist in AWS). It is never a mix of both. Control this with ' +
             '`deployed`:\n' +

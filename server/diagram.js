@@ -314,6 +314,24 @@ function leafShapeBoxes(diagram) {
         .map((s) => ({ x0: s.pos.x, x1: s.pos.x + s.width, y0: s.pos.y, y1: s.pos.y + s.height }));
 }
 
+// …but a container's own TITLE is still an obstacle. Its body must stay open (that is the whole
+// point of a boundary), yet the strip of text along its top edge is as unreadable under a
+// connection label as an icon is. This matters since the network boxes arrived: a VPC or subnet
+// title carries the CIDR and the availability zone, so it is long and wide enough for an edge
+// crossing the box to land right on it. D2 lays every container title out as INSIDE_TOP_CENTER and
+// fills in labelWidth/labelHeight, so the strip is exact; anything positioned otherwise (a leaf's
+// OUTSIDE_BOTTOM_CENTER name) is skipped — those shapes are already covered as whole boxes above.
+function containerLabelBoxes(diagram) {
+    const shapes = (diagram?.shapes || []).filter((s) => s?.id && s.pos);
+    return shapes
+        .filter((s) => shapes.some((o) => o !== s && o.id.startsWith(`${s.id}.`)))
+        .filter((s) => s.labelPosition === 'INSIDE_TOP_CENTER' && s.labelWidth > 0 && s.labelHeight > 0)
+        .map((s) => {
+            const x0 = s.pos.x + (s.width - s.labelWidth) / 2;
+            return { x0, x1: x0 + s.labelWidth, y0: s.pos.y, y1: s.pos.y + s.labelHeight };
+        });
+}
+
 // Does an axis-aligned route segment pass through a box?
 function segmentHitsBox(a, b, box) {
     const seg = {
@@ -364,7 +382,7 @@ const WRAP_PREFER_WIDTH = 150;
 // Returns the chosen label metrics per connection plus the set of connections still severely stuck.
 function chooseLabelForms(diagram, singleLabels, wrappedLabels) {
     const conns = diagram?.connections || [];
-    const nodes = leafShapeBoxes(diagram);
+    const nodes = [...leafShapeBoxes(diagram), ...containerLabelBoxes(diagram)];
     // Score against the single-line placement of every OTHER label: a stable reference, so the
     // choice doesn't depend on the order connections happen to be visited in.
     const refBoxes = conns.map((conn, i) => labelBoxOf(conn, singleLabels[i]));

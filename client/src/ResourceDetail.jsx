@@ -25,7 +25,8 @@ const TOP_FIELDS = [
 // resource carries.
 const HANDLED = new Set([
     ...TOP_FIELDS.map(([k]) => k),
-    'type', 'connections', 'details', 'code', 'deployed', 'deploy_note', 'purpose', 'consoleUrl'
+    'type', 'connections', 'details', 'code', 'deployed', 'deploy_note', 'purpose', 'consoleUrl',
+    'scope'
 ]);
 
 // Nicely cased service name for the header, from the raw inventory `type`. Falls back to a
@@ -34,7 +35,7 @@ const SERVICE_LABELS = {
     s3: 'S3', rds: 'RDS', sqs: 'SQS', sns: 'SNS', ec2: 'EC2', ecs: 'ECS', eks: 'EKS',
     elb: 'Load Balancer', alb: 'Application Load Balancer', nlb: 'Network Load Balancer',
     'api-gateway': 'API Gateway', apigateway: 'API Gateway', dynamodb: 'DynamoDB',
-    cloudfront: 'CloudFront', vpc: 'VPC', iam: 'IAM', kms: 'KMS', waf: 'WAF',
+    cloudfront: 'CloudFront', vpc: 'VPC', subnet: 'Subnet', iam: 'IAM', kms: 'KMS', waf: 'WAF',
     elasticache: 'ElastiCache', cloudwatch: 'CloudWatch', eventbridge: 'EventBridge',
     documentdb: 'DocumentDB', opensearch: 'OpenSearch', msk: 'MSK', mq: 'MQ',
     fargate: 'Fargate', lambda: 'Lambda', kinesis: 'Kinesis', glue: 'Glue', athena: 'Athena',
@@ -59,7 +60,7 @@ function serviceLabel(type) {
 
 // One key/value pair, rendered recursively: scalars inline, arrays of scalars joined, nested
 // objects as an indented block, arrays of objects / deep structures as pretty JSON.
-function KVRow({ label, value }) {
+function KVRow({ label, value, onOpen }) {
     if (value == null || value === '') {
         return (
             <div className="rd-kv-row">
@@ -97,6 +98,19 @@ function KVRow({ label, value }) {
             </div>
         );
     }
+    // `onOpen` is only passed for values that name another resource (a parent VPC or subnet), and
+    // only when that resource actually exists in the inventory — so the row is a plain value
+    // whenever there is nothing to navigate to.
+    if (onOpen) {
+        return (
+            <div className="rd-kv-row">
+                <span className="rd-kv-key">{label}</span>
+                <button type="button" className="rd-kv-val rd-kv-link" onClick={onOpen}>
+                    {String(value)}
+                </button>
+            </div>
+        );
+    }
     return (
         <div className="rd-kv-row">
             <span className="rd-kv-key">{label}</span>
@@ -105,7 +119,7 @@ function KVRow({ label, value }) {
     );
 }
 
-export default function ResourceDetail({ resource, onClose, onViewCode }) {
+export default function ResourceDetail({ resource, onClose, onViewCode, onOpenResource }) {
     // "Copied" feedback for the ARN copy button (auto-clears).
     const [copied, setCopied] = useState(false);
     const copiedTimer = useRef(null);
@@ -161,8 +175,13 @@ export default function ResourceDetail({ resource, onClose, onViewCode }) {
                 </button>
             </header>
 
-            {(resource.region || resource.state || resource.type) && (
+            {(resource.region || resource.state || resource.type || resource.scope) && (
                 <div className="rd-badges">
+                    {/* A subnet's public/private scope leads the badges: it is the first thing asked
+                        about a subnet, and it mirrors the green/blue the box uses on the diagram. */}
+                    {resource.scope && (
+                        <span className={`rd-badge rd-badge-scope rd-scope-${resource.scope}`}>{resource.scope}</span>
+                    )}
                     {resource.state && <span className="rd-badge rd-badge-state">{resource.state}</span>}
                     {resource.region && <span className="rd-badge">{resource.region}</span>}
                     {resource.type && <span className="rd-badge rd-badge-type">{resource.type}</span>}
@@ -236,7 +255,19 @@ export default function ResourceDetail({ resource, onClose, onViewCode }) {
                             </div>
                         )}
                         {identityRows.map(([key, label]) => (
-                            <KVRow key={key} label={label} value={resource[key]} />
+                            // `vpc` and `subnet` name another resource in the same inventory, so when
+                            // that resource is really there the row becomes a way into it — the same
+                            // panel the user gets by clicking the box on the diagram.
+                            key === 'vpc' || key === 'subnet' ? (
+                                <KVRow
+                                    key={key}
+                                    label={label}
+                                    value={resource[key]}
+                                    onOpen={onOpenResource ? () => onOpenResource(resource[key]) : null}
+                                />
+                            ) : (
+                                <KVRow key={key} label={label} value={resource[key]} />
+                            )
                         ))}
                     </section>
                 )}

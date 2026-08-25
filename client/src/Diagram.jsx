@@ -1,7 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { findArn, shortArn } from './awsLinks.js';
 import { isExternalResource } from './externalResource.js';
-import { decodeNodePath, edgeTouchesPath, isEdgeGroup, isExternalNode, isSemanticGroup, sanitizeId } from './svgClassify.js';
+import { decodeNodePath, edgeTouchesPath, isContainerPath, isEdgeGroup, isExternalNode, isSemanticGroup, sanitizeId } from './svgClassify.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -340,13 +340,19 @@ export default function Diagram({
         // Cheap pre-scan: the external actor (Internet/user/browser…) can't be told apart from a
         // semantic group by a `byId` match alone (it's sometimes purely decorative, no backing
         // resource — see isExternalNode's comment), so its path set is collected structurally
-        // first, before the main pass needs it to classify edges touching it.
+        // first, before the main pass needs it to classify edges touching it. The same sweep
+        // collects EVERY node path, because "is this a container?" is likewise only answerable by
+        // looking at the whole set (see isContainerPath) and the main pass needs the answer to tell
+        // a VPC/subnet box apart from a service icon.
         const externalPaths = new Set();
+        const nodePaths = new Set();
         groups.forEach((g) => {
             const cls = g.getAttribute('class');
             if (isEdgeGroup(cls)) return;
             const path = decodeNodePath(cls);
-            if (path && isExternalNode(path)) externalPaths.add(path);
+            if (!path) return;
+            nodePaths.add(path);
+            if (isExternalNode(path)) externalPaths.add(path);
         });
 
         groups.forEach((g) => {
@@ -386,7 +392,15 @@ export default function Diagram({
             const resource = byId.get(path.split('.').pop());
             if (!resource) return;
 
+            // A VPC/subnet box is backed by a resource just like an icon node, so it lands here and
+            // gets the same tooltip/click/selection wiring for free. It only needs its own marker so
+            // the CSS can treat it as the boundary it is (no icon-sized hover glow, and its name is
+            // not a "service label" the display toggle should hide).
+            const container = isContainerPath(path, nodePaths);
             g.classList.add('svc-node');
+            if (container) {
+                g.classList.add('svc-container');
+            }
             if (selectedId && sanitizeId(resource.id) === sanitizeId(selectedId)) {
                 g.classList.add('svc-selected');
             }
@@ -441,7 +455,7 @@ export default function Diagram({
             g.addEventListener('pointerdown', onDown);
             g.addEventListener('pointerup', onUp);
             cleanups.push(() => {
-                g.classList.remove('svc-node', 'svc-selected');
+                g.classList.remove('svc-node', 'svc-container', 'svc-selected');
                 g.removeEventListener('mouseenter', onEnter);
                 g.removeEventListener('mousemove', onMove);
                 g.removeEventListener('mouseleave', onLeave);

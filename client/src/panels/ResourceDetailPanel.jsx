@@ -6,7 +6,7 @@ import { useDeployed } from '../DeployedContext.js';
 // resource (its params change in place), and a Shift-click opens another. It reads its resource from
 // the live inventory so backend pushes keep it fresh, and closing it removes just that tab.
 export default function ResourceDetailPanel(props) {
-    const { resources, openCode } = useDeployed();
+    const { resources, openCode, selectResource } = useDeployed();
     const resourceId = props?.params?.resourceId ?? null;
     const resource = (resources || []).find((r) => r.id === resourceId) || null;
 
@@ -25,6 +25,14 @@ export default function ResourceDetailPanel(props) {
                 resource={resource}
                 onClose={() => props.api.close()}
                 onViewCode={(file) => openCode(resource, file)}
+                // The VPC / Subnet rows navigate to the container holding this resource, reusing the
+                // very same tab-retargeting a diagram click goes through. Resolving the id here (not
+                // in the panel component) keeps ResourceDetail unaware of the inventory: it only
+                // gets a callback when there really is somewhere to go.
+                onOpenResource={(id) => {
+                    const target = (resources || []).find((r) => r.id === id);
+                    if (target) selectResource(target, false);
+                }}
             />
         </div>
     );
