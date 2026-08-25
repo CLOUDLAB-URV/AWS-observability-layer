@@ -392,15 +392,46 @@ function routeMidpoint(route) {
 // dark pill, so touching a node border already looks wrong.
 const LABEL_FIT_MARGIN = 6;
 
-function labelBoxOf(conn, label) {
+// Where a label sits: centred on the wire (D2's default) or lifted clear of it. The three names are
+// D2's own `labelPosition` values, the only placements it offers for a connection — there is no way
+// to nudge a label by an arbitrary amount, which is why nudgeCollidingLabels can only ever try these.
+const LABEL_MIDDLE = 'INSIDE_MIDDLE_CENTER';
+const LABEL_ABOVE = 'OUTSIDE_TOP_CENTER';
+const LABEL_BELOW = 'OUTSIDE_BOTTOM_CENTER';
+
+// How far off the wire D2 draws a lifted label. Measured, not guessed: a 27px-tall label rendered at
+// OUTSIDE_BOTTOM_CENTER moved its pill's centre from y=45.5 to y=61.5, i.e. half its height plus a
+// few pixels of breathing room.
+function labelLift(height) {
+    return height / 2 + 3;
+}
+
+// The box a label occupies. `place` is one of the three positions above; the two lifted ones shift
+// the box off the wire so a candidate can be scored BEFORE it is applied.
+function labelBoxOf(conn, label, place = LABEL_MIDDLE) {
     const width = label?.labelWidth || 0;
     const height = label?.labelHeight || 0;
     const mid = width && height ? routeMidpoint(conn.route) : null;
     if (!mid) return null;
     const halfW = width / 2 + LABEL_FIT_MARGIN;
     const halfH = height / 2 + LABEL_FIT_MARGIN;
-    return { x0: mid.x - halfW, x1: mid.x + halfW, y0: mid.y - halfH, y1: mid.y + halfH };
+    let cy = mid.y;
+    if (place === LABEL_ABOVE) cy -= labelLift(height);
+    else if (place === LABEL_BELOW) cy += labelLift(height);
+    return { x0: mid.x - halfW, x1: mid.x + halfW, y0: cy - halfH, y1: cy + halfH };
 }
+
+// Total length of a route, used to decide WHICH of two clashing labels gives way: the one on the
+// longer wire has more room around it and is the cheaper one to move.
+function routeLength(route) {
+    if (!Array.isArray(route) || route.length < 2) return 0;
+    let total = 0;
+    for (let i = 1; i < route.length; i++) {
+        total += Math.hypot(route[i].x - route[i - 1].x, route[i].y - route[i - 1].y);
+    }
+    return total;
+}
+
 
 function boxesOverlap(a, b) {
     return a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
@@ -561,6 +592,78 @@ export async function renderDeployedDiagram(storedText) {
     return enqueue(() => _renderLabelViews(diagramText, hasSteps));
 }
 
+// Lift a label clear of the wire when it lands on top of another one. The layout is computed with the
+// labels REMOVED so the diagram packs tight, which is exactly why two of them can end up in the same
+// gap: nothing reserved room for either. The alternative — recompiling with the labels in place —
+// fixes it but costs real width (measured: +786px on the two-zone sigil), while moving a label costs
+// nothing at all, since it changes only where D2 draws the text.
+//
+// The rule: on a clash the label on the LONGER route gives way, because a long wire has more free
+// space around it. It tries below, then above, and a side is only taken if the label lands clear of
+// the things that would actually hide it — service icons, container titles and other labels. Wires
+// do not count, since a label's opaque pill covers them. If neither side works for the long one, the
+// short one is pushed the OTHER way instead, buying twice the separation. When nothing helps, both
+// stay centred, so the worst case is exactly today's picture.
+//
+// One hard limit, from D2: it offers only these three placements — there is no "move by N pixels" —
+// so the whole budget is about half a label's height each way. Lifting is always vertical, which is
+// what matters here: the point is to pull two labels APART, and that works whichever way their wires
+// happen to run. On a vertical run the label slides along its own wire rather than off it, but its
+// opaque pill still covers the line, so the only thing that changes is the separation we came for.
+export function nudgeCollidingLabels(diagram) {
+    const conns = (diagram?.connections || []).filter((c) => c?.label && c.labelWidth && c.labelHeight);
+    if (conns.length < 2) return;
+    const obstacles = [...leafShapeBoxes(diagram), ...containerLabelBoxes(diagram)];
+    const place = new Map(conns.map((c) => [c, LABEL_MIDDLE]));
+    // After applyLabels a connection carries its own label metrics, so it doubles as the `label`
+    // argument labelBoxOf expects.
+    const boxAt = (conn, p) => labelBoxOf(conn, conn, p);
+    const boxes = new Map(conns.map((c) => [c, boxAt(c, LABEL_MIDDLE)]));
+
+    // Is `conn`'s label free of everything else if placed at `p`?
+    const isClear = (conn, p) => {
+        const box = boxAt(conn, p);
+        if (!box) return false;
+        if (obstacles.some((o) => boxesOverlap(box, o))) return false;
+        for (const other of conns) {
+            if (other === conn) continue;
+            const otherBox = boxes.get(other);
+            if (otherBox && boxesOverlap(box, otherBox)) return false;
+        }
+        // Crossing somebody else's WIRE is deliberately allowed: the stateviz prompt gives every
+        // connection label an opaque dark pill (`style.fill: "#0d1117"`) precisely so it can sit over
+        // a line and stay readable — labelCollisions counts that as "mild" for the same reason.
+        // Vetoing it here made the pass refuse every candidate on a dense diagram and move nothing.
+        return true;
+    };
+
+    const lift = (conn, sides) => {
+        for (const side of sides) {
+            if (isClear(conn, side)) {
+                place.set(conn, side);
+                boxes.set(conn, boxAt(conn, side));
+                return true;
+            }
+        }
+        return false;
+    };
+
+    // Deterministic: connections are walked in diagram order, so the same diagram always resolves
+    // the same way.
+    for (let i = 0; i < conns.length; i++) {
+        for (let j = i + 1; j < conns.length; j++) {
+            const a = conns[i], b = conns[j];
+            if (place.get(a) !== LABEL_MIDDLE && place.get(b) !== LABEL_MIDDLE) continue;
+            if (!boxesOverlap(boxes.get(a), boxes.get(b))) continue;
+            const [long, short] = routeLength(a.route) >= routeLength(b.route) ? [a, b] : [b, a];
+            if (place.get(long) === LABEL_MIDDLE && lift(long, [LABEL_BELOW, LABEL_ABOVE])) continue;
+            if (place.get(short) === LABEL_MIDDLE) lift(short, [LABEL_ABOVE, LABEL_BELOW]);
+        }
+    }
+
+    for (const [conn, p] of place) conn.labelPosition = p;
+}
+
 async function _renderLabelViews(diagramText, hasSteps) {
     // Without step numbers the numbered view is identical to the plain one — don't render it.
     const views = hasSteps ? LABEL_VIEWS : LABEL_VIEWS.slice(0, 1);
@@ -593,20 +696,21 @@ async function _renderLabelViews(diagramText, hasSteps) {
         //    line crossings never widen the diagram; they're already minimised by the form choice.
         let picks = views.map((_, v) => chooseLabelForms(layout.diagram, singleHarvests[v], wrappedHarvests[v]));
         const stuck = widestLabels(picks.map((p) => p.chosen), picks);
-        if (stuck.misfits.size) {
-            // ELK gives every labelled edge its own dummy layer, and layers are global — so labelling
-            // only SOME edges skews whichever branches happen to contain one. On a two-zone diagram
-            // that is fatal: measured, reserving just the misfits left the two public subnets 308px
-            // apart, while reserving none (335/335) or all of them (535/535) put them dead in line.
-            // Multi-AZ copies of one resource have to share a column to read as one service, so when
-            // the diagram HAS copies every label is reserved and the branches stay level.
-            //
-            // Only then, though. Reserving everywhere costs real width (measured: +563px on a
-            // single-zone diagram that never needed it), and a diagram with no copies has no mirrored
-            // columns to protect — there the tight, misfits-only reservation is still the right one.
-            const reserveAll = diagramText.includes('__');
+        // ELK gives every labelled edge its own dummy layer, and layers are global, so reserving for
+        // SOME edges shifts whichever branches happen to contain one. On a multi-AZ diagram that
+        // pulls a resource's copies out of the column they must share to read as one service —
+        // measured on the two-zone sigil: reserving just the misfits left the public subnets 308px
+        // apart, while reserving none or all of them put them dead in line.
+        //
+        // Of those two, reserving NONE is strictly better: same alignment, and 1344px of content
+        // instead of 2045px. That is the layout this pipeline is built around anyway — lay out
+        // label-free so ELK packs tight, then fit the labels into the gaps. So a diagram with copies
+        // simply keeps its base layout. A diagram without copies has no mirrored columns to protect,
+        // so there the reservation still earns its keep and is left alone.
+        const hasReplicas = diagramText.includes('__');
+        if (stuck.misfits.size && !hasReplicas) {
             layout = await compileLaidOut(mapEdgeLabels(diagramText, (parts, i) =>
-                (reserveAll || stuck.misfits.has(i) ? toD2Label(stuck.widest[i]?.label) : '')), backFlags);
+                (stuck.misfits.has(i) ? toD2Label(stuck.widest[i]?.label) : '')), backFlags);
             // Geometry moved — re-pick on the layout that actually ships.
             picks = views.map((_, v) => chooseLabelForms(layout.diagram, singleHarvests[v], wrappedHarvests[v]));
         }
@@ -617,6 +721,9 @@ async function _renderLabelViews(diagramText, hasSteps) {
         for (let i = 0; i < views.length; i++) {
             const diagram = structuredClone(layout.diagram);
             if (!applyLabels(diagram, picks[i].chosen)) throw new Error('label injection failed');
+            // Per view, and on this view's own clone: the two views carry different text (with and
+            // without the step number), so they have different widths and different clashes.
+            nudgeCollidingLabels(diagram);
             out[views[i][0]] = await renderCompiled({ diagram, renderOptions: layout.renderOptions });
         }
         if (!hasSteps) out.svgActionSteps = out.svg;
@@ -685,11 +792,17 @@ async function compileLaidOut(text, backFlags) {
 }
 
 // Render an already-compiled+laid-out diagram to an embeddable SVG string. Unqueued (see above).
+// Blank frame D2 draws around the whole SVG, outside even the "AWS Cloud" boundary. Its default is
+// 100px a side, which on a real diagram measured 2045x1030 of content inside a 2227x1282 image —
+// ~182x252px of nothing. The canvas has its own padding and the export wraps the SVG itself, so a
+// thin frame is all this needs to keep strokes from touching the edge.
+const SVG_PAD = 24;
+
 async function renderCompiled({ diagram, renderOptions }) {
     const d2 = await getD2Renderer();
     // themeID 200 = "Dark Mumford": dark defaults so labels and edges are light on the
     // app's dark canvas. Node/container fills are still set explicitly by the prompts.
-    const rawSvg = await d2.render(diagram, { ...renderOptions, themeID: 200 });
+    const rawSvg = await d2.render(diagram, { ...renderOptions, themeID: 200, pad: SVG_PAD });
     return prepareSvgForEmbed(typeof rawSvg === 'string' ? rawSvg : String(rawSvg));
 }
 

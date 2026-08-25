@@ -2,7 +2,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { renumberSteps, mapEdgeLabels, wrapLabel, wrapBoxLabels, composeLabel } from './diagram.js';
+import { renumberSteps, mapEdgeLabels, wrapLabel, wrapBoxLabels, composeLabel, nudgeCollidingLabels } from './diagram.js';
 
 const STYLE = '{ style.stroke: "#e6edf3"; style.stroke-width: 2 }';
 
@@ -293,4 +293,73 @@ test('a back edge without the marker is still read the way it is written', () =>
     const out = renumberSteps(src);
     const steps = []; mapEdgeLabels(out, (p) => { steps.push(p[0]); return p.join(' || '); });
     assert.deepEqual(steps, ['1', '2']);
+});
+
+// --- nudgeCollidingLabels ---------------------------------------------------------------------
+
+// Minimal stand-ins for a compiled diagram: a connection carries its own label metrics (that is what
+// applyLabels leaves behind) and a horizontal 2-point route.
+const conn = (y, x0, x1, label, w = 100, h = 26) => ({
+    src: 'a', dst: 'b', label, labelWidth: w, labelHeight: h,
+    route: [{ x: x0, y }, { x: x1, y }]
+});
+const shape = (id, x, y, w = 60, h = 60) => ({ id, pos: { x, y }, width: w, height: h });
+const placed = (d) => d.connections.map((c) => c.labelPosition);
+
+test('nudge: on a clash the LONGER route gives way, moving AWAY from the other label', () => {
+    // Boxes are 38px tall (26 + 2x6 margin) and these centres are 23px apart, so they overlap by
+    // 15px. The short label sits below, so the long one has to go up to clear it.
+    const long = conn(100, 0, 600, 'largo');
+    const short = conn(123, 200, 400, 'corto');
+    const d = { shapes: [], connections: [long, short] };
+    nudgeCollidingLabels(d);
+    assert.equal(short.labelPosition, 'INSIDE_MIDDLE_CENTER', 'the short wire keeps the wire');
+    assert.equal(long.labelPosition, 'OUTSIDE_TOP_CENTER');
+});
+
+test('nudge: with the other label above it, the long one drops instead', () => {
+    const short = conn(70, 200, 400, 'corto');
+    const long = conn(100, 0, 600, 'largo');
+    const d = { shapes: [], connections: [long, short] };
+    nudgeCollidingLabels(d);
+    assert.equal(long.labelPosition, 'OUTSIDE_BOTTOM_CENTER');
+    assert.equal(short.labelPosition, 'INSIDE_MIDDLE_CENTER');
+});
+
+test('nudge: when neither side works for the long one, the SHORT one moves instead', () => {
+    const short = conn(70, 200, 400, 'corto');
+    const long = conn(100, 0, 600, 'largo');
+    // A service icon under the long label blocks its way down; going up would land on the short
+    // label. With both sides gone, the short one is pushed clear instead.
+    const d = { shapes: [shape('svc', 270, 100, 60, 60)], connections: [long, short] };
+    nudgeCollidingLabels(d);
+    assert.equal(long.labelPosition, 'INSIDE_MIDDLE_CENTER');
+    assert.equal(short.labelPosition, 'OUTSIDE_TOP_CENTER', 'the other one gives way instead');
+});
+
+test('nudge: a lone label with nothing in its way is left on the wire', () => {
+    const only = conn(100, 0, 600, 'solo');
+    const far = conn(900, 0, 600, 'lejos');
+    const d = { shapes: [], connections: [only, far] };
+    nudgeCollidingLabels(d);
+    assert.deepEqual(placed(d), ['INSIDE_MIDDLE_CENTER', 'INSIDE_MIDDLE_CENTER']);
+});
+
+test('nudge: a label on a VERTICAL run is lifted too — what matters is separating the two labels', () => {
+    // The long wire here runs vertically. Lifting slides its label ALONG that wire rather than off
+    // it, but that is still what pulls the two labels apart, and the opaque pill keeps it readable.
+    const vertical = { src: 'a', dst: 'b', label: 'v', labelWidth: 100, labelHeight: 26,
+        route: [{ x: 300, y: 0 }, { x: 300, y: 600 }] };
+    const crossing = conn(323, 250, 350, 'h');
+    const d = { shapes: [], connections: [vertical, crossing] };
+    nudgeCollidingLabels(d);
+    assert.equal(vertical.labelPosition, 'OUTSIDE_TOP_CENTER');
+    assert.equal(crossing.labelPosition, 'INSIDE_MIDDLE_CENTER');
+});
+
+test('nudge: it is deterministic — the same diagram resolves the same way twice', () => {
+    const build = () => ({ shapes: [], connections: [conn(100, 0, 600, 'a'), conn(123, 200, 400, 'b')] });
+    const one = build(); nudgeCollidingLabels(one);
+    const two = build(); nudgeCollidingLabels(two);
+    assert.deepEqual(placed(one), placed(two));
 });
