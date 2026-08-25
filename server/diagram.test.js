@@ -2,7 +2,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { renumberSteps, mapEdgeLabels, wrapLabel, wrapBoxLabels, composeLabel, nudgeCollidingLabels } from './diagram.js';
+import { renumberSteps, mapEdgeLabels, wrapLabel, wrapBoxLabels, composeLabel, nudgeCollidingLabels, applyLabelSlides } from './diagram.js';
 
 const STYLE = '{ style.stroke: "#e6edf3"; style.stroke-width: 2 }';
 
@@ -362,4 +362,47 @@ test('nudge: it is deterministic — the same diagram resolves the same way twic
     const one = build(); nudgeCollidingLabels(one);
     const two = build(); nudgeCollidingLabels(two);
     assert.deepEqual(placed(one), placed(two));
+});
+
+test('nudge: when no side is free it SLIDES the label along its own wire and reports the offset', () => {
+    // Two labels almost exactly on top of each other (centres 4px apart, boxes 38px tall). Lifting
+    // moves a label about half its own height, which cannot separate these — sliding can.
+    const long = { src: 'a', dst: 'b', id: '(a -> b)[0]', label: 'largo', labelWidth: 100, labelHeight: 26,
+        route: [{ x: 0, y: 100 }, { x: 800, y: 100 }] };
+    const short = { src: 'c', dst: 'd', id: '(c -> d)[0]', label: 'corto', labelWidth: 100, labelHeight: 26,
+        route: [{ x: 350, y: 104 }, { x: 450, y: 104 }] };
+    const d = { shapes: [], connections: [long, short] };
+    const slides = nudgeCollidingLabels(d);
+    assert.equal(slides.size, 1, 'exactly one label had to move');
+    const [id, off] = [...slides][0];
+    assert.equal(id, '(a -> b)[0]', 'the long wire is the one that gives way');
+    assert.ok(Math.abs(off.dx) > 50, `slid a useful distance along the wire, got ${off.dx}`);
+    assert.equal(off.dy, 0, 'a horizontal wire slides horizontally');
+});
+
+test('nudge: with nothing overlapping, nothing slides', () => {
+    const a = { src: 'a', dst: 'b', id: '(a -> b)[0]', label: 'a', labelWidth: 100, labelHeight: 26,
+        route: [{ x: 0, y: 100 }, { x: 600, y: 100 }] };
+    const b = { src: 'c', dst: 'd', id: '(c -> d)[0]', label: 'b', labelWidth: 100, labelHeight: 26,
+        route: [{ x: 0, y: 900 }, { x: 600, y: 900 }] };
+    assert.equal(nudgeCollidingLabels({ shapes: [], connections: [a, b] }).size, 0);
+});
+
+test('applyLabelSlides moves the pill and text, drops the stale gap, and leaves other edges alone', () => {
+    const cls = Buffer.from('(a -&gt; b)[0]', 'utf8').toString('base64');
+    const other = Buffer.from('(c -&gt; d)[0]', 'utf8').toString('base64');
+    const svg =
+        `<g class="${cls}"><path d="M0 0" mask="url(#m1)" /><rect x="1" y="2" /><text x="3" y="4">hola</text></g>` +
+        `<g class="${other}"><path d="M0 0" mask="url(#m2)" /><rect x="9" y="9" /><text x="9" y="9">otra</text></g>`;
+    const out = applyLabelSlides(svg, new Map([['(a -> b)[0]', { dx: -40, dy: 0 }]]));
+    assert.match(out, /<rect transform="translate\(-40\.00,0\.00\)" x="1"/);
+    assert.match(out, /<text transform="translate\(-40\.00,0\.00\)" x="3"/);
+    assert.ok(!/mask="url\(#m1\)"/.test(out), 'the gap where the label used to sit is removed');
+    assert.match(out, /mask="url\(#m2\)"/, 'the untouched edge keeps its own gap');
+    assert.ok(!/<rect transform[^>]*x="9"/.test(out), 'the untouched edge is not moved');
+});
+
+test('applyLabelSlides with nothing to move returns the SVG untouched', () => {
+    const svg = '<g class="YWJj"><text x="1" y="2">x</text></g>';
+    assert.equal(applyLabelSlides(svg, new Map()), svg);
 });

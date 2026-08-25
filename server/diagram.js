@@ -365,7 +365,10 @@ function applyLabels(diagram, labels) {
 
 // Where D2 draws a connection's label: the midpoint of its route BY ARC LENGTH (not the middle
 // route point — segments differ in length, and an L-bend's corner is not its visual middle).
-function routeMidpoint(route) {
+// The point `frac` of the way along a route, measured by length. `frac` 0.5 is the midpoint, which
+// is where D2 always draws a connection's label — it offers no way to move it along the wire, so
+// sliding a label is done by translating it in the finished SVG (see applyLabelSlides).
+function routePointAt(route, frac) {
     if (!Array.isArray(route) || route.length < 2) return null;
     const segs = [];
     let total = 0;
@@ -374,10 +377,11 @@ function routeMidpoint(route) {
         segs.push(len);
         total += len;
     }
+    const want = total * frac;
     let acc = 0;
     for (let i = 0; i < segs.length; i++) {
-        if (acc + segs[i] >= total / 2) {
-            const t = segs[i] ? (total / 2 - acc) / segs[i] : 0;
+        if (acc + segs[i] >= want) {
+            const t = segs[i] ? (want - acc) / segs[i] : 0;
             return {
                 x: route[i].x + (route[i + 1].x - route[i].x) * t,
                 y: route[i].y + (route[i + 1].y - route[i].y) * t,
@@ -386,6 +390,10 @@ function routeMidpoint(route) {
         acc += segs[i];
     }
     return { ...route[route.length - 1] };
+}
+
+function routeMidpoint(route) {
+    return routePointAt(route, 0.5);
 }
 
 // Breathing room (px) required around a label before it counts as "fits" — the label is drawn on a
@@ -408,10 +416,10 @@ function labelLift(height) {
 
 // The box a label occupies. `place` is one of the three positions above; the two lifted ones shift
 // the box off the wire so a candidate can be scored BEFORE it is applied.
-function labelBoxOf(conn, label, place = LABEL_MIDDLE) {
+function labelBoxOf(conn, label, place = LABEL_MIDDLE, frac = 0.5) {
     const width = label?.labelWidth || 0;
     const height = label?.labelHeight || 0;
-    const mid = width && height ? routeMidpoint(conn.route) : null;
+    const mid = width && height ? routePointAt(conn.route, frac) : null;
     if (!mid) return null;
     const halfW = width / 2 + LABEL_FIT_MARGIN;
     const halfH = height / 2 + LABEL_FIT_MARGIN;
@@ -615,14 +623,15 @@ export function nudgeCollidingLabels(diagram) {
     if (conns.length < 2) return;
     const obstacles = [...leafShapeBoxes(diagram), ...containerLabelBoxes(diagram)];
     const place = new Map(conns.map((c) => [c, LABEL_MIDDLE]));
+    const frac = new Map(conns.map((c) => [c, 0.5]));
     // After applyLabels a connection carries its own label metrics, so it doubles as the `label`
     // argument labelBoxOf expects.
-    const boxAt = (conn, p) => labelBoxOf(conn, conn, p);
+    const boxAt = (conn, p, f = frac.get(conn) ?? 0.5) => labelBoxOf(conn, conn, p, f);
     const boxes = new Map(conns.map((c) => [c, boxAt(c, LABEL_MIDDLE)]));
 
-    // Is `conn`'s label free of everything else if placed at `p`?
-    const isClear = (conn, p) => {
-        const box = boxAt(conn, p);
+    // Is `conn`'s label free of everything else if placed at `p`, `f` of the way along its wire?
+    const isClear = (conn, p, f) => {
+        const box = boxAt(conn, p, f);
         if (!box) return false;
         if (obstacles.some((o) => boxesOverlap(box, o))) return false;
         for (const other of conns) {
@@ -639,9 +648,26 @@ export function nudgeCollidingLabels(diagram) {
 
     const lift = (conn, sides) => {
         for (const side of sides) {
-            if (isClear(conn, side)) {
+            if (isClear(conn, side, frac.get(conn))) {
                 place.set(conn, side);
                 boxes.set(conn, boxAt(conn, side));
+                return true;
+            }
+        }
+        return false;
+    };
+
+    // Last resort: walk the label along its OWN wire, away from the midpoint. Lifting can only move
+    // it about half its own height, which is not enough when two labels sit almost exactly on top of
+    // each other; sliding has the whole length of the wire to play with. Tried outward in steps so
+    // the label stays as close to the middle of its arrow as it can while still being readable, and
+    // never so far that it reaches an endpoint and reads as belonging to the node instead.
+    const SLIDE_STEPS = [0.35, 0.65, 0.28, 0.72, 0.22, 0.78];
+    const slide = (conn) => {
+        for (const f of SLIDE_STEPS) {
+            if (isClear(conn, LABEL_MIDDLE, f)) {
+                frac.set(conn, f);
+                boxes.set(conn, boxAt(conn, LABEL_MIDDLE, f));
                 return true;
             }
         }
@@ -657,11 +683,26 @@ export function nudgeCollidingLabels(diagram) {
             if (!boxesOverlap(boxes.get(a), boxes.get(b))) continue;
             const [long, short] = routeLength(a.route) >= routeLength(b.route) ? [a, b] : [b, a];
             if (place.get(long) === LABEL_MIDDLE && lift(long, [LABEL_BELOW, LABEL_ABOVE])) continue;
-            if (place.get(short) === LABEL_MIDDLE) lift(short, [LABEL_ABOVE, LABEL_BELOW]);
+            if (place.get(short) === LABEL_MIDDLE && lift(short, [LABEL_ABOVE, LABEL_BELOW])) continue;
+            // Neither could step off the wire — slide the long one along it instead.
+            if (frac.get(long) === 0.5 && slide(long)) continue;
+            if (frac.get(short) === 0.5) slide(short);
         }
     }
 
     for (const [conn, p] of place) conn.labelPosition = p;
+
+    // D2 draws every label at the midpoint no matter what, so a slide has to be applied to the
+    // finished SVG. Hand back the offset for each one that moved, keyed by the connection id (which
+    // is exactly the group class the renderer emits, base64-encoded).
+    const slides = new Map();
+    for (const [conn, f] of frac) {
+        if (f === 0.5) continue;
+        const from = routePointAt(conn.route, 0.5);
+        const to = routePointAt(conn.route, f);
+        if (from && to) slides.set(conn.id, { dx: to.x - from.x, dy: to.y - from.y });
+    }
+    return slides;
 }
 
 async function _renderLabelViews(diagramText, hasSteps) {
@@ -723,8 +764,8 @@ async function _renderLabelViews(diagramText, hasSteps) {
             if (!applyLabels(diagram, picks[i].chosen)) throw new Error('label injection failed');
             // Per view, and on this view's own clone: the two views carry different text (with and
             // without the step number), so they have different widths and different clashes.
-            nudgeCollidingLabels(diagram);
-            out[views[i][0]] = await renderCompiled({ diagram, renderOptions: layout.renderOptions });
+            const slides = nudgeCollidingLabels(diagram);
+            out[views[i][0]] = await renderCompiled({ diagram, renderOptions: layout.renderOptions, slides });
         }
         if (!hasSteps) out.svgActionSteps = out.svg;
         return out;
@@ -798,12 +839,39 @@ async function compileLaidOut(text, backFlags) {
 // thin frame is all this needs to keep strokes from touching the edge.
 const SVG_PAD = 24;
 
-async function renderCompiled({ diagram, renderOptions }) {
+// Move the labels that nudgeCollidingLabels decided to slide. D2 always draws a connection label at
+// the midpoint of its route and offers no way to shift it along the wire, so the move is made here,
+// on the finished SVG: each label is a `<rect>` pill plus a `<text>`, both inside the connection's
+// own `<g>`, whose class is the base64 of the connection id. Translating those two is enough — the
+// pill is painted after the line, so it keeps covering it wherever it lands.
+//
+// The `mask` on that connection's path goes with them: D2 punches a gap in the line where the label
+// USED to be, and left alone that gap would show as an unexplained break in the middle of the wire.
+export function applyLabelSlides(svg, slides) {
+    if (!slides?.size) return svg;
+    const wanted = new Map();
+    for (const [id, offset] of slides) {
+        // The renderer HTML-escapes the id before encoding it, so `->` arrives as `-&gt;`.
+        wanted.set(Buffer.from(String(id).replace(/>/g, '&gt;'), 'utf8').toString('base64'), offset);
+    }
+    return svg.replace(/<g class="([A-Za-z0-9+/=]+)">([\s\S]*?)<\/g>/g, (whole, cls, body) => {
+        const offset = wanted.get(cls);
+        if (!offset) return whole;
+        const shift = ` transform="translate(${offset.dx.toFixed(2)},${offset.dy.toFixed(2)})"`;
+        const moved = body
+            .replace(/<(rect|text)\b(?![^>]*\btransform=)/g, `<$1${shift}`)
+            .replace(/(<path\b[^>]*?)\s+mask="[^"]*"/g, '$1');
+        return `<g class="${cls}">${moved}</g>`;
+    });
+}
+
+async function renderCompiled({ diagram, renderOptions, slides }) {
     const d2 = await getD2Renderer();
     // themeID 200 = "Dark Mumford": dark defaults so labels and edges are light on the
     // app's dark canvas. Node/container fills are still set explicitly by the prompts.
     const rawSvg = await d2.render(diagram, { ...renderOptions, themeID: 200, pad: SVG_PAD });
-    return prepareSvgForEmbed(typeof rawSvg === 'string' ? rawSvg : String(rawSvg));
+    const svg = applyLabelSlides(typeof rawSvg === 'string' ? rawSvg : String(rawSvg), slides);
+    return prepareSvgForEmbed(svg);
 }
 
 async function _doRender(diagramText) {
