@@ -26,7 +26,7 @@ const TOP_FIELDS = [
 const HANDLED = new Set([
     ...TOP_FIELDS.map(([k]) => k),
     'type', 'connections', 'details', 'code', 'deployed', 'deploy_note', 'purpose', 'consoleUrl',
-    'scope', 'attachments'
+    'scope', 'attachments', 'subnets'
 ]);
 
 // Nicely cased service name for the header, from the raw inventory `type`. Falls back to a
@@ -192,6 +192,11 @@ export default function ResourceDetail({ resource, onClose, onViewCode, onOpenRe
     const details = resource.details && typeof resource.details === 'object' ? resource.details : null;
     // The supporting pieces that belong to this resource and get no node of their own.
     const attachments = Array.isArray(resource.attachments) ? resource.attachments : [];
+    // A resource spanning several subnets is multi-AZ: it is drawn once per subnet on the diagram,
+    // and those copies are all this one record. Nothing marks it as such in the data — the spread
+    // IS the fact — so it is derived here rather than stored.
+    const subnets = Array.isArray(resource.subnets) ? resource.subnets.filter(Boolean) : [];
+    const multiAz = subnets.length > 1;
     // Source files this resource runs (Lambda handler, EC2 user-data, …). Each opens in the
     // dedicated Code window via onViewCode; keep only well-formed entries.
     const codeFiles = (Array.isArray(resource.code) ? resource.code : []).filter(
@@ -238,13 +243,14 @@ export default function ResourceDetail({ resource, onClose, onViewCode, onOpenRe
                 </button>
             </header>
 
-            {(resource.region || resource.state || resource.type || resource.scope) && (
+            {(resource.region || resource.state || resource.type || resource.scope || multiAz) && (
                 <div className="rd-badges">
                     {/* A subnet's public/private scope leads the badges: it is the first thing asked
                         about a subnet, and it mirrors the green/blue the box uses on the diagram. */}
                     {resource.scope && (
                         <span className={`rd-badge rd-badge-scope rd-scope-${resource.scope}`}>{resource.scope}</span>
                     )}
+                    {multiAz && <span className="rd-badge rd-badge-multiaz">Multi-AZ</span>}
                     {resource.state && <span className="rd-badge rd-badge-state">{resource.state}</span>}
                     {resource.region && <span className="rd-badge">{resource.region}</span>}
                     {resource.type && <span className="rd-badge rd-badge-type">{resource.type}</span>}
@@ -255,6 +261,13 @@ export default function ResourceDetail({ resource, onClose, onViewCode, onOpenRe
                 {/* What this resource does in THIS architecture, as reported by the agent. It leads
                     the panel because it is the question a reader has before any identifier. */}
                 {resource.purpose && <p className="rd-purpose">{resource.purpose}</p>}
+                {multiAz && (
+                    <p className="rd-multiaz-note">
+                        Runs in {subnets.length} subnets in different availability zones, so losing one
+                        zone does not take the service down. It appears once per subnet on the diagram
+                        — every copy is this same resource.
+                    </p>
+                )}
 
                 <section className="rd-section rd-deployment">
                     <h4 className="rd-section-title">Deployment</h4>
@@ -314,6 +327,24 @@ export default function ResourceDetail({ resource, onClose, onViewCode, onOpenRe
                                         )}
                                         {copied ? 'Copied' : 'Copy'}
                                     </button>
+                                </div>
+                            </div>
+                        )}
+                        {multiAz && (
+                            <div className="rd-kv-block">
+                                <span className="rd-kv-key">Subnets ({subnets.length})</span>
+                                <div className="rd-kv-nested">
+                                    {subnets.map((id) => (
+                                        <div key={id} className="rd-kv-row">
+                                            <span className="rd-kv-key">·</span>
+                                            {onOpenResource ? (
+                                                <button type="button" className="rd-kv-val rd-kv-link"
+                                                    onClick={() => onOpenResource(id)}>{id}</button>
+                                            ) : (
+                                                <span className="rd-kv-val">{id}</span>
+                                            )}
+                                        </div>
+                                    ))}
                                 </div>
                             </div>
                         )}

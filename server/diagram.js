@@ -117,11 +117,50 @@ function parseEdges(diagramText) {
 // untouched, so the worst case is exactly today's numbering.
 export function renumberSteps(diagramText) {
     if (typeof diagramText !== 'string' || !diagramText.includes(LABEL_SEP)) return diagramText;
-    const edges = parseEdges(diagramText);
-    if (!edges.length || edges.some((e) => !Number.isFinite(e.step))) return diagramText;
+    const rawEdges = parseEdges(diagramText);
+    if (!rawEdges.length || rawEdges.some((e) => !Number.isFinite(e.step))) return diagramText;
     let labelCount = 0;
     mapEdgeLabels(diagramText, (parts) => { labelCount++; return parts.join(LABEL_SEP); });
-    if (labelCount !== edges.length) return diagramText;
+    if (labelCount !== rawEdges.length) return diagramText;
+
+    // MULTI-AZ: the same resource is drawn once per subnet, as `<id>__<subnet id>` (see the stateviz
+    // prompt's NODE IDS). Those copies are ONE thing, so the arrows mirrored across zones are one
+    // logical step, not several: Internet fanning out to both ALB copies is a single "load balance",
+    // each ALB reaching the Auto Scaling copy in its own AZ is a single "forward", and both of those
+    // egressing through the one NAT Gateway is a single "egress". The rule that captures all three
+    // is the same: two edges are the SAME STEP when their source and destination BASE ids match.
+    //
+    // So the flow is numbered over a COLLAPSED graph — copies folded back into the resource they
+    // belong to, duplicate edges merged — and every original edge then takes its group's number.
+    // Without a `__` anywhere this is skipped entirely, so diagrams with no replicas keep running
+    // through the exact same code path they always did.
+    const hasReplicas = rawEdges.some((e) => e.src.includes('__') || e.dst.includes('__'));
+    const nodeKey = (path) => {
+        if (!hasReplicas) return path;
+        const leaf = path.split('.').pop();
+        const cut = leaf.indexOf('__');
+        return cut === -1 ? leaf : leaf.slice(0, cut);
+    };
+
+    // `edges` is what gets numbered; `groupOf[i]` maps each ORIGINAL edge onto its entry in it.
+    const edges = [];
+    const groupOf = new Array(rawEdges.length);
+    const seen = new Map();
+    rawEdges.forEach((edge, i) => {
+        const src = nodeKey(edge.src);
+        const dst = nodeKey(edge.dst);
+        const key = `${src}\u0000${dst}`;
+        if (!seen.has(key)) {
+            seen.set(key, edges.length);
+            edges.push({ src, dst, step: edge.step });
+        } else {
+            // Mirrored copies of one step: keep the earliest number the model gave, since that is
+            // what decides which branch the traversal walks first.
+            const at = seen.get(key);
+            edges[at].step = Math.min(edges[at].step, edge.step);
+        }
+        groupOf[i] = seen.get(key);
+    });
 
     // Outgoing edges per node, walked in the order the model numbered them.
     const outgoing = new Map();
@@ -165,7 +204,7 @@ export function renumberSteps(diagramText) {
     edges.forEach((edge, i) => { if (!taken[i]) counter = walk(edge.src, '', counter); });
     if (numbers.some((n) => n === null)) return diagramText;
 
-    return mapEdgeLabels(diagramText, (parts, i) => [numbers[i], ...parts.slice(1)].join(LABEL_SEP));
+    return mapEdgeLabels(diagramText, (parts, i) => [numbers[groupOf[i]], ...parts.slice(1)].join(LABEL_SEP));
 }
 
 // Labels shorter than this read fine on one line and are never worth breaking: two stubby lines look

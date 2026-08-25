@@ -8,7 +8,7 @@ The diagram must look **exactly like the design diagrams** produced elsewhere in
 
 ### ARCHITECTURE INVENTORY (the source of truth)
 
-Each entry is a resource in this architecture — deployed or not. It carries identity (`type`, `id`/`arn`/`name`), `region`, `state`, the relationships you must draw (`connections`, `vpc`, `subnet`, and `scope` on a subnet), an optional `purpose` (one sentence on what that resource does in THIS architecture), an optional `details` blob, and a `deployed` boolean (`false` = not in AWS: planned, pending, or failed to create — draw it anyway):
+Each entry is a resource in this architecture — deployed or not. It carries identity (`type`, `id`/`arn`/`name`), `region`, `state`, the relationships you must draw (`connections`, `vpc`, `subnet` or `subnets`, and `scope` on a subnet), an optional `purpose` (one sentence on what that resource does in THIS architecture), an optional `details` blob, and a `deployed` boolean (`false` = not in AWS: planned, pending, or failed to create — draw it anyway):
 
 <RESOURCE_INVENTORY>
 [RESOURCE_INVENTORY]
@@ -98,6 +98,39 @@ The diagram renders on a **dark canvas**. Use dark, tinted container fills, brig
     style.fill: "#0c1a2e"; style.stroke: "#388BFD"; style.stroke-width: 2; style.stroke-dash: 4; style.border-radius: 8; style.font-color: "#79c0ff"
   }
   ```
+  **MULTI-AZ — one resource, several subnets, several copies on the canvas.** A resource carrying
+  `subnets` (the plural, two or more) really exists in every one of those subnets at once: an ALB
+  needs one per availability zone, an Auto Scaling group spreads its instances across them. Draw it
+  **once inside EACH of those subnets**, same icon and the SAME label every time — the reader has to
+  see one service that is present twice, not two different services. Their ids follow one fixed rule:
+
+  ```
+  <sanitized resource id>__<sanitized subnet id>
+  ```
+
+  so `alb-web` in `subnet-1a2b` and `subnet-2c3d` becomes `alb_web__subnet_1a2b` and
+  `alb_web__subnet_2c3d`. The DOUBLE underscore is what tells the web these copies are the same
+  resource, so it must be exactly two, and a resource that lives in a single subnet NEVER gets a
+  suffix. Leaving a declared subnet empty is a bug: if the inventory puts a resource in it, it has a
+  copy in it.
+
+  **Wiring the copies up — pair by zone, never cross.**
+  - Both ends replicated → connect **copy to copy within the same subnet's zone**: the ALB copy in
+    `subnet-1a2b` goes to the Auto Scaling copy in that AZ's private subnet, and likewise for the
+    other zone. Never draw a diagonal between zones.
+  - Source replicated, target a single node **inside the same VPC** (a NAT Gateway, an Internet
+    Gateway) → draw the edge **from every copy**. They converge on it, which is exactly how the
+    picture should say "both zones egress through here", and that traffic really is per-zone.
+  - Source replicated, target **outside the VPC** — a regional service (DynamoDB, S3, SQS), a
+    semantic group's node, or the external client → draw **ONE** edge, from the first copy only. The
+    table is regional and shared; drawing the same arrow once per zone says nothing extra and just
+    doubles the clutter.
+  - Target replicated, source single (the Internet reaching the load balancer) → one edge **into
+    every copy**. That fan-out IS the load balancing, so it must be visible.
+  - **Edges that fan out from the same source to copies of the SAME resource carry the SAME step
+    number and the SAME action text.** It is one logical step in the flow (the load balancing), not
+    two, and the app relies on that to number it once.
+
   The two subnet accents `#3FB950` (green = public) and `#388BFD` (blue = private) sit OUTSIDE the AWS category palette below and are **RESERVED**: a semantic group never uses either, so on this diagram green and blue mean public and private and nothing else. Since the label no longer says which is which, getting this color wrong is not a style slip — it tells the reader the opposite of the truth.
 - **Service nodes** — the AWS icon ONLY (no card, no box) with a **single-word service label** under it (see below). Use `shape: image` with the icon, add NO fill/stroke, and ALWAYS set a bright label so the name is clearly legible on the dark canvas: `style.font-color: "#f0f6fc"` and `style.font-size: 18`:
   ```
@@ -141,6 +174,8 @@ The node id must be the sanitized resource id **character-for-character** — it
 - Do NOT split a word that has no separator: resource `myapp-frontend` → id `myapp_frontend` (one `_`, from the hyphen only), NOT `my_app_frontend`.
 - Do NOT split camelCase: `OrdersTable` → `orderstable`, NOT `orders_table`.
 Putting a node inside a container is fine — the id is unchanged; only its full path gains the prefix: `aws.<group>.<id>` in a semantic group, `aws.<vpc-id>.<subnet-id>.<id>` inside a subnet.
+
+**The one and only exception** is a MULTI-AZ resource (see "NETWORK CONTAINMENT"): because D2 needs a unique id per node, each of its copies is `<sanitized id>__<sanitized subnet id>`. The web strips everything from the double underscore on to find the resource again, which is why the separator must be exactly two underscores and why a sanitized id never contains one itself (sanitizing collapses any run of non-alphanumerics into a SINGLE `_`). Never invent any other suffix to disambiguate two nodes.
 
 ### ICONS — SELF-HOSTED, USE ONLY THESE VERIFIED NAMES
 

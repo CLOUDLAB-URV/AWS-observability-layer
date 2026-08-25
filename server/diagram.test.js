@@ -218,3 +218,44 @@ test('wrapBoxLabels rewrites every box in a real diagram and nothing else', () =
     assert.equal(out[3], '      alb_web: "ALB" { shape: image; icon: "/aws-icons/networking/elb.svg" }');
     assert.equal(out[10], `client -> aws.vpc_0abc.subnet_1a2b.alb_web: "1 || HTTPS request" ${STYLE}`);
 });
+
+// --- renumberSteps with MULTI-AZ replicas ------------------------------------------------------
+
+// One ALB and one Auto Scaling group, each drawn once per AZ. Six edges, but only four steps:
+// the fan-out to both ALBs is one, each ALB reaching its own AZ's ASG is one, both ASGs egressing
+// through the single NAT is one, and the shared DynamoDB is the last.
+const MULTI_AZ = [
+    `client -> aws.v.pub_a.alb__pub_a: "1 || Load balance" ${STYLE}`,
+    `client -> aws.v.pub_b.alb__pub_b: "2 || Load balance" ${STYLE}`,
+    `aws.v.pub_a.alb__pub_a -> aws.v.priv_a.asg__priv_a: "3 || Forward" ${STYLE}`,
+    `aws.v.pub_b.alb__pub_b -> aws.v.priv_b.asg__priv_b: "4 || Forward" ${STYLE}`,
+    `aws.v.priv_a.asg__priv_a -> aws.v.nat_1: "5 || Egress" ${STYLE}`,
+    `aws.v.priv_b.asg__priv_b -> aws.v.nat_1: "6 || Egress" ${STYLE}`
+].join('\n');
+
+function stepsOf(text) {
+    const out = [];
+    mapEdgeLabels(text, (parts) => { out.push(parts[0]); return parts.join(' || '); });
+    return out;
+}
+
+test('renumberSteps gives the fan-out to two replicas a SINGLE shared number', () => {
+    const steps = stepsOf(renumberSteps(MULTI_AZ));
+    assert.equal(steps[0], '1');
+    assert.equal(steps[1], '1', 'both arrows into the ALB copies are one load-balancing step');
+});
+
+test('renumberSteps keeps mirrored branches on the same step, and does not open a sub-level', () => {
+    const steps = stepsOf(renumberSteps(MULTI_AZ));
+    assert.deepEqual(steps, ['1', '1', '2', '2', '3', '3']);
+    assert.ok(!steps.some((s) => s.includes('.')), 'two AZs are one flow mirrored, not a real split');
+});
+
+test('renumberSteps leaves a diagram without replicas numbered exactly as before', () => {
+    const flat = [
+        `client -> aws.alb: "1 || Request" ${STYLE}`,
+        `aws.alb -> aws.fn: "2 || Forward" ${STYLE}`,
+        `aws.fn -> aws.db: "3 || Query" ${STYLE}`
+    ].join('\n');
+    assert.equal(renumberSteps(flat), flat);
+});

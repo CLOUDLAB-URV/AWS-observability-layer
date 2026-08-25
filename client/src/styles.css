@@ -824,6 +824,21 @@ body {
    diagram, so the badge and the box the user just clicked read as the same fact. */
 .rd-badge-scope { text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; }
 .rd-scope-public { background: rgba(63, 185, 80, 0.16); color: #3fb950; }
+/* Multi-AZ: the resource is drawn once per subnet on the canvas. Amber, so it reads as a property of
+   the deployment rather than as another public/private-style classification. */
+.rd-badge-multiaz {
+    background: rgba(210, 153, 34, 0.16);
+    color: #d29922;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-weight: 600;
+}
+.rd-multiaz-note {
+    margin: 0 0 4px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-muted);
+}
 .rd-scope-private { background: rgba(56, 139, 253, 0.16); color: #388bfd; }
 
 /* Deployed resources: full ARN row with a copy button (Identity section). */

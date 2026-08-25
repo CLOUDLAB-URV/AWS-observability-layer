@@ -16,6 +16,11 @@ export const MAX_CODE_FILES = 12;
 // every prompt built from the inventory).
 export const MAX_ATTACHMENTS = 12;
 
+// A resource that is genuinely multi-AZ (an ALB, an Auto Scaling group, a Multi-AZ RDS) lives in
+// several subnets at once. The diagram draws one replica per subnet, so the cap is really a cap on
+// how many copies of one node the picture can grow — four already covers every real AWS region.
+export const MAX_SUBNETS = 4;
+
 // A resource's `purpose` is one sentence describing its role; it is shown in the web and goes
 // into every prompt built from the inventory, so it is capped like `deploy_note`.
 export const MAX_PURPOSE_CHARS = 300;
@@ -165,6 +170,33 @@ export function normalizeChanges(body) {
                 } else {
                     delete normalized[field];
                 }
+            }
+            // Multi-AZ placement: the same resource living in several subnets. Trimmed, de-duped
+            // and capped; a list that ends up with fewer than two real entries is not multi-AZ at
+            // all, so the key is dropped and the plain `subnet` handles it as before.
+            if (Array.isArray(change.subnets)) {
+                const list = [];
+                for (const entry of change.subnets) {
+                    const value = typeof entry === 'string' ? entry.trim() : '';
+                    if (value && !list.includes(value)) {
+                        list.push(value);
+                    }
+                    if (list.length >= MAX_SUBNETS) {
+                        break;
+                    }
+                }
+                if (list.length > 1) {
+                    normalized.subnets = list;
+                } else {
+                    delete normalized.subnets;
+                    // A one-entry list still says where it lives — fold it into `subnet` unless the
+                    // change already carries one explicitly.
+                    if (list.length === 1 && typeof change.subnet !== 'string') {
+                        normalized.subnet = list[0];
+                    }
+                }
+            } else {
+                delete normalized.subnets;
             }
             // Source code the resource runs: capped and cleaned, or dropped if unusable.
             const code = normalizeCode(change.code);

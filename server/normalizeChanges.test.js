@@ -2,7 +2,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeChanges, MAX_CODE_CHARS, MAX_CODE_FILES, MAX_PURPOSE_CHARS, MAX_ATTACHMENTS } from './normalizeChanges.js';
+import { normalizeChanges, MAX_CODE_CHARS, MAX_CODE_FILES, MAX_PURPOSE_CHARS, MAX_ATTACHMENTS, MAX_SUBNETS } from './normalizeChanges.js';
 
 const base = { op: 'upsert', type: 'lambda', id: 'fn-1' };
 const one = (code) => normalizeChanges({ changes: [{ ...base, code }] })[0];
@@ -183,4 +183,35 @@ test('attachments: an empty array, a non-array or all-unusable entries drop the 
 test('attachments: a non-object details is dropped, not coerced', () => {
     const res = attached([{ type: 'log-group', id: '/aws/lambda/fn', details: 'oops' }]);
     assert.equal('details' in res.attachments[0], false);
+});
+
+// --- subnets (multi-AZ placement) -------------------------------------------------------------
+
+const spread = (extra) => normalizeChanges({ changes: [{ ...base, ...extra }] })[0];
+
+test('subnets: two or more ids are kept, trimmed and de-duped', () => {
+    const res = spread({ subnets: [' subnet-1a2b ', 'subnet-2c3d', 'subnet-1a2b'] });
+    assert.deepEqual(res.subnets, ['subnet-1a2b', 'subnet-2c3d']);
+});
+
+test('subnets: the list is capped to MAX_SUBNETS', () => {
+    const many = Array.from({ length: MAX_SUBNETS + 3 }, (_, i) => `subnet-${i}`);
+    assert.equal(spread({ subnets: many }).subnets.length, MAX_SUBNETS);
+});
+
+test('subnets: a single usable id is not multi-AZ — it folds into `subnet`', () => {
+    const res = spread({ subnets: ['subnet-1a2b'] });
+    assert.equal('subnets' in res, false);
+    assert.equal(res.subnet, 'subnet-1a2b');
+});
+
+test('subnets: an explicit `subnet` wins over a one-entry list', () => {
+    const res = spread({ subnet: 'subnet-real', subnets: ['subnet-other'] });
+    assert.equal(res.subnet, 'subnet-real');
+});
+
+test('subnets: an empty or non-array value drops the key', () => {
+    assert.equal('subnets' in spread({ subnets: [] }), false);
+    assert.equal('subnets' in spread({ subnets: 'subnet-1a2b' }), false);
+    assert.equal('subnets' in spread({}), false);
 });

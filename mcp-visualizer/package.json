@@ -1,6 +1,6 @@
 {
   "name": "sigilum-mcp",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "Self-contained MCP server for Sigilum: the agent reports the delta of deployed AWS changes (upsert/delete) and it renders a live sigil (architecture diagram) of what is actually deployed in AWS. Resume earlier sigils by name via list_sigils + load_sigil.",
   "type": "module",
   "bin": {

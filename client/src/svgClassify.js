@@ -17,6 +17,17 @@ export function sanitizeId(value) {
 // Shared by every classifier below: a D2 <g class="..."> is always base64, so this is the one
 // place that attempts the decode — decodeNodePath/isEdgeGroup/edgeTouchesPath all build on it
 // instead of each repeating the same try/catch + charset guard.
+// A MULTI-AZ resource is drawn once per subnet, and D2 needs a unique id per node, so each copy is
+// `<sanitized id>__<sanitized subnet id>` (see the stateviz prompt's NODE IDS). This strips that
+// suffix back off, which is what makes every copy resolve to the ONE resource behind it. The double
+// underscore is a safe sentinel precisely because sanitizeId can never produce one: it collapses any
+// run of non-alphanumerics into a SINGLE `_`.
+export function baseId(leafId) {
+    const value = String(leafId ?? '');
+    const cut = value.indexOf('__');
+    return cut === -1 ? value : value.slice(0, cut);
+}
+
 function tryDecode(cls) {
     if (!cls || /\s/.test(cls) || !/^[A-Za-z0-9+/=]+$/.test(cls)) return null;
     try {
@@ -44,8 +55,9 @@ export function isEdgeGroup(cls) {
 export function isSemanticGroup(path, byId) {
     if (!path) return false;
     if (path === 'aws' || path === 'aws.vpc') return false;
-    const leafId = path.split('.').pop();
-    return !byId.has(leafId);
+    // Via baseId, so a multi-AZ COPY still resolves to its resource. Without that it would match no
+    // resource, be taken for a group box, and vanish whenever the user turns "Group boxes" off.
+    return !byId.has(baseId(path.split('.').pop()));
 }
 
 // Whether a node path is a CONTAINER (a box something is drawn inside) rather than a leaf shape.

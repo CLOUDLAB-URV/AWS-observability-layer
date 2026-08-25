@@ -1,7 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { findArn, shortArn } from './awsLinks.js';
 import { isExternalResource } from './externalResource.js';
-import { decodeNodePath, edgeTouchesPath, isContainerPath, isEdgeGroup, isExternalNode, isSemanticGroup, sanitizeId } from './svgClassify.js';
+import { baseId, decodeNodePath, edgeTouchesPath, isContainerPath, isEdgeGroup, isExternalNode, isSemanticGroup, sanitizeId } from './svgClassify.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -389,7 +389,8 @@ export default function Diagram({
                 g.classList.add('svc-group');
                 return;
             }
-            const resource = byId.get(path.split('.').pop());
+            // baseId so every copy of a multi-AZ resource opens the one resource behind it.
+            const resource = byId.get(baseId(path.split('.').pop()));
             if (!resource) return;
 
             // A VPC/subnet box is backed by a resource just like an icon node, so it lands here and
@@ -401,6 +402,8 @@ export default function Diagram({
             if (container) {
                 g.classList.add('svc-container');
             }
+            // Comparing the RESOURCE (not the node path) means selecting one copy of a multi-AZ
+            // service highlights every copy — which is how the user sees they are the same thing.
             if (selectedId && sanitizeId(resource.id) === sanitizeId(selectedId)) {
                 g.classList.add('svc-selected');
             }

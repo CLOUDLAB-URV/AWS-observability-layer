@@ -331,3 +331,23 @@ test('attachments survive the deploy re-report and are replaced only by a new ar
     await store.applyChanges(USER, CHAT, [fn({ attachments: [sg] })]);
     assert.deepEqual((await store.readState(USER, CHAT))['checkout-fn'].attachments, [sg]);
 });
+
+test('a multi-AZ subnets list survives a partial upsert like the singular subnet does', async () => {
+    const alb = (extra) => ({ op: 'upsert', type: 'elb', id: 'alb-web', ...extra });
+    const CHAT = 'multiaz-life';
+    const both = ['subnet-1a2b', 'subnet-2c3d'];
+
+    await store.applyChanges(USER, CHAT, [alb({ vpc: 'vpc-0abc', subnets: both })]);
+    assert.deepEqual((await store.readState(USER, CHAT))['alb-web'].subnets, both);
+
+    // Deploy re-report: real ARN only. Losing the spread here would silently turn a two-zone
+    // deployment back into a single-zone one on the diagram.
+    await store.applyChanges(USER, CHAT, [alb({ arn: 'arn:aws:elasticloadbalancing:us-east-1:1:lb/alb-web' })]);
+    const live = (await store.readState(USER, CHAT))['alb-web'];
+    assert.deepEqual(live.subnets, both, 'multi-AZ spread kept');
+    assert.equal(live.vpc, 'vpc-0abc');
+
+    // A new list replaces the stored one.
+    await store.applyChanges(USER, CHAT, [alb({ subnets: ['subnet-9x', 'subnet-8y'] })]);
+    assert.deepEqual((await store.readState(USER, CHAT))['alb-web'].subnets, ['subnet-9x', 'subnet-8y']);
+});

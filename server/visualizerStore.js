@@ -370,9 +370,10 @@ export function applyChanges(userId, chatId, changes, initialName, initialDeploy
                 // straight out of its box. An empty string is the agent's explicit "take it out of
                 // the container" gesture (normalizeChanges keeps it as a sentinel), so it clears
                 // instead of carrying forward.
-                for (const field of ['vpc', 'subnet', 'scope']) {
-                    if (resource[field] === undefined && typeof state[key]?.[field] === 'string') {
-                        resource[field] = state[key][field];
+                for (const field of ['vpc', 'subnet', 'scope', 'subnets']) {
+                    const stored = state[key]?.[field];
+                    if (resource[field] === undefined && (typeof stored === 'string' || Array.isArray(stored))) {
+                        resource[field] = stored;
                     }
                     if (resource[field] === '') {
                         delete resource[field];
