@@ -38,6 +38,9 @@ Rendered with the **ELK layout engine, left-to-right**.
 - Always start with `direction: right`. Flow reads left → right (client on the left, data stores on the right).
 - Never set `near`, `top`, `left`, or manual positions — let the layout work.
 - Order declarations along the request lifecycle (entry → compute → data).
+- **Prefer growing DOWNWARD over growing sideways.** These diagrams end up in documents, where the
+  page is taller than it is wide, so a tall narrow picture beats a short sprawling one. Never spread
+  things out horizontally to avoid stacking them — stacking is the better outcome.
 - Node labels are a **single short service name** (see "SERVICE NODE LABELS" below). Never a second `\n` detail line.
 
 ### D2 STYLE RULES — DARK CANVAS (keep this exact visual style)
@@ -89,7 +92,7 @@ The diagram renders on a **dark canvas**. Use dark, tinted container fills, brig
     style.fill: "#171226"; style.stroke: "#a855f7"; style.stroke-width: 2; style.stroke-dash: 3; style.border-radius: 10; style.font-color: "#c4b5fd"
   }
   ```
-  **Subnet boxes** — label = `"SUBNET · <CIDR> · <AZ>"`, joined with ` · `, using ONLY the parts the inventory actually provides (never invent a CIDR or an AZ). The NAME and whether it is public or private are NOT in the label: the name is read by clicking, and the scope is carried by the COLOR. That makes the color load-bearing — it is the only thing on the diagram that says public or private, so pick it from the subnet's `scope` every single time, never by taste. A subnet with no `scope` at all uses the private styling.
+  **Subnet boxes** — label = `"SUBNET · <CIDR> · <AZ>"`, joined with ` · `, using ONLY the parts the inventory actually provides (never invent a CIDR or an AZ). The availability zone belongs here: it is how the reader tells two otherwise identical subnets apart, and subnets of the same role in different zones end up stacked in the same column, so the zone is what distinguishes them. The NAME and whether it is public or private are NOT in the label: the name is read by clicking, and the scope is carried by the COLOR. That makes the color load-bearing — it is the only thing on the diagram that says public or private, so pick it from the subnet's `scope` every single time, never by taste. A subnet with no `scope` at all uses the private styling.
   ```
   aws.vpc_0abc.subnet_1a2b: "SUBNET · 10.0.1.0/24 · us-east-1a" {
     style.fill: "#0d1f12"; style.stroke: "#3FB950"; style.stroke-width: 2; style.stroke-dash: 4; style.border-radius: 8; style.font-color: "#7ee787"
@@ -118,13 +121,11 @@ The diagram renders on a **dark canvas**. Use dark, tinted container fills, brig
   - Both ends replicated → connect **copy to copy within the same subnet's zone**: the ALB copy in
     `subnet-1a2b` goes to the Auto Scaling copy in that AZ's private subnet, and likewise for the
     other zone. Never draw a diagonal between zones.
-  - Source replicated, target a single node **inside the same VPC** (a NAT Gateway, an Internet
-    Gateway) → draw the edge **from every copy**. They converge on it, which is exactly how the
-    picture should say "both zones egress through here", and that traffic really is per-zone.
-  - Source replicated, target **outside the VPC** — a regional service (DynamoDB, S3, SQS), a
-    semantic group's node, or the external client → draw **ONE** edge, from the first copy only. The
-    table is regional and shared; drawing the same arrow once per zone says nothing extra and just
-    doubles the clutter.
+  - Source replicated, target single (a NAT Gateway, a DynamoDB table, an S3 bucket — anything) →
+    draw the edge **from EVERY copy**. Never from just one: an arrow leaving only the copy in zone A
+    tells the reader that the copy in zone B does not talk to that table, which is false and is the
+    single worst thing this diagram can say. They converge on the target, and that convergence is
+    what shows both zones doing the same work.
   - Target replicated, source single (the Internet reaching the load balancer) → one edge **into
     every copy**. That fan-out IS the load balancing, so it must be visible.
   - **Edges that fan out from the same source to copies of the SAME resource carry the SAME step
@@ -211,6 +212,10 @@ Common mappings: Internet Gateway → `networking/internet-gateway`; NAT Gateway
   - `{ style.stroke: "#e6edf3"; style.stroke-width: 2; style.font-color: "#c9d1d9"; style.font-size: 17; style.fill: "#0d1117" }` with the segmented label, e.g. `"1 || GET /api/ec2"`, `"2 || Query orders"`, `"3 || Publish order.created"`.
   - **`<STEP>`** — a BARE integer giving the connection's position in the workflow. Number the edges in **execution / request order**: start at `1` at the entry point (the external client, or the front-most service if there is no external actor) and increase as the flow moves downstream; edges that fan out in parallel from the same source take the next consecutive numbers. EVERY edge gets a step number. Emit just the digit — no `"step"`, `"#"`, dot or decimal: the app formats the number, and turns it into a sub-step (`3.1`) by itself when the flow splits into independent branches.
   - **`<ACTION>`** — a SHORT English phrase saying what actually happens, GROUNDED in the inventory. Use real data when the resource records, their `purpose` or their `details` provide it: an API Gateway's HTTP method + route path to each backend (`"GET /api/ec2"`, `"POST /orders"`), or a queue/topic/stream/event name (`"Publish order.created"`, `"Consume orders-q"`). When no concrete route/name is available, fall back to a short generic verb chosen from the two service kinds + the connection's protocol/kind: `"Invoke"`, `"Query"`, `"Read/write"`, `"Publish"`, `"Consume"`, `"Store"`, `"Authenticate"`. **Never invent** a specific path or name that is not in the inventory — when unsure, use the generic verb.
+- **BACKWARD EDGES — keep a subnet in its column.** The layout ranks a node by the traffic reaching it, and a container inherits its children's ranks. So an arrow INTO a network primitive that sits upstream — in practice a private subnet's instances egressing to a NAT Gateway in a PUBLIC subnet — drags that whole public subnet to the right and breaks the column its twin in the other zone should share (measured: 726px of drift). Write those connections **the other way round in the source**, from the primitive to the resource, and add a THIRD label segment `back`:
+  - ✅ `aws.vpc_x.subnet_pub.nat_1 -> aws.vpc_x.subnet_priv.asg_1: "4 || Egress to internet || back"`
+  - ❌ `aws.vpc_x.subnet_priv.asg_1 -> aws.vpc_x.subnet_pub.nat_1: "4 || Egress to internet"` (the honest order, but it wrecks the layout)
+  The app reads that third segment, restores the true direction for the step numbering, and **flips the arrowhead when drawing**, so the picture still shows the arrow pointing AT the NAT Gateway. The step number and the action always describe the REAL direction of the traffic — only the declaration is reversed. Use it ONLY for this case; never to tidy up an ordinary connection.
 - The sentinel ` || ` appears ONLY inside connection labels — never in a node or container label, and never inside either segment.
 - Keep the action segment concise so ELK can route cleanly; one segmented label per connection.
 - **Never draw a CONFIGURATION resource** — one that only DESCRIBES how something behaves and carries no traffic itself: Security Groups, IAM roles and policies, launch templates, target groups, log groups, key pairs, instance profiles, subnet groups, parameter groups, AMIs, Route Tables, Network ACLs, ENIs, flow logs and Elastic IPs. These live in the resource record the user reads by clicking the service they belong to — drawing them turns the diagram into an unreadable mess, which is exactly what it must not become.
@@ -255,32 +260,32 @@ aws: "AWS Cloud (us-east-1)" {
       style.border-radius: 8
       style.font-color: "#7ee787"
 
-      app_alb: "ALB" {
+      app_alb__subnet_1a2b: "ALB" {
         shape: image
         icon: "/aws-icons/networking/elb.svg"
+        style.font-color: "#f0f6fc"
+        style.font-size: 18
+      }
+
+      nat_0c1d: "NAT Gateway" {
+        shape: image
+        icon: "/aws-icons/networking/nat-gateway.svg"
         style.font-color: "#f0f6fc"
         style.font-size: 18
       }
     }
 
     subnet_3c4d: "SUBNET · 10.0.2.0/24 · us-east-1b" {
-      style.fill: "#0c1a2e"
-      style.stroke: "#388BFD"
+      style.fill: "#0d1f12"
+      style.stroke: "#3FB950"
       style.stroke-width: 2
       style.stroke-dash: 4
       style.border-radius: 8
-      style.font-color: "#79c0ff"
+      style.font-color: "#7ee787"
 
-      i_0a1b2c3d4e5f: "EC2" {
+      app_alb__subnet_3c4d: "ALB" {
         shape: image
-        icon: "/aws-icons/compute/ec2.svg"
-        style.font-color: "#f0f6fc"
-        style.font-size: 18
-      }
-
-      orders_db: "RDS" {
-        shape: image
-        icon: "/aws-icons/database/rds.svg"
+        icon: "/aws-icons/networking/elb.svg"
         style.font-color: "#f0f6fc"
         style.font-size: 18
       }
@@ -310,11 +315,11 @@ aws: "AWS Cloud (us-east-1)" {
   }
 }
 
-client -> aws.vpc_0abc.subnet_1a2b.app_alb: "1 || HTTPS request" { style.stroke: "#e6edf3"; style.stroke-width: 2; style.font-color: "#c9d1d9"; style.font-size: 17; style.fill: "#0d1117" }
-aws.vpc_0abc.subnet_1a2b.app_alb -> aws.vpc_0abc.subnet_3c4d.i_0a1b2c3d4e5f: "2 || Forward /app" { style.stroke: "#e6edf3"; style.stroke-width: 2; style.font-color: "#c9d1d9"; style.font-size: 17; style.fill: "#0d1117" }
-aws.vpc_0abc.subnet_3c4d.i_0a1b2c3d4e5f -> aws.vpc_0abc.subnet_3c4d.orders_db: "3 || Query orders" { style.stroke: "#e6edf3"; style.stroke-width: 2; style.font-color: "#c9d1d9"; style.font-size: 17; style.fill: "#0d1117" }
-aws.vpc_0abc.subnet_3c4d.i_0a1b2c3d4e5f -> aws.data.orders_table: "4 || Read/write" { style.stroke: "#e6edf3"; style.stroke-width: 2; style.font-color: "#c9d1d9"; style.font-size: 17; style.fill: "#0d1117" }
-aws.vpc_0abc.subnet_1a2b.app_alb -> aws.data.assets_bucket: "5 || Serve assets" { style.stroke: "#e6edf3"; style.stroke-width: 2; style.font-color: "#c9d1d9"; style.font-size: 17; style.fill: "#0d1117" }
+client -> aws.vpc_0abc.subnet_1a2b.app_alb__subnet_1a2b: "1 || HTTPS request" { style.stroke: "#e6edf3"; style.stroke-width: 2; style.font-color: "#c9d1d9"; style.font-size: 17; style.fill: "#0d1117" }
+client -> aws.vpc_0abc.subnet_3c4d.app_alb__subnet_3c4d: "1 || HTTPS request" { style.stroke: "#e6edf3"; style.stroke-width: 2; style.font-color: "#c9d1d9"; style.font-size: 17; style.fill: "#0d1117" }
+aws.vpc_0abc.subnet_1a2b.app_alb__subnet_1a2b -> aws.data.orders_table: "2 || Read/write" { style.stroke: "#e6edf3"; style.stroke-width: 2; style.font-color: "#c9d1d9"; style.font-size: 17; style.fill: "#0d1117" }
+aws.vpc_0abc.subnet_3c4d.app_alb__subnet_3c4d -> aws.data.orders_table: "2 || Read/write" { style.stroke: "#e6edf3"; style.stroke-width: 2; style.font-color: "#c9d1d9"; style.font-size: 17; style.fill: "#0d1117" }
+aws.vpc_0abc.subnet_1a2b.nat_0c1d -> aws.vpc_0abc.subnet_3c4d.app_alb__subnet_3c4d: "3 || Egress to internet || back" { style.stroke: "#e6edf3"; style.stroke-width: 2; style.font-color: "#c9d1d9"; style.font-size: 17; style.fill: "#0d1117" }
 ```
 
 ### OUTPUT FORMAT (STRICT)
@@ -322,4 +327,4 @@ aws.vpc_0abc.subnet_1a2b.app_alb -> aws.data.assets_bucket: "5 || Serve assets" 
 - **Declare ALL connections at the TOP LEVEL**, after the closing `}` of the `aws` block — never inside a container. Use full paths (`aws.x -> aws.y`), exactly like the example above.
 - **Do NOT write comments.** No `//` lines and no `#` lines — output only valid D2 declarations. (`//` is not a D2 comment and breaks the renderer.) Only if the inventory is completely EMPTY (no resources at all — not merely undeployed ones), output a single line: `# No resources yet`.
 
-Output a line containing exactly `===D2===`, followed by the COMPLETE D2 code and NOTHING else — raw D2 only, no markdown fences, no commentary before or after. Re-check before returning: (a) every VPC/subnet box uses the sanitized id of its own resource (never a generic `vpc`/`subnet`), sits nested `aws` → VPC → subnet, and holds every resource the inventory places there — and no semantic group holds a resource that has a `vpc` or `subnet`, (b) every connection endpoint is the full, exact path of a defined node, with EVERY container prefix (e.g. `aws.vpc_0abc.subnet_3c4d.i_0a1b2c`), and no endpoint is a box, (c) any semantic group is justified (clarifies the picture, holds ≥2 nodes) and its accent is neither `#3FB950` nor `#388BFD`, (d) no comment lines anywhere, (e) every icon-node label is a single clean service name (no ids, versions, sizes, names or `\n` detail lines), and (f) every `style.stroke-width` is an integer.
+Output a line containing exactly `===D2===`, followed by the COMPLETE D2 code and NOTHING else — raw D2 only, no markdown fences, no commentary before or after. Re-check before returning: (a) every VPC/subnet box uses the sanitized id of its own resource (never a generic `vpc`/`subnet`), every declared subnet holds the resources the inventory places in it, and every copy of a replicated resource draws ALL of its outgoing edges — and no semantic group holds a resource that has a `vpc` or `subnet`, (b) every connection endpoint is the full, exact path of a defined node, with EVERY container prefix (e.g. `aws.vpc_0abc.subnet_3c4d.i_0a1b2c`), and no endpoint is a box, (c) any semantic group is justified (clarifies the picture, holds ≥2 nodes) and its accent is neither `#3FB950` nor `#388BFD`, (d) no comment lines anywhere, (e) every icon-node label is a single clean service name (no ids, versions, sizes, names or `\n` detail lines), and (f) every `style.stroke-width` is an integer.

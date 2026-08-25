@@ -55,9 +55,10 @@ export function isEdgeGroup(cls) {
 export function isSemanticGroup(path, byId) {
     if (!path) return false;
     if (path === 'aws' || path === 'aws.vpc') return false;
+    const leafId = path.split('.').pop();
     // Via baseId, so a multi-AZ COPY still resolves to its resource. Without that it would match no
     // resource, be taken for a group box, and vanish whenever the user turns "Group boxes" off.
-    return !byId.has(baseId(path.split('.').pop()));
+    return !byId.has(baseId(leafId));
 }
 
 // Whether a node path is a CONTAINER (a box something is drawn inside) rather than a leaf shape.

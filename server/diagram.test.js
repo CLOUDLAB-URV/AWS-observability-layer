@@ -2,7 +2,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { renumberSteps, mapEdgeLabels, wrapLabel, wrapBoxLabels } from './diagram.js';
+import { renumberSteps, mapEdgeLabels, wrapLabel, wrapBoxLabels, composeLabel } from './diagram.js';
 
 const STYLE = '{ style.stroke: "#e6edf3"; style.stroke-width: 2 }';
 
@@ -258,4 +258,39 @@ test('renumberSteps leaves a diagram without replicas numbered exactly as before
         `aws.fn -> aws.db: "3 || Query" ${STYLE}`
     ].join('\n');
     assert.equal(renumberSteps(flat), flat);
+});
+
+// --- backward edges (declared reversed so a subnet keeps its column) ---------------------------
+
+test('a back edge is numbered by its TRUE direction, same as if written the honest way', () => {
+    const honest = [
+        `client -> aws.v.pub.alb: "1 || Request" ${STYLE}`,
+        `aws.v.pub.alb -> aws.v.priv.asg: "2 || Forward" ${STYLE}`,
+        `aws.v.priv.asg -> aws.v.pub.nat: "3 || Egress" ${STYLE}`,
+        `aws.v.pub.nat -> aws.v.igw: "4 || Out" ${STYLE}`
+    ].join('\n');
+    // Same flow, but the egress hop declared backwards and marked.
+    const reversed = [
+        `client -> aws.v.pub.alb: "1 || Request" ${STYLE}`,
+        `aws.v.pub.alb -> aws.v.priv.asg: "2 || Forward" ${STYLE}`,
+        `aws.v.pub.nat -> aws.v.priv.asg: "3 || Egress || back" ${STYLE}`,
+        `aws.v.pub.nat -> aws.v.igw: "4 || Out" ${STYLE}`
+    ].join('\n');
+    const steps = (t) => { const o = []; mapEdgeLabels(renumberSteps(t), (p) => { o.push(p[0]); return p.join(' || '); }); return o; };
+    assert.deepEqual(steps(honest), ['1', '2', '3', '4']);
+    assert.deepEqual(steps(reversed), ['1', '2', '3', '4'], 'the marker restores the real direction');
+});
+
+test('the back marker never reaches the rendered label', () => {
+    const src = `aws.v.pub.nat -> aws.v.priv.asg: "3 || Egress to internet || back" ${STYLE}`;
+    const shown = composeLabel(src, { steps: true });
+    assert.match(shown, /"3\. Egress to internet"/);
+    assert.ok(!shown.includes('back'), 'the third segment is a marker, never text on the canvas');
+});
+
+test('a back edge without the marker is still read the way it is written', () => {
+    const src = `aws.v.pub.nat -> aws.v.priv.asg: "1 || Egress" ${STYLE}\naws.v.priv.asg -> aws.v.db: "2 || Query" ${STYLE}`;
+    const out = renumberSteps(src);
+    const steps = []; mapEdgeLabels(out, (p) => { steps.push(p[0]); return p.join(' || '); });
+    assert.deepEqual(steps, ['1', '2']);
 });

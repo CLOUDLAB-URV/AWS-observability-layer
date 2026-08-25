@@ -54,6 +54,16 @@ export function mapEdgeLabels(diagramText, fn) {
 // and the oldest carry no step at all (`"<action> || <protocol>"`). A step is always DIGITS AND DOTS
 // only (`3`, or the sub-step `3.1` that renumberSteps assigns), which tells those two 2-segment forms
 // apart with no ambiguity — so every stored diagram, of any vintage, keeps rendering the right text.
+// The third label segment the stateviz prompt adds to a connection it deliberately declared
+// BACKWARDS so the layout would not drag a subnet out of its column (see prompt.md, BACKWARD EDGES).
+// It never reaches the canvas — splitLabel only ever renders the first two segments — it exists so
+// the app can restore the true direction for numbering and flip the drawn arrowhead.
+const BACK_MARKER = 'back';
+
+export function isBackEdgeLabel(parts) {
+    return Array.isArray(parts) && parts.length >= 3 && parts[2].trim() === BACK_MARKER;
+}
+
 function splitLabel(parts) {
     return parts.length >= 2 && /^\d+(?:\.\d+)*$/.test(parts[0].trim())
         ? { step: parts[0].trim(), action: parts[1] }
@@ -90,8 +100,12 @@ function parseEdges(diagramText) {
     for (const line of diagramText.split('\n')) {
         const match = EDGE_LINE.exec(line);
         if (!match || !match[3].includes(LABEL_SEP)) continue;
-        const { step } = splitLabel(match[3].split(LABEL_SEP));
-        edges.push({ src: match[1], dst: match[2], step: step === null ? null : Number(step) });
+        const parts = match[3].split(LABEL_SEP);
+        const { step } = splitLabel(parts);
+        // A `back` edge is written the wrong way round on purpose; the flow numbering has to see the
+        // direction the traffic ACTUALLY takes, or the steps come out in the wrong order.
+        const [src, dst] = isBackEdgeLabel(parts) ? [match[2], match[1]] : [match[1], match[2]];
+        edges.push({ src, dst, step: step === null ? null : Number(step) });
     }
     return edges;
 }
@@ -115,6 +129,39 @@ function parseEdges(diagramText) {
 // first), the one thing the model knows and the topology cannot say. Anything unexpected (an edge
 // with no number, a line this can't parse, a label/edge count that disagrees) returns the diagram
 // untouched, so the worst case is exactly today's numbering.
+// Fold the mirrored copies of one logical edge into a single entry. `groupOf[i]` maps each original
+// edge onto its group. Used both to number the flow and to keep the label-space reservation
+// symmetric across zones — reserving room on one branch but not its mirror pulls the two out of the
+// column they are supposed to share.
+function collapseMirroredEdges(rawEdges) {
+    const hasReplicas = rawEdges.some((e) => e.src.includes('__') || e.dst.includes('__'));
+    const nodeKey = (path) => {
+        if (!hasReplicas) return path;
+        const leaf = path.split('.').pop();
+        const cut = leaf.indexOf('__');
+        return cut === -1 ? leaf : leaf.slice(0, cut);
+    };
+    const edges = [];
+    const groupOf = new Array(rawEdges.length);
+    const seen = new Map();
+    rawEdges.forEach((edge, i) => {
+        const src = nodeKey(edge.src);
+        const dst = nodeKey(edge.dst);
+        const key = `${src}\u0000${dst}`;
+        if (!seen.has(key)) {
+            seen.set(key, edges.length);
+            edges.push({ src, dst, step: edge.step });
+        } else {
+            // Mirrored copies of one step: keep the earliest number the model gave, since that is
+            // what decides which branch the traversal walks first.
+            const at = seen.get(key);
+            edges[at].step = Math.min(edges[at].step, edge.step);
+        }
+        groupOf[i] = seen.get(key);
+    });
+    return { edges, groupOf };
+}
+
 export function renumberSteps(diagramText) {
     if (typeof diagramText !== 'string' || !diagramText.includes(LABEL_SEP)) return diagramText;
     const rawEdges = parseEdges(diagramText);
@@ -134,33 +181,7 @@ export function renumberSteps(diagramText) {
     // belong to, duplicate edges merged — and every original edge then takes its group's number.
     // Without a `__` anywhere this is skipped entirely, so diagrams with no replicas keep running
     // through the exact same code path they always did.
-    const hasReplicas = rawEdges.some((e) => e.src.includes('__') || e.dst.includes('__'));
-    const nodeKey = (path) => {
-        if (!hasReplicas) return path;
-        const leaf = path.split('.').pop();
-        const cut = leaf.indexOf('__');
-        return cut === -1 ? leaf : leaf.slice(0, cut);
-    };
-
-    // `edges` is what gets numbered; `groupOf[i]` maps each ORIGINAL edge onto its entry in it.
-    const edges = [];
-    const groupOf = new Array(rawEdges.length);
-    const seen = new Map();
-    rawEdges.forEach((edge, i) => {
-        const src = nodeKey(edge.src);
-        const dst = nodeKey(edge.dst);
-        const key = `${src}\u0000${dst}`;
-        if (!seen.has(key)) {
-            seen.set(key, edges.length);
-            edges.push({ src, dst, step: edge.step });
-        } else {
-            // Mirrored copies of one step: keep the earliest number the model gave, since that is
-            // what decides which branch the traversal walks first.
-            const at = seen.get(key);
-            edges[at].step = Math.min(edges[at].step, edge.step);
-        }
-        groupOf[i] = seen.get(key);
-    });
+    const { edges, groupOf } = collapseMirroredEdges(rawEdges);
 
     // Outgoing edges per node, walked in the order the model numbered them.
     const outgoing = new Map();
@@ -543,6 +564,9 @@ export async function renderDeployedDiagram(storedText) {
 async function _renderLabelViews(diagramText, hasSteps) {
     // Without step numbers the numbered view is identical to the plain one — don't render it.
     const views = hasSteps ? LABEL_VIEWS : LABEL_VIEWS.slice(0, 1);
+    // Which connections were declared backwards on purpose; carried through every layout compile so
+    // the arrowheads can be flipped back after ELK has run.
+    const backFlags = backEdgeFlags(diagramText);
     try {
         // 1. Let D2 measure BOTH candidate forms of every label — one line and two lines (compile
         //    fills in labelWidth/labelHeight). The layouts these compiles produce are thrown away;
@@ -557,7 +581,7 @@ async function _renderLabelViews(diagramText, hasSteps) {
         }
 
         // 2. The tight, label-free layout every view will share.
-        let layout = await compileLaidOut(stripLabels(diagramText));
+        let layout = await compileLaidOut(stripLabels(diagramText), backFlags);
         const connCount = (layout.diagram?.connections || []).length;
         if (singleHarvests.some((h) => h.length !== connCount)) {
             throw new Error('label/connection count mismatch — falling back to laid-out labels');
@@ -570,8 +594,19 @@ async function _renderLabelViews(diagramText, hasSteps) {
         let picks = views.map((_, v) => chooseLabelForms(layout.diagram, singleHarvests[v], wrappedHarvests[v]));
         const stuck = widestLabels(picks.map((p) => p.chosen), picks);
         if (stuck.misfits.size) {
+            // ELK gives every labelled edge its own dummy layer, and layers are global — so labelling
+            // only SOME edges skews whichever branches happen to contain one. On a two-zone diagram
+            // that is fatal: measured, reserving just the misfits left the two public subnets 308px
+            // apart, while reserving none (335/335) or all of them (535/535) put them dead in line.
+            // Multi-AZ copies of one resource have to share a column to read as one service, so when
+            // the diagram HAS copies every label is reserved and the branches stay level.
+            //
+            // Only then, though. Reserving everywhere costs real width (measured: +563px on a
+            // single-zone diagram that never needed it), and a diagram with no copies has no mirrored
+            // columns to protect — there the tight, misfits-only reservation is still the right one.
+            const reserveAll = diagramText.includes('__');
             layout = await compileLaidOut(mapEdgeLabels(diagramText, (parts, i) =>
-                (stuck.misfits.has(i) ? toD2Label(stuck.widest[i]?.label) : '')));
+                (reserveAll || stuck.misfits.has(i) ? toD2Label(stuck.widest[i]?.label) : '')), backFlags);
             // Geometry moved — re-pick on the layout that actually ships.
             picks = views.map((_, v) => chooseLabelForms(layout.diagram, singleHarvests[v], wrappedHarvests[v]));
         }
@@ -610,7 +645,34 @@ async function _renderLabelViewsPlain(diagramText, hasSteps, cause) {
 
 // Compile + lay out a D2 source, then apply the two geometry fix-up passes. Unqueued: callers are
 // either the queued _doRender or an already-queued multi-pass pipeline.
-async function compileLaidOut(text) {
+// Which edge indices the prompt declared backwards, read from the ORIGINAL diagram text. It has to
+// be computed there and carried in: by compile time `composeLabel` has already collapsed each label
+// to the text the canvas shows, so the `back` marker is long gone from `conn.label`. The index is
+// the same `edgeIndex` mapEdgeLabels hands out, which is the order the compiled connections come
+// back in — the correspondence harvestLabels already relies on.
+function backEdgeFlags(diagramText) {
+    const flags = [];
+    mapEdgeLabels(diagramText, (parts) => { flags.push(isBackEdgeLabel(parts)); return parts.join(LABEL_SEP); });
+    return flags;
+}
+
+// Put the arrowhead back where the traffic really goes. A `back` connection was declared the wrong
+// way round only so the layout would keep its subnet in the right column (see prompt.md, BACKWARD
+// EDGES); left alone it would be drawn pointing at the wrong end, which is a worse lie than the
+// misalignment it fixes. The route is NOT touched — it is the same line either way, and `src`/`dst`
+// stay as ELK set them so every geometry pass keeps working on the real endpoints. Only the head
+// moves to the other end.
+function flipBackEdgeArrows(diagram, flags) {
+    if (!flags?.some(Boolean)) return;
+    (diagram?.connections || []).forEach((conn, i) => {
+        if (!flags[i]) return;
+        const { srcArrow, dstArrow } = conn;
+        conn.srcArrow = dstArrow;
+        conn.dstArrow = srcArrow;
+    });
+}
+
+async function compileLaidOut(text, backFlags) {
     const d2 = await getD2Renderer();
     // ELK layout engine: orthogonal edge routing and tighter, more compact placement than
     // dagre — much cleaner for the left-to-right AWS architecture diagrams this app produces.
@@ -618,6 +680,7 @@ async function compileLaidOut(text) {
     const compiled = await d2.compile(text, { layout: 'elk' });
     centerConnectionEndpoints(compiled.diagram);
     orthogonalizeConnectionRoutes(compiled.diagram);
+    flipBackEdgeArrows(compiled.diagram, backFlags);
     return compiled;
 }
 
@@ -637,7 +700,7 @@ async function _doRender(diagramText) {
     }
 
     try {
-        return { svg: await renderCompiled(await compileLaidOut(text)), error: null };
+        return { svg: await renderCompiled(await compileLaidOut(text, backEdgeFlags(text))), error: null };
     } catch (error) {
         return { svg: '', error: error instanceof Error ? error.message : String(error) };
     }
