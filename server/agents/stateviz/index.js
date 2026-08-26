@@ -14,6 +14,33 @@ import * as visualizerStore from '../../visualizerStore.js';
 
 const D2_MARKER = '===D2===';
 
+// Gemini 2.5 spends part of its budget thinking before it emits a single character, and this budget
+// covers BOTH. The stateviz prompt is long and a multi-AZ architecture repeats every node once per
+// zone with long ids, so 16k left generations getting cut off mid-declaration. The output itself is
+// only a few KB; the headroom is for the thinking.
+const MAX_D2_TOKENS = 32000;
+
+// Is this D2 structurally complete? A truncated generation stops mid-map, so its braces do not
+// balance — the cheapest possible check for the exact failure that matters, and it needs no
+// compiler. Quoted strings are skipped so a brace inside a label cannot throw the count off.
+export function looksComplete(d2) {
+    if (typeof d2 !== 'string' || !d2.trim()) return false;
+    let depth = 0;
+    let inQuotes = false;
+    for (let i = 0; i < d2.length; i++) {
+        const ch = d2[i];
+        if (ch === '"' && d2[i - 1] !== '\\') {
+            inQuotes = !inQuotes;
+        } else if (!inQuotes) {
+            if (ch === '{') depth++;
+            else if (ch === '}' && --depth < 0) return false;
+        }
+    }
+    if (depth !== 0 || inQuotes) return false;
+    // A line ending in a bare `:` is the other truncation shape — a key whose value never arrived.
+    return !/:\s*$/.test(d2.trimEnd());
+}
+
 // Compact the resource inventory for the prompt: keep identity, state and ALL the
 // relationship fields (connections / vpc / subnet — the diagram needs them to draw
 // edges and containment), truncate the verbose `details` blob, and replace the `code`
@@ -82,14 +109,19 @@ export async function runStateViz(userId, chatId) {
         return '';
     }
 
+    // A diagram already on disk can itself be broken (a generation that was cut off before this
+    // guard existed). Never hand one of those to the model: the prompt tells it to KEEP the previous
+    // structure, so it would faithfully reproduce the damage and the sigil could never recover. An
+    // unusable previous is treated as no previous, which makes a broken sigil heal on its next push.
+    const usablePrevious = previousD2 && looksComplete(previousD2) ? previousD2.trim() : '';
     const prompt = fill(await loadPrompt(import.meta.url), {
         RESOURCE_INVENTORY: JSON.stringify(compactResources(resources), null, 2),
-        PREVIOUS_D2: previousD2 ? previousD2.trim() : '(none — build the diagram from scratch)'
+        PREVIOUS_D2: usablePrevious || '(none — build the diagram from scratch)'
     });
 
     const stream = getGemini().messages.stream({
         model: MODELS.stateviz,
-        max_tokens: 16000,
+        max_tokens: MAX_D2_TOKENS,
         messages: [{ role: 'user', content: prompt }],
         user: userId // token-usage attribution
     });
@@ -102,7 +134,21 @@ export async function runStateViz(userId, chatId) {
 
     const d2Code = extractD2(fullText);
     if (!d2Code) {
-        return '';
+        return usablePrevious;
+    }
+
+    // NEVER persist a diagram that was cut off. Writing one is far worse than the failed generation
+    // itself: the broken file is what every later render reads, so a single truncated answer breaks
+    // that sigil's diagram permanently, with no way back except regenerating it. Keeping the previous
+    // diagram means the user sees a slightly stale picture instead of an error, and the next push
+    // fixes it.
+    const truncated = message.stop_reason === 'max_tokens';
+    if (truncated || !looksComplete(d2Code)) {
+        console.error(
+            `[stateviz] discarded a ${truncated ? 'truncated' : 'malformed'} diagram for ${chatId}` +
+            ` (${d2Code.length} chars); keeping the previous one`
+        );
+        return usablePrevious;
     }
 
     await visualizerStore.writeDiagram(userId, chatId, d2Code);

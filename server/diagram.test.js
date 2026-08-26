@@ -406,3 +406,15 @@ test('applyLabelSlides with nothing to move returns the SVG untouched', () => {
     const svg = '<g class="YWJj"><text x="1" y="2">x</text></g>';
     assert.equal(applyLabelSlides(svg, new Map()), svg);
 });
+
+test('nudge: a connection with a degenerate route is skipped, not crashed on', () => {
+    // D2 can return a label with a route of one point, or none at all. Its box is null, and comparing
+    // against null used to throw — which cost the whole diagram, because the caller turns any throw
+    // in this pass into a render error for the user.
+    const good = { src: 'a', dst: 'b', id: '(a -> b)[0]', label: 'ok', labelWidth: 100, labelHeight: 26,
+        route: [{ x: 0, y: 100 }, { x: 600, y: 100 }] };
+    for (const route of [[{ x: 300, y: 100 }], undefined, null]) {
+        const bad = { src: 'c', dst: 'd', id: '(c -> d)[0]', label: 'malo', labelWidth: 100, labelHeight: 26, route };
+        assert.doesNotThrow(() => nudgeCollidingLabels({ shapes: [], connections: [good, bad] }));
+    }
+});

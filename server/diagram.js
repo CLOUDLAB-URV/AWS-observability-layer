@@ -619,8 +619,15 @@ export async function renderDeployedDiagram(storedText) {
 // happen to run. On a vertical run the label slides along its own wire rather than off it, but its
 // opaque pill still covers the line, so the only thing that changes is the separation we came for.
 export function nudgeCollidingLabels(diagram) {
-    const conns = (diagram?.connections || []).filter((c) => c?.label && c.labelWidth && c.labelHeight);
-    if (conns.length < 2) return;
+    // A label needs a usable ROUTE as well as text: D2 can hand back a connection whose route is
+    // missing or has a single point, and its box is then null. Filtering those out here is what keeps
+    // the pair loop below from comparing against null — which threw, and a throw in this pass costs
+    // the whole diagram, since _renderLabelViews catches it and falls back to a render that reports
+    // an error to the user.
+    const conns = (diagram?.connections || []).filter(
+        (c) => c?.label && c.labelWidth && c.labelHeight && labelBoxOf(c, c)
+    );
+    if (conns.length < 2) return new Map();
     const obstacles = [...leafShapeBoxes(diagram), ...containerLabelBoxes(diagram)];
     const place = new Map(conns.map((c) => [c, LABEL_MIDDLE]));
     const frac = new Map(conns.map((c) => [c, 0.5]));
@@ -680,7 +687,8 @@ export function nudgeCollidingLabels(diagram) {
         for (let j = i + 1; j < conns.length; j++) {
             const a = conns[i], b = conns[j];
             if (place.get(a) !== LABEL_MIDDLE && place.get(b) !== LABEL_MIDDLE) continue;
-            if (!boxesOverlap(boxes.get(a), boxes.get(b))) continue;
+            const boxA = boxes.get(a), boxB = boxes.get(b);
+            if (!boxA || !boxB || !boxesOverlap(boxA, boxB)) continue;
             const [long, short] = routeLength(a.route) >= routeLength(b.route) ? [a, b] : [b, a];
             if (place.get(long) === LABEL_MIDDLE && lift(long, [LABEL_BELOW, LABEL_ABOVE])) continue;
             if (place.get(short) === LABEL_MIDDLE && lift(short, [LABEL_ABOVE, LABEL_BELOW])) continue;

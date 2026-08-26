@@ -121,10 +121,14 @@ class GeminiMessageStream {
         // Aggregate the streamed chunks into a single Anthropic-shaped message.
         let text = '';
         let usage = null; // last usageMetadata wins — the final chunk carries the totals
+        let finishReason = null; // ditto: the closing chunk says WHY generation stopped
         const functionCalls = [];
         for await (const chunk of stream) {
             if (chunk?.usageMetadata) {
                 usage = chunk.usageMetadata;
+            }
+            if (chunk?.candidates?.[0]?.finishReason) {
+                finishReason = chunk.candidates[0].finishReason;
             }
             for (const part of chunk?.candidates?.[0]?.content?.parts ?? []) {
                 if (part.thought) {
@@ -151,7 +155,7 @@ class GeminiMessageStream {
             }).catch((error) => console.error('[llm-usage] record failed', error));
         }
 
-        return toAnthropicMessage(text, functionCalls);
+        return toAnthropicMessage(text, functionCalls, finishReason);
     }
 }
 
@@ -331,7 +335,17 @@ function toFunctionResponse(content) {
 // ---------------------------------------------------------------------------
 // Gemini → Anthropic response translation
 // ---------------------------------------------------------------------------
-function toAnthropicMessage(text, functionCalls) {
+// Gemini's finishReason, mapped onto the Anthropic `stop_reason` the callers expect. MAX_TOKENS is
+// the one that matters: it means the answer was CUT OFF mid-sentence. Reporting it honestly is what
+// lets a caller tell a finished generation from a truncated one — without it a half-written D2 file
+// looks exactly like a complete one and gets persisted, breaking that sigil's render for good.
+function toStopReason(finishReason, hasToolUse) {
+    if (finishReason === 'MAX_TOKENS') return 'max_tokens';
+    if (hasToolUse) return 'tool_use';
+    return 'end_turn';
+}
+
+function toAnthropicMessage(text, functionCalls, finishReason = null) {
     const content = [];
     if (text) {
         content.push({ type: 'text', text });
@@ -344,5 +358,5 @@ function toAnthropicMessage(text, functionCalls) {
             input: call.args ?? {}
         });
     }
-    return { content, stop_reason: functionCalls.length > 0 ? 'tool_use' : 'end_turn' };
+    return { content, stop_reason: toStopReason(finishReason, functionCalls.length > 0) };
 }
