@@ -834,6 +834,11 @@ async function compileLaidOut(text, backFlags) {
     // dagre — much cleaner for the left-to-right AWS architecture diagrams this app produces.
     // (ELK does NOT center connection endpoints on its own — see centerConnectionEndpoints.)
     const compiled = await d2.compile(text, { layout: 'elk' });
+    // Order matters: give a node its real size back first (ELK inflates a crowded one, which both
+    // drops its label and puts its edges nowhere near the icon), then decide each endpoint's SIDE,
+    // then space each side's final set evenly.
+    shrinkPortInflatedNodes(compiled.diagram);
+    spreadCrowdedAttachments(compiled.diagram);
     centerConnectionEndpoints(compiled.diagram);
     orthogonalizeConnectionRoutes(compiled.diagram);
     flipBackEdgeArrows(compiled.diagram, backFlags);
@@ -924,6 +929,368 @@ function sideOf(point, shape) {
     if (Math.abs(point.y - top) <= ROUTE_EPS) return 'top';
     if (Math.abs(point.y - bottom) <= ROUTE_EPS) return 'bottom';
     return null;
+}
+
+// How many connection endpoints one side of a node may carry before the overflow is pushed onto the
+// perpendicular sides. On a `direction: right` diagram ELK attaches EVERY edge of a node to the same
+// side, so a service that talks to six others gets six endpoints spread along one icon edge — a comb
+// of near-parallel lines a few pixels apart that then run together across the whole canvas. Three is
+// where a side still reads as separate arrows rather than hatching.
+const MAX_PER_SIDE = 3;
+
+// Which perpendicular side an endpoint would rather leave from, judged by where its OTHER end sits:
+// a partner above the node is reached most directly by leaving from the top, one below by the
+// bottom. A partner level with the node has no better side than the one it already uses, so it is
+// not a candidate — moving it would add a detour instead of removing one.
+function preferredSpillSide(far, shape) {
+    if (far.y < shape.pos.y) return 'top';
+    if (far.y > shape.pos.y + shape.height) return 'bottom';
+    return null;
+}
+
+// Lanes an arrow can take once it has left the top or bottom of its node. Every arrow leaving the
+// same side is handed a DIFFERENT one: share a lane and two arrows draw the same horizontal line on
+// top of each other, which reads as a single wire and hides one of the two connections entirely.
+const LANE_STEP = 32;
+const LANE_COUNT = 5;
+const SPILL_LANES = Array.from({ length: LANE_COUNT }, (_, i) => (i + 1) * LANE_STEP);
+
+// How far short of the partner the path turns in, so the last leg runs INTO its face. Several
+// offsets, for the same reason there are several lanes: every partner in one column would otherwise
+// be met by a turn at the SAME x, stacking those descents on top of each other (measured: three
+// vertical pairs at 0px apart, overlapping for up to 305px).
+const SPILL_APPROACHES = [40, 76, 112, 148, 184];
+
+// Two parallel lines closer than this, running alongside for at least that far, read as ONE line —
+// so one of the two connections simply disappears for the reader. No rebuilt path may do it.
+const LINE_SEPARATION = 20;
+const LINE_SHARED = 60;
+// Below this a segment is a jog between bends, not a run anyone can confuse with another.
+const TRACK_MIN = 40;
+
+// A route's long straight runs, as {o: 'H'|'V', c: the constant coordinate, lo, hi}. Short and
+// diagonal pieces are ignored: they carry no risk of being mistaken for a neighbour.
+function longRuns(points) {
+    const out = [];
+    for (let i = 1; i < points.length; i++) {
+        const a = points[i - 1], b = points[i];
+        if (Math.abs(a.x - b.x) <= ROUTE_EPS && Math.abs(a.y - b.y) >= TRACK_MIN) {
+            out.push({ o: 'V', c: a.x, lo: Math.min(a.y, b.y), hi: Math.max(a.y, b.y) });
+        } else if (Math.abs(a.y - b.y) <= ROUTE_EPS && Math.abs(a.x - b.x) >= TRACK_MIN) {
+            out.push({ o: 'H', c: a.y, lo: Math.min(a.x, b.x), hi: Math.max(a.x, b.x) });
+        }
+    }
+    return out;
+}
+
+function runsClash(a, b) {
+    return a.o === b.o && Math.abs(a.c - b.c) <= LINE_SEPARATION
+        && Math.min(a.hi, b.hi) - Math.max(a.lo, b.lo) >= LINE_SHARED;
+}
+
+// One candidate path from `point` (already sitting on `side` of its own node) to `far`.
+//
+// `laneGap` of 0 is the plain L: straight out to the partner's height, then across into it. Anything
+// else runs out to a lane that many pixels clear of the node first, crosses there, and only then
+// turns in — which is what finds room in a packed diagram where the plain L is blocked.
+//
+// `farHorizontal` says the partner's own endpoint sits on its LEFT or RIGHT face, so the arrow has to
+// arrive along the horizontal. Getting this wrong is what made the earlier version drop its last leg
+// vertically onto the partner's side: the line slid down the icon's border and the arrowhead landed
+// on the edge pointing the wrong way. With it, the path drops to the partner's height EARLY — a full
+// APPROACH before it — and comes in level.
+function spillPath(point, far, side, laneGap, farHorizontal, approach) {
+    if (!laneGap) return [point, { x: point.x, y: far.y }, far];
+    const away = side === 'top' ? -1 : 1;
+    const laneY = point.y + away * laneGap;
+    // A lane past the partner is the plain L with a pointless kink in it.
+    if (away < 0 ? laneY < far.y : laneY > far.y) return null;
+    const pts = [point, { x: point.x, y: laneY }];
+    const toward = far.x >= point.x ? 1 : -1;
+    const turnX = far.x - toward * approach;
+    if (farHorizontal && toward * (turnX - point.x) > 0) {
+        pts.push({ x: turnX, y: laneY }, { x: turnX, y: far.y });
+    } else {
+        pts.push({ x: far.x, y: laneY });
+    }
+    pts.push(far);
+    return pts;
+}
+
+// A point list as drawable legs, with any zero-length step (a lane that already sat at the partner's
+// height, a turn that landed on the departure column) dropped.
+function pathLegs(points) {
+    const kept = points.filter((p, i) => i === 0
+        || Math.abs(p.x - points[i - 1].x) > ROUTE_EPS || Math.abs(p.y - points[i - 1].y) > ROUTE_EPS);
+    return kept.slice(1).map((p, i) => [kept[i], p]);
+}
+
+// Give a node back the size it should have drawn at.
+//
+// ELK sizes a node to fit its edge attachment points, so a service with six connections on one side
+// comes back 128x240 instead of 128x128 (measured: every node with <=3 edges stays square, both
+// six-edge nodes inflate). D2 draws `shape: image` into that whole box with no preserveAspectRatio,
+// so the 128px icon renders centred in it and everything hung off the box drifts: ~56px of dead air
+// under the icon, the service NAME pushed that far down (every other node's sits 23px under its
+// icon), and any endpoint on the top/bottom edge landing nowhere near the picture the reader sees.
+//
+// Shrinking back to square around the SAME CENTRE leaves the icon exactly where ELK put it and only
+// takes the padding away — and it hands the spill pass ~112px of newly free space to route through,
+// which is the difference between it finding a lane and giving up.
+//
+// The test for "inflated" is structural, so it needs no D2 field: a LEAF shape (same rule as
+// leafShapeBoxes), TALLER than it is wide, carrying more endpoints on one vertical side than the cap.
+// A box that is WIDER than tall is a real labelled box (a service with no icon in the catalogue) and
+// is never touched.
+export function shrinkPortInflatedNodes(diagram) {
+    const shapeById = shapeIndexById(diagram);
+    if (!shapeById.size) return;
+    const shapes = [...shapeById.values()];
+    const isLeaf = (s) => !shapes.some((o) => o !== s && o.id.startsWith(`${s.id}.`));
+
+    // Deliberately more forgiving than sideOf's half-pixel: on some compiles ELK leaves an endpoint a
+    // couple of pixels off the box (measured 2.67px on one replica, which is why that node kept its
+    // padding while its twin lost it). Whichever edge is nearest wins, so long as it is close — a few
+    // pixels cannot confuse two sides of a 128px node, and the endpoints are snapped exactly onto the
+    // new box below, which leaves the later passes matching them on the nose again.
+    const NEAR = 6;
+    const nearestSide = (p, s) => {
+        const d = { left: Math.abs(p.x - s.pos.x), right: Math.abs(p.x - (s.pos.x + s.width)),
+            top: Math.abs(p.y - s.pos.y), bottom: Math.abs(p.y - (s.pos.y + s.height)) };
+        const best = Object.keys(d).reduce((a, b) => (d[b] < d[a] ? b : a));
+        return d[best] <= NEAR ? best : null;
+    };
+
+    // Endpoints per shape, with the adjacent route point so a stub can be carried along.
+    const touching = new Map(); // shapeId -> [{ point, adjacent, otherEnd }]
+    for (const conn of diagram.connections || []) {
+        const route = conn.route;
+        if (!route || route.length < 2) continue;
+        const last = route.length - 1;
+        for (const [id, i, adj] of [[conn.src, 0, 1], [conn.dst, last, last - 1]]) {
+            if (!shapeById.has(id)) continue;
+            if (!touching.has(id)) touching.set(id, []);
+            touching.get(id).push({ point: route[i], adjacent: route[adj], otherEnd: route[i === 0 ? last : 0] });
+        }
+    }
+
+    for (const shape of shapes) {
+        if (shape.height <= shape.width || !isLeaf(shape)) continue;
+        const ends = touching.get(shape.id) || [];
+        const perSide = new Map();
+        for (const e of ends) {
+            const side = nearestSide(e.point, shape);
+            if (side === 'left' || side === 'right') perSide.set(side, (perSide.get(side) || 0) + 1);
+        }
+        if (![...perSide.values()].some((n) => n > MAX_PER_SIDE)) continue;
+
+        const top = shape.pos.y + (shape.height - shape.width) / 2;
+        const bottom = top + shape.width;
+        for (const { point, adjacent, otherEnd } of ends) {
+            const side = nearestSide(point, shape);
+            if (!side) continue;
+            // Keep where the endpoint sat ALONG its side (as a fraction) so the lines keep their
+            // order and none of them crosses another on the way in; centerConnectionEndpoints
+            // re-spaces them evenly straight after this anyway.
+            let target;
+            if (side === 'left' || side === 'right') {
+                const frac = (point.y - shape.pos.y) / shape.height;
+                target = { axis: 'y', value: top + shape.width * Math.min(1, Math.max(0, frac)) };
+                // Snap it exactly onto the edge too, so the strict sideOf the later passes use
+                // recognises it again even when ELK had left it a couple of pixels adrift.
+                point.x = side === 'left' ? shape.pos.x : shape.pos.x + shape.width;
+            } else {
+                target = { axis: 'y', value: side === 'top' ? top : bottom };
+            }
+            if (adjacent !== otherEnd && Math.abs(adjacent[target.axis] - point[target.axis]) <= ROUTE_EPS) {
+                adjacent[target.axis] = target.value;
+            }
+            point[target.axis] = target.value;
+        }
+        shape.pos.y = top;
+        shape.height = shape.width;
+    }
+}
+
+// Take the overflow off a crowded node side and hang it on the perpendicular ones, so a service with
+// many neighbours fans out around itself instead of combing every line off one edge.
+//
+// Runs BEFORE centerConnectionEndpoints, which then spaces each side's FINAL set evenly — this pass
+// only decides WHICH side an endpoint leaves from, never where along it. A spilled connection is
+// reduced to its two endpoints; orthogonalizeConnectionRoutes turns that into the clean L a vertical
+// departure implies. ELK's own bends are dropped for exactly those edges (they were computed for a
+// horizontal departure and would double the line back to the node's old height), which is why a move
+// is vetoed whenever its predicted L would cross an icon or a container's title strip: the worst case
+// then is today's crowded-but-correct picture, never a line cutting through a node.
+export function spreadCrowdedAttachments(diagram) {
+    const shapeById = shapeIndexById(diagram);
+    if (!shapeById.size) return;
+
+    // Endpoints grouped by the side they currently attach to. The point OBJECTS are kept (not
+    // indices): a spill rewrites conn.route, and an index taken before that would go stale.
+    const groups = new Map(); // `${shapeId}\x00${side}` -> [{ conn, point, far, shape }]
+    for (const conn of diagram.connections || []) {
+        const route = conn.route;
+        if (!route || route.length < 2 || conn.src === conn.dst) continue;
+        const head = route[0], tail = route[route.length - 1];
+        for (const [shapeId, point, far] of [[conn.src, head, tail], [conn.dst, tail, head]]) {
+            const shape = shapeById.get(shapeId);
+            if (!shape) continue;
+            const side = sideOf(point, shape);
+            if (!side) continue;
+            const key = `${shapeId}\x00${side}`;
+            if (!groups.has(key)) groups.set(key, []);
+            groups.get(key).push({ conn, point, far, shape });
+        }
+    }
+
+    // A SERVICE ICON is the only thing a spilled line may never cross — that is always wrong, and it
+    // is the one veto kept here. Container titles and borders are fair game: these edges already
+    // cross container borders everywhere, containers stack vertically with a title on each top edge,
+    // and treating those as obstacles vetoed nearly every move (measured: 1 of 3 spills in one zone,
+    // 0 in the other) for damage a reader would not even notice.
+    const icons = leafShapeBoxes(diagram);
+    // A spilled edge always leaves its own node and lands on its partner, so neither of those two
+    // boxes counts as something it "crosses".
+    const clearOf = (legs, shape, far) => {
+        const own = { x0: shape.pos.x, x1: shape.pos.x + shape.width, y0: shape.pos.y, y1: shape.pos.y + shape.height };
+        return !icons.some((box) => {
+            if (boxesOverlap(box, own)) return false;
+            if (far.x >= box.x0 && far.x <= box.x1 && far.y >= box.y0 && far.y <= box.y1) return false;
+            return legs.some(([a, b]) => segmentHitsBox(a, b, box));
+        });
+    };
+    // Which face of the PARTNER its own endpoint sits on. A left/right face has to be met head-on;
+    // anything else (or a partner this cannot resolve) keeps the vertical arrival.
+    const arrivesHorizontally = (conn, far) => {
+        const partner = shapeById.get(conn.route[0] === far ? conn.src : conn.dst);
+        const side = partner && sideOf(far, partner);
+        return side === 'left' || side === 'right';
+    };
+
+    // Every long straight run already on the canvas, so a rebuilt path can be kept off them. Seeded
+    // from ELK's own routes too: landing a lane 20px from a line ELK drew reads just as badly as
+    // landing on a sibling's.
+    const tracks = [];
+    for (const conn of diagram.connections || []) {
+        if (Array.isArray(conn.route)) for (const run of longRuns(conn.route)) tracks.push({ conn, run });
+    }
+    const laysOnAnother = (legs, conn) => legs.some(([a, b]) => {
+        const [run] = longRuns([a, b]);
+        return run && tracks.some((t) => t.conn !== conn && runsClash(t.run, run));
+    });
+
+    // The first path that crosses no icon AND lies on top of no existing line, trying `preferred`
+    // lanes before the rest and every turn-in offset within each. Returns the legs plus the lane that
+    // won, so a sibling can be steered away from it.
+    const findPath = (point, far, side, shape, farHorizontal, conn, preferred = []) => {
+        const lanes = [0, ...preferred, ...SPILL_LANES.filter((g) => !preferred.includes(g))];
+        for (const laneGap of lanes) {
+            for (const approach of SPILL_APPROACHES) {
+                const points = spillPath(point, far, side, laneGap, farHorizontal, approach);
+                if (!points) continue;
+                const legs = pathLegs(points);
+                if (!legs.length || !clearOf(legs, shape, far)) continue;
+                if (laysOnAnother(legs, conn)) continue;
+                return { legs, laneGap };
+            }
+            if (!laneGap) continue; // the plain L has no turn-in to vary
+        }
+        return null;
+    };
+
+    // Swap a connection's runs in the registry for the ones it is about to draw.
+    const retrack = (conn, legs) => {
+        for (let i = tracks.length - 1; i >= 0; i--) if (tracks[i].conn === conn) tracks.splice(i, 1);
+        for (const [a, b] of legs) for (const run of longRuns([a, b])) tracks.push({ conn, run });
+    };
+
+    const moved = new Map(); // side -> [{ point, far, shape }], filled per crowded group
+    for (const [key, attachments] of groups) {
+        if (attachments.length <= MAX_PER_SIDE) continue;
+        const side = key.split('\x00')[1];
+        // Only the sides that run along the flow spill. A crowded top/bottom is rare, and pushing it
+        // sideways would fight the left-to-right reading the whole layout is built on.
+        if (side !== 'left' && side !== 'right') continue;
+
+        // Most extreme partner first, so the arrows that gain the most from leaving vertically are
+        // the ones that get to.
+        const wanting = (want, sort) => attachments
+            .filter((a) => preferredSpillSide(a.far, a.shape) === want)
+            .sort(sort);
+        const queues = {
+            top: wanting('top', (a, b) => a.far.y - b.far.y),
+            bottom: wanting('bottom', (a, b) => b.far.y - a.far.y),
+        };
+
+        // Alternate top/bottom so the overflow lands balanced instead of recreating the same crowd
+        // one side over, and stop as soon as this side is back under the cap. A candidate with no
+        // clear lane is SKIPPED, not fatal: the next one along gets the slot.
+        let need = attachments.length - MAX_PER_SIDE;
+        const taken = { top: [], bottom: [] };
+        for (let turn = 0; need > 0 && (queues.top.length || queues.bottom.length); turn++) {
+            const to = turn % 2 === 0 ? 'top' : 'bottom';
+            const from = queues[to];
+            if (!from.length || taken[to].length >= MAX_PER_SIDE) {
+                if (!queues.top.length && !queues.bottom.length) break;
+                if (taken.top.length >= MAX_PER_SIDE && taken.bottom.length >= MAX_PER_SIDE) break;
+                continue;
+            }
+            const a = from.shift();
+            // Probe from the side's midpoint. The final slot is only known once this side's whole set
+            // is, and the path is searched again then — this just drops the hopeless ones early.
+            const probe = { x: a.shape.pos.x + a.shape.width / 2,
+                y: to === 'top' ? a.shape.pos.y : a.shape.pos.y + a.shape.height };
+            if (!findPath(probe, a.far, to, a.shape, arrivesHorizontally(a.conn, a.far), a.conn)) continue;
+            taken[to].push(a);
+            need--;
+        }
+
+        for (const to of ['top', 'bottom']) {
+            for (const a of taken[to]) {
+                if (!moved.has(`${a.shape.id}\x00${to}`)) moved.set(`${a.shape.id}\x00${to}`, []);
+                moved.get(`${a.shape.id}\x00${to}`).push(a);
+            }
+        }
+    }
+
+    for (const [key, list] of moved) {
+        const side = key.split('\x00')[1];
+        const shape = list[0].shape;
+        const edgeY = side === 'top' ? shape.pos.y : shape.pos.y + shape.height;
+        // Order along the edge decides whether these lines cross each other: they all run vertically
+        // clear of the node and then turn horizontally at their partner's height, so the one turning
+        // FURTHEST from the node has to be the outermost — otherwise its long horizontal leg cuts
+        // across its neighbours' vertical ones. Re-sorted here rather than trusted from the queues,
+        // since a node crowded on BOTH flow sides contributes two already-sorted runs to this list.
+        list.sort((a, b) => (side === 'top' ? a.far.y - b.far.y : b.far.y - a.far.y));
+        // The arrow leaving the LEFTMOST slot is the one whose partner is furthest out, so it takes
+        // the OUTERMOST lane: its long horizontal leg then passes clear above (or below) every
+        // sibling's vertical one instead of cutting across them.
+        const usedLanes = new Set();
+        list.forEach((a, i) => {
+            const x = shape.pos.x + shape.width * ((i + 1) / (list.length + 1));
+            const wanted = SPILL_LANES[Math.min(SPILL_LANES.length - 1, list.length - 1 - i)];
+            const preferred = [wanted, ...SPILL_LANES.filter((g) => g !== wanted && !usedLanes.has(g))];
+            // Search again at the slot this endpoint actually gets: the probe ran from the side's
+            // midpoint, and a lane that was clear there can be blocked a few pixels along.
+            const path = findPath({ x, y: edgeY }, a.far, side, shape,
+                arrivesHorizontally(a.conn, a.far), a.conn, preferred);
+            if (!path) return;
+            usedLanes.add(path.laneGap);
+            retrack(a.conn, path.legs);
+            const isHead = a.conn.route[0] === a.point;
+            a.point.x = x;
+            a.point.y = edgeY;
+            // The legs run point -> ... -> far; every leg's end except the last is a bend. Rebuild the
+            // route around the SAME endpoint objects, since centerConnectionEndpoints mutates them
+            // next and the far end must keep whatever ELK gave it.
+            const bends = path.legs.slice(0, -1).map(([, end]) => routePoint(a.point, end.x, end.y));
+            a.conn.route = isHead
+                ? [a.point, ...bends, a.far]
+                : [a.far, ...bends.reverse(), a.point];
+        });
+    }
 }
 
 // ELK leaves ordinary shape nodes with no port constraint at all (it only fixes ports for

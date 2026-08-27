@@ -2,7 +2,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { renumberSteps, mapEdgeLabels, wrapLabel, wrapBoxLabels, composeLabel, nudgeCollidingLabels, applyLabelSlides } from './diagram.js';
+import { renumberSteps, mapEdgeLabels, wrapLabel, wrapBoxLabels, composeLabel, nudgeCollidingLabels, applyLabelSlides, spreadCrowdedAttachments, shrinkPortInflatedNodes } from './diagram.js';
 
 const STYLE = '{ style.stroke: "#e6edf3"; style.stroke-width: 2 }';
 
@@ -416,5 +416,197 @@ test('nudge: a connection with a degenerate route is skipped, not crashed on', (
     for (const route of [[{ x: 300, y: 100 }], undefined, null]) {
         const bad = { src: 'c', dst: 'd', id: '(c -> d)[0]', label: 'malo', labelWidth: 100, labelHeight: 26, route };
         assert.doesNotThrow(() => nudgeCollidingLabels({ shapes: [], connections: [good, bad] }));
+    }
+});
+
+// --- spreadCrowdedAttachments -------------------------------------------------------------------
+// A hub node whose edges all leave the same side, which is what ELK produces on a `direction: right`
+// diagram and what turns a well-connected service into a comb of parallel lines.
+const HUB = () => ({ id: 'hub', pos: { x: 500, y: 300 }, width: 100, height: 100 });
+// One edge leaving the hub's RIGHT side (x = 500+100) toward a partner far to the right at `farY`.
+const spoke = (farY, y) => ({ src: 'hub', dst: `t${farY}`, route: [{ x: 600, y }, { x: 1200, y: farY }] });
+const sideCounts = (d) => {
+    const hub = d.shapes[0];
+    const counts = { left: 0, right: 0, top: 0, bottom: 0 };
+    for (const c of d.connections) {
+        const p = c.route[0];
+        if (Math.abs(p.x - 600) <= 0.5) counts.right++;
+        else if (Math.abs(p.y - 300) <= 0.5) counts.top++;
+        else if (Math.abs(p.y - 400) <= 0.5) counts.bottom++;
+        else if (Math.abs(p.x - 500) <= 0.5) counts.left++;
+    }
+    return counts;
+};
+
+test('spread: six edges on one side are cut back to the cap, using top and bottom', () => {
+    const conns = [spoke(50, 310), spoke(100, 330), spoke(150, 350),
+                   spoke(700, 360), spoke(750, 380), spoke(800, 395)];
+    const d = { shapes: [HUB()], connections: conns };
+    spreadCrowdedAttachments(d);
+    const n = sideCounts(d);
+    assert.equal(n.right, 3, 'the crowded side is back under the cap');
+    assert.equal(n.top + n.bottom, 3, 'the overflow went to the perpendicular sides');
+    assert.ok(n.top > 0 && n.bottom > 0, 'and it was split between them, not piled on one');
+});
+
+test('spread: a side at the cap is left completely alone', () => {
+    const d = { shapes: [HUB()], connections: [spoke(50, 310), spoke(700, 350), spoke(800, 390)] };
+    const before = structuredClone(d);
+    spreadCrowdedAttachments(d);
+    assert.deepEqual(d, before, 'three on a side still reads fine — nothing to fix');
+});
+
+test('spread: the partner furthest out gets the outermost slot, so the legs cannot cross', () => {
+    const conns = [spoke(50, 310), spoke(100, 330), spoke(150, 350),
+                   spoke(700, 360), spoke(750, 380), spoke(800, 395)];
+    const d = { shapes: [HUB()], connections: conns };
+    spreadCrowdedAttachments(d);
+    const onTop = conns.filter((c) => Math.abs(c.route[0].y - 300) <= 0.5)
+        .sort((a, b) => a.route[0].x - b.route[0].x);
+    const partnerY = onTop.map((c) => c.route[c.route.length - 1].y);
+    assert.deepEqual(partnerY, [...partnerY].sort((a, b) => a - b),
+        'left-to-right along the top edge = highest partner first');
+});
+
+test('spread: a spilled edge is rebuilt as a purely orthogonal path', () => {
+    const conns = [spoke(50, 310), spoke(100, 330), spoke(150, 350),
+                   spoke(700, 360), spoke(750, 380), spoke(800, 395)];
+    // Give one a bend, as ELK would: it is replaced, since it was routed for a sideways departure.
+    conns[0].route = [{ x: 600, y: 310 }, { x: 900, y: 310 }, { x: 900, y: 50 }, { x: 1200, y: 50 }];
+    const d = { shapes: [HUB()], connections: conns };
+    spreadCrowdedAttachments(d);
+    // Only the rebuilt ones: an untouched route is still the 2-point stub this fixture starts with,
+    // which orthogonalizeConnectionRoutes squares off later in the real pipeline.
+    const rebuilt = conns.filter((c) => Math.abs(c.route[0].x - 600) > 0.5);
+    assert.ok(rebuilt.length, 'something did spill');
+    for (const c of rebuilt) {
+        for (let i = 1; i < c.route.length; i++) {
+            const a = c.route[i - 1], b = c.route[i];
+            assert.ok(Math.abs(a.x - b.x) <= 0.5 || Math.abs(a.y - b.y) <= 0.5,
+                'every leg is horizontal or vertical, never diagonal');
+        }
+    }
+});
+
+test('spread: when every lane out is blocked, the arrow stays put rather than cross an icon', () => {
+    // Four on the right; the only spill candidates head UP, and a wall seals every lane above the
+    // node — the direct run and all the corridors. Nothing may move.
+    const conns = [spoke(50, 310), spoke(60, 330), spoke(70, 350), spoke(350, 370)];
+    const wall = { id: 'wall', pos: { x: 400, y: 120 }, width: 900, height: 179 };
+    const d = { shapes: [HUB(), wall], connections: conns };
+    spreadCrowdedAttachments(d);
+    assert.equal(sideCounts(d).right, 4, 'better crowded than drawn through a node');
+});
+
+// --- shrinkPortInflatedNodes ---------------------------------------------------------------------
+test('shrink: a node ELK grew to fit its ports goes back to square, keeping its centre', () => {
+    // 128 wide, 240 tall: what ELK returns for a node with six edges on one side.
+    const node = { id: 'hub', pos: { x: 500, y: 300 }, width: 128, height: 240 };
+    const conns = [-100, -60, -20, 20, 60, 100].map((dy) => ({
+        src: 'hub', dst: 'far', route: [{ x: 628, y: 420 + dy }, { x: 1200, y: 420 + dy }] }));
+    const d = { shapes: [node], connections: conns };
+    shrinkPortInflatedNodes(d);
+    assert.equal(node.height, 128, 'squared off');
+    assert.equal(node.pos.y + node.height / 2, 420, 'and the icon has not moved');
+    for (const c of conns) {
+        assert.ok(c.route[0].y >= node.pos.y && c.route[0].y <= node.pos.y + node.height,
+            'every endpoint is back on the smaller box');
+    }
+});
+
+test('shrink: a box wider than tall is never touched — that is a real labelled node', () => {
+    const wide = { id: 'plain', pos: { x: 500, y: 300 }, width: 240, height: 100 };
+    const conns = [0, 20, 40, 60].map((dy) => ({
+        src: 'plain', dst: 'far', route: [{ x: 740, y: 320 + dy }, { x: 1200, y: 320 + dy }] }));
+    const d = { shapes: [wide], connections: conns };
+    const before = structuredClone(d);
+    shrinkPortInflatedNodes(d);
+    assert.deepEqual(d, before);
+});
+
+test('shrink: a square node at the cap is left alone', () => {
+    const node = { id: 'hub', pos: { x: 500, y: 300 }, width: 128, height: 128 };
+    const d = { shapes: [node], connections: [{ src: 'hub', dst: 'far', route: [{ x: 628, y: 364 }, { x: 1200, y: 364 }] }] };
+    const before = structuredClone(d);
+    shrinkPortInflatedNodes(d);
+    assert.deepEqual(d, before);
+});
+
+test('spread: a blocked straight run falls back to a clear corridor instead of giving up', () => {
+    // The direct L from the top edge up to the partner would cut straight through `wall`; a lane
+    // closer to the node clears it, so the arrow still gets to leave the crowded side.
+    const conns = [spoke(50, 310), spoke(100, 330), spoke(150, 350),
+                   spoke(700, 360), spoke(750, 380), spoke(800, 395)];
+    const wall = { id: 'wall', pos: { x: 520, y: 80 }, width: 400, height: 40 };
+    const d = { shapes: [HUB(), wall], connections: conns };
+    spreadCrowdedAttachments(d);
+    assert.ok(sideCounts(d).right <= 3, 'the cap still holds');
+    for (const c of conns) {
+        for (let i = 1; i < c.route.length; i++) {
+            const a = c.route[i - 1], b = c.route[i];
+            assert.ok(!(a.x > wall.pos.x && a.x < wall.pos.x + wall.width
+                && b.x > wall.pos.x && b.x < wall.pos.x + wall.width
+                && Math.min(a.y, b.y) < wall.pos.y + wall.height && Math.max(a.y, b.y) > wall.pos.y),
+                'and no leg runs through the icon');
+        }
+    }
+});
+
+test('spread: two arrows off the same side never share a lane, so neither hides the other', () => {
+    const conns = [spoke(50, 310), spoke(100, 330), spoke(150, 350),
+                   spoke(700, 360), spoke(750, 380), spoke(800, 395)];
+    const d = { shapes: [HUB()], connections: conns };
+    spreadCrowdedAttachments(d);
+    for (const side of [-1, 1]) {
+        const edgeY = side < 0 ? 300 : 400;
+        const lanes = conns
+            .filter((c) => Math.abs(c.route[0].y - edgeY) <= 0.5 && c.route.length > 2)
+            .map((c) => c.route[1].y);
+        assert.equal(new Set(lanes).size, lanes.length, 'every arrow crosses at its own height');
+    }
+});
+
+test('spread: an arrow meets its partner head-on instead of sliding down its border', () => {
+    const sink = { id: 'sink', pos: { x: 1200, y: 40 }, width: 128, height: 128 };
+    // The partner's endpoint sits on the sink's LEFT face, so the last leg has to be horizontal.
+    const up = { src: 'hub', dst: 'sink', route: [{ x: 600, y: 310 }, { x: 1200, y: 104 }] };
+    const conns = [up, spoke(360, 330), spoke(370, 350), spoke(380, 370)];
+    // A wall forces the corridor shape rather than the plain L, which is where the bug lived.
+    const wall = { id: 'wall', pos: { x: 560, y: 150 }, width: 90, height: 100 };
+    const d = { shapes: [HUB(), sink, wall], connections: conns };
+    spreadCrowdedAttachments(d);
+    assert.ok(up.route.length > 2, 'it spilled');
+    const last = up.route[up.route.length - 1], prev = up.route[up.route.length - 2];
+    assert.ok(Math.abs(last.y - prev.y) <= 0.5, 'the final leg runs level into the partner');
+});
+
+test('spread: arrows to partners in one column never share a descent, so none hides another', () => {
+    // Three partners stacked in the SAME column: the earlier version turned in at a fixed distance,
+    // so all three descents fell on one x and drew over each other (measured on a real diagram:
+    // three vertical pairs 0px apart, overlapping for up to 305px).
+    const column = [40, 200, 620].map((y, i) => ({ id: 'sink' + i, pos: { x: 1200, y }, width: 128, height: 128 }));
+    const conns = column.map((s, i) => ({ src: 'hub', dst: s.id,
+        route: [{ x: 600, y: 320 + i * 20 }, { x: 1200, y: s.pos.y + 64 }] }));
+    conns.push(spoke(345, 380), spoke(355, 390));
+    const d = { shapes: [HUB(), ...column], connections: conns };
+    spreadCrowdedAttachments(d);
+
+    const runs = [];
+    for (const c of conns) {
+        for (let i = 1; i < c.route.length; i++) {
+            const a = c.route[i - 1], b = c.route[i];
+            if (Math.abs(a.x - b.x) <= 0.5 && Math.abs(a.y - b.y) >= 40) {
+                runs.push({ c, x: a.x, lo: Math.min(a.y, b.y), hi: Math.max(a.y, b.y) });
+            }
+        }
+    }
+    for (let i = 0; i < runs.length; i++) {
+        for (let k = i + 1; k < runs.length; k++) {
+            const A = runs[i], B = runs[k];
+            if (A.c === B.c) continue;
+            const overlap = Math.min(A.hi, B.hi) - Math.max(A.lo, B.lo);
+            assert.ok(Math.abs(A.x - B.x) > 20 || overlap < 60,
+                `two descents at x=${A.x} and x=${B.x} run together for ${overlap}px`);
+        }
     }
 });
