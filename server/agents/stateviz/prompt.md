@@ -185,20 +185,20 @@ Icons are hosted **by the app** — no external CDN. Icon URL format: **`/aws-ic
 Only use a `<category>/<name>` pair that appears in this list. If the service you need is NOT here, render the node as a clean labeled box with NO `icon:` line — never invent a name or category (a wrong path is a broken image).
 
 - `compute/`: app-runner batch ec2 ec2-auto-scaling ecr ecs eks elastic-beanstalk fargate lambda lightsail
-- `database/`: aurora dms documentdb dynamodb elasticache keyspaces memorydb neptune qldb rds timestream
-- `storage/`: backup ebs efs fsx glacier s3 snowball storage-gateway
-- `networking/`: api-gateway app-mesh client-vpn cloud-map cloudfront customer-gateway direct-connect elb global-accelerator internet-gateway nat-gateway privatelink route53 site-to-site-vpn transit-gateway virtual-private-gateway vpc vpc-endpoint vpc-peering
-- `messaging/`: appflow appsync eventbridge mq mwaa sns sqs step-functions
-- `security/`: audit-manager certificate-manager cloudhsm cognito detective directory-service firewall-manager guardduty iam inspector kms macie network-firewall secrets-manager security-hub shield single-sign-on waf
-- `analytics/`: athena cloudsearch comprehend data-exchange data-pipeline emr forecast fraud-detector glue kendra kinesis kinesis-data-analytics kinesis-data-streams kinesis-firehose kinesis-video-streams lake-formation lex msk opensearch personalize polly quicksight redshift rekognition sagemaker textract transcribe translate
+- `database/`: aurora dms documentdb dynamodb elasticache keyspaces memorydb neptune oracle-database-at-aws qldb rds timestream
+- `storage/`: backup ebs efs elastic-disaster-recovery file-cache fsx glacier s3 snowball storage-gateway
+- `networking/`: api-gateway app-mesh client-vpn cloud-map cloudfront customer-gateway direct-connect elb global-accelerator internet-gateway nat-gateway privatelink route53 site-to-site-vpn transit-gateway verified-access virtual-private-gateway vpc vpc-endpoint vpc-lattice vpc-peering
+- `messaging/`: appflow appsync b2b-data-interchange eventbridge mq mwaa sns sqs step-functions
+- `security/`: audit-manager certificate-manager cloudhsm cognito detective directory-service firewall-manager guardduty iam inspector kms macie network-firewall payment-cryptography secrets-manager security-hub security-incident-response security-lake shield single-sign-on verified-permissions waf
+- `analytics/`: athena bedrock bedrock-agentcore clean-rooms cloudsearch comprehend data-exchange data-pipeline datazone emr entity-resolution forecast fraud-detector glue kendra kinesis kinesis-data-analytics kinesis-data-streams kinesis-firehose kinesis-video-streams lake-formation lex msk opensearch personalize polly q quicksight redshift rekognition sagemaker textract transcribe translate
 - `management/`: appconfig auto-scaling budgets chatbot cloudformation cloudtrail cloudwatch config control-tower cost-explorer fault-injection-simulator license-manager managed-service-for-grafana managed-service-for-prometheus opsworks organizations proton resilience-hub service-catalog systems-manager trusted-advisor well-architected-tool
-- `devtools/`: amplify cloud9 cloudshell codeartifact codebuild codecommit codedeploy codepipeline codestar device-farm location-service x-ray
+- `devtools/`: amplify cloud9 cloudshell codeartifact codebuild codecatalyst codecommit codedeploy codepipeline codestar device-farm infrastructure-composer location-service x-ray
 - `media/`: elastic-transcoder elemental-mediaconnect elemental-mediaconvert elemental-medialive elemental-mediapackage elemental-mediastore elemental-mediatailor interactive-video-service kinesis-video-streams nimble-studio
 - `iot/`: freertos iot-analytics iot-core iot-device-defender iot-device-management iot-events iot-greengrass iot-sitewise iot-twinmaker
 - `migration/`: application-migration-service datasync migration-hub server-migration-service transfer-family
-- `business/`: appstream chime connect pinpoint ses workdocs workmail workspaces
+- `business/`: appstream chime connect end-user-messaging pinpoint ses workdocs workmail workspaces
 
-Common mappings: Internet Gateway → `networking/internet-gateway`; NAT Gateway → `networking/nat-gateway`; VPC Endpoint/PrivateLink endpoint → `networking/vpc-endpoint`; VPC Peering → `networking/vpc-peering`; Virtual Private/VPN Gateway → `networking/virtual-private-gateway`; Customer Gateway → `networking/customer-gateway`; ALB/NLB → `networking/elb`; API Gateway → `networking/api-gateway`; Aurora → `database/aurora`; Redis/ElastiCache → `database/elasticache`; DynamoDB → `database/dynamodb`; Fargate task → `compute/fargate`; SNS topic → `messaging/sns`; EventBridge rule → `messaging/eventbridge`; Kinesis stream → `analytics/kinesis-data-streams`; OpenSearch/Elasticsearch → `analytics/opensearch`.
+Common mappings: Internet Gateway → `networking/internet-gateway`; NAT Gateway → `networking/nat-gateway`; VPC Endpoint/PrivateLink endpoint → `networking/vpc-endpoint`; VPC Peering → `networking/vpc-peering`; Virtual Private/VPN Gateway → `networking/virtual-private-gateway`; Customer Gateway → `networking/customer-gateway`; ALB/NLB → `networking/elb`; API Gateway → `networking/api-gateway`; Aurora → `database/aurora`; Redis/ElastiCache → `database/elasticache`; DynamoDB → `database/dynamodb`; Fargate task → `compute/fargate`; SNS topic → `messaging/sns`; EventBridge rule → `messaging/eventbridge`; Kinesis stream → `analytics/kinesis-data-streams`; OpenSearch/Elasticsearch → `analytics/opensearch`; Bedrock / any LLM inference call → `analytics/bedrock`; Bedrock AgentCore → `analytics/bedrock-agentcore`; Amazon Q → `analytics/q`; VPC Lattice → `networking/vpc-lattice`.
 
 ### CONNECTIONS
 
