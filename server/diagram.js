@@ -590,13 +590,54 @@ function widestLabels(chosenPerView, picks) {
 // measured labels afterwards, giving every view the tight geometry. Only the few labels that would
 // then collide get space reserved for them, in one adaptive second pass, so labels are always shown
 // complete and at full size. Every view shares one geometry, so switching view never moves anything.
+// Drop the diagonals between availability zones that the prompt forbids but the model still draws.
+//
+// When BOTH ends of a connection are MULTI-AZ copies (`<id>__<subnet>`), the pairing must be copy to
+// copy inside one zone — "Never draw a diagonal between zones" (prompt.md, NETWORK CONTAINMENT).
+// Measured on a real two-zone sigil, the model emitted all FOUR combinations instead of two, so each
+// ECS also reached across to the OTHER zone's file system: a long arrow leaving a node and running
+// the width of the VPC to a partner that visibly belongs to the other subnet.
+//
+// A crossing edge is only removed when the correct same-zone pairing for those two resources is
+// already in the diagram, which makes it pure de-duplication — no relationship can be lost. If the
+// honest pairing is missing, the crossing edge is the only record of it and stays put.
+//
+// Runs on the TEXT, before numbering and layout, so ELK lays out the corrected graph and the edge
+// count stays consistent for every pass that follows.
+export function dropCrossZoneReplicaEdges(diagramText) {
+    if (typeof diagramText !== 'string' || !diagramText.includes('__')) return diagramText;
+    const zoneOf = (path) => {
+        const leaf = path.split('.').pop();
+        const cut = leaf.indexOf('__');
+        return cut === -1 ? null : { base: leaf.slice(0, cut), zone: leaf.slice(cut + 2) };
+    };
+    const lines = diagramText.split('\n');
+    const parsed = lines.map((line) => {
+        const m = line.match(EDGE_LINE);
+        if (!m) return null;
+        const src = zoneOf(m[1]);
+        const dst = zoneOf(m[2]);
+        return src && dst ? { src, dst } : null;
+    });
+    const sameZonePairs = new Set(parsed
+        .filter((e) => e && e.src.zone === e.dst.zone)
+        .map((e) => `${e.src.base}\u0000${e.dst.base}`));
+    return lines
+        .filter((_, i) => {
+            const e = parsed[i];
+            if (!e || e.src.zone === e.dst.zone) return true;
+            return !sameZonePairs.has(`${e.src.base}\u0000${e.dst.base}`);
+        })
+        .join('\n');
+}
+
 export async function renderDeployedDiagram(storedText) {
     // Steps are re-derived from the flow's shape at render time, never written back to the stored
     // diagram.d2 — so every diagram already on disk gets the structured numbering without being
     // regenerated, and what the model wrote stays intact.
     // Box titles are likewise re-wrapped at render time, never written back: a stored diagram with a
     // long VPC/subnet title gets the narrower two-line form without being regenerated.
-    const diagramText = wrapBoxLabels(renumberSteps(storedText));
+    const diagramText = wrapBoxLabels(renumberSteps(dropCrossZoneReplicaEdges(storedText)));
     const hasSteps = diagramHasSteps(diagramText);
     // Legacy diagrams (no ` || ` sentinel) have nothing to compose: one render serves every view.
     if (!diagramHasLabels(diagramText)) {

@@ -47,25 +47,10 @@ Rendered with the **ELK layout engine, left-to-right**.
 
 The diagram renders on a **dark canvas**. Use dark, tinted container fills, bright AWS icons with **no card**, light labels and light arrows — everything must read cleanly and stay in harmony on dark.
 
-- **Two kinds of container, and they NEVER mix.** A resource is placed by exactly one of them:
-  - **Network containment** — the VPC and subnet boxes, driven by the inventory's `vpc`/`subnet` fields. This is factual, comes from the inventory, and always WINS.
-  - **Semantic groups** — the optional `COMPUTE`/`DATA`/`MESSAGING` boxes. These are your editorial choice, and they may hold ONLY resources that have neither `vpc` nor `subnet` (S3, DynamoDB, SQS, a Lambda outside any VPC…).
-  So: never put a semantic group inside a VPC or a subnet, never put a VPC inside a semantic group, and never group by subnet — subnets are real boxes now, not a grouping theme. Allowed nesting is `aws` → group → nodes, or `aws` → VPC → subnet → nodes.
-- **Semantic grouping is allowed and encouraged WHEN it clarifies.** Beyond `aws` (the cloud boundary) and the network boxes, you MAY create semantic groups — e.g. `edge`, `compute`, `data`, `messaging` — as colored containers, each with a DISTINCT accent color, to separate the architecture visually. Do not over-group: only add a group when it genuinely makes the picture clearer, and NEVER create a group that holds a single node.
-- **Group colors are the OFFICIAL AWS category colors** (border = accent, fill = its dark tint, label = its light tint via `font-color`). The color is NOT free — pick it by what the group HOLDS, matching the AWS Architecture Icons category of its services. Give each group a short label like `"COMPUTE"`, `"DATA"`, `"MESSAGING"`:
-  - Compute (EC2/ECS/EKS/Lambda/Fargate/Batch…): accent `#ED7100` / fill `#2a1806` / label `#ffb066`
-  - Database (RDS/Aurora/DynamoDB/ElastiCache/DocumentDB…): accent `#C925D1` / fill `#260a27` / label `#e58aeb`
-  - Storage (S3/EBS/EFS/Glacier/Backup…): accent `#7AA116` / fill `#1a2008` / label `#b9d97a`
-  - Networking/Edge (CloudFront/Route 53/ALB/NLB/API Gateway…): accent `#8C4FFF` / fill `#1a1233` / label `#c3a8ff`
-  - Messaging/Integration (SQS/SNS/EventBridge/MQ/Step Functions…): accent `#E7157B` / fill `#2a0d1b` / label `#f291bd`
-  - Security (IAM/KMS/WAF/Cognito/Secrets Manager…): accent `#DD344C` / fill `#2a0d12` / label `#ee8b9a`
-  - Analytics/ML (Kinesis/Glue/Athena/Redshift/SageMaker…): accent `#01A88D` / fill `#06211d` / label `#67d6c2`
-  - A mixed/other group: reuse the closest category above. Two groups in one diagram never share an accent — if they would, keep the accent on the better-matching group and give the other its next-closest category color.
-  ```
-  aws.compute: "COMPUTE" {
-    style.fill: "#2a1806"; style.stroke: "#ED7100"; style.stroke-width: 2; style.border-radius: 10; style.font-color: "#ffb066"
-  }
-  ```
+- **THE ONLY CONTAINERS ARE `aws`, THE VPCs AND THE SUBNETS.** Never invent a box to group services by kind — no `COMPUTE`, no `DATA`, no `MESSAGING`, no `EDGE`, no coloured category panels of any sort. Those boxes add a whole level of nesting for services that are not actually inside anything, and they blow the diagram up until it no longer fits a page. A service that has no `vpc`/`subnet` in the inventory is declared **directly inside `aws`**, as a bare icon node.
+  - ✅ `aws.orders_table`, `aws.assets_bucket` — straight in the cloud boundary.
+  - ❌ `aws.data.orders_table`, `aws.compute.worker_fn` — `data` and `compute` are invented grouping boxes.
+  The only nesting allowed is `aws` → node, or `aws` → VPC → subnet → node.
 - **External client** (internet / end-user) — drawn as a neutral grey GLOBE icon, styled exactly
   like the service nodes (icon + light label, no card, no box). Use it when the deployment is
   publicly reachable, and for any inventory resource of an external type (`client`, `internet`,
@@ -132,7 +117,7 @@ The diagram renders on a **dark canvas**. Use dark, tinted container fills, brig
     number and the SAME action text.** It is one logical step in the flow (the load balancing), not
     two, and the app relies on that to number it once.
 
-  The two subnet accents `#3FB950` (green = public) and `#388BFD` (blue = private) sit OUTSIDE the AWS category palette below and are **RESERVED**: a semantic group never uses either, so on this diagram green and blue mean public and private and nothing else. Since the label no longer says which is which, getting this color wrong is not a style slip — it tells the reader the opposite of the truth.
+  The two subnet accents are `#3FB950` (green = public) and `#388BFD` (blue = private), and on this diagram green and blue mean public and private and nothing else. Since the label no longer says which is which, getting this color wrong is not a style slip — it tells the reader the opposite of the truth.
 - **Service nodes** — the AWS icon ONLY (no card, no box) with a **single-word service label** under it (see below). Use `shape: image` with the icon, add NO fill/stroke, and ALWAYS set a bright label so the name is clearly legible on the dark canvas: `style.font-color: "#f0f6fc"` and `style.font-size: 18`:
   ```
   aws.lambda: "Lambda" {
@@ -168,13 +153,13 @@ The web UI makes each service clickable and shows its **live details on hover/cl
 
 The sanitized id is the key written **before** the `:` and the quoted label. The label stays short (as above) — long ids only affect the id, never the label. Connections must then reference these sanitized ids via full paths (e.g. `aws.edge.myapp_frontend -> aws.orders_fn`). Two resources never share an id, so ids stay unique.
 
-**This applies to the VPC and subnet BOXES too, and it is what makes them clickable.** Their container id is the sanitized id of their own resource — `vpc-0abc` → `vpc_0abc`, `subnet-1a2b` → `subnet_1a2b` — exactly like a leaf node. Only `aws` and the semantic groups keep a free, made-up id (`aws`, `aws.compute`, `aws.data`…). Never name a network box `vpc` or `subnet` generically: that breaks the match and the user loses the panel with its CIDR, AZ and route table.
+**This applies to the VPC and subnet BOXES too, and it is what makes them clickable.** Their container id is the sanitized id of their own resource — `vpc-0abc` → `vpc_0abc`, `subnet-1a2b` → `subnet_1a2b` — exactly like a leaf node. Only `aws` itself keeps a free, made-up id. Never name a network box `vpc` or `subnet` generically: that breaks the match and the user loses the panel with its CIDR, AZ and route table.
 
 The node id must be the sanitized resource id **character-for-character** — it powers the click-to-inspect match, and any deviation breaks it. In particular:
 - Do NOT add the service type as a prefix: resource `events-stream` → id `events_stream`, NOT `kinesis_events_stream`.
 - Do NOT split a word that has no separator: resource `myapp-frontend` → id `myapp_frontend` (one `_`, from the hyphen only), NOT `my_app_frontend`.
 - Do NOT split camelCase: `OrdersTable` → `orderstable`, NOT `orders_table`.
-Putting a node inside a container is fine — the id is unchanged; only its full path gains the prefix: `aws.<group>.<id>` in a semantic group, `aws.<vpc-id>.<subnet-id>.<id>` inside a subnet.
+Putting a node inside a container is fine — the id is unchanged; only its full path gains the prefix: `aws.<id>` in the cloud boundary, `aws.<vpc-id>.<subnet-id>.<id>` inside a subnet.
 
 **The one and only exception** is a MULTI-AZ resource (see "NETWORK CONTAINMENT"): because D2 needs a unique id per node, each of its copies is `<sanitized id>__<sanitized subnet id>`. The web strips everything from the double underscore on to find the resource again, which is why the separator must be exactly two underscores and why a sanitized id never contains one itself (sanitizing collapses any run of non-alphanumerics into a SINGLE `_`). Never invent any other suffix to disambiguate two nodes.
 
@@ -203,7 +188,7 @@ Common mappings: Internet Gateway → `networking/internet-gateway`; NAT Gateway
 ### CONNECTIONS
 
 - **CRITICAL — connect SERVICES using each node's FULL path** from the diagram root, including EVERY container prefix. A node `lambda` inside `aws { … }` is `aws.lambda`; an EC2 inside a subnet inside a VPC is `aws.<vpc-id>.<subnet-id>.<ec2-id>` — three prefixes, all of them required.
-  - ✅ `client -> aws.api_gateway`, `aws.api_gateway -> aws.lambda`, `aws.vpc_0abc.subnet_3c4d.i_0a1b2c -> aws.data.orders_db`
+  - ✅ `client -> aws.api_gateway`, `aws.api_gateway -> aws.lambda`, `aws.vpc_0abc.subnet_3c4d.i_0a1b2c -> aws.orders_db`
   - ❌ `client -> api_gateway`, `lambda -> rds` (unqualified — D2 silently spawns empty phantom boxes), `aws.i_0a1b2c -> aws.orders_db` (skips the VPC/subnet prefixes).
   - Draw edges between the SERVICES, never between the boxes: a VPC or subnet box is never an endpoint of a connection.
 - **WHY THIS MATTERS (the #1 bug):** D2 silently creates a brand-new EMPTY box for any path that doesn't match a defined node, so an unqualified name spawns a separate, icon-less box outside the AWS Cloud while your real service sits unconnected. The arrow must land on the actual service node.
@@ -304,35 +289,27 @@ aws: "AWS Cloud (us-east-1)" {
     }
   }
 
-  data: "DATA" {
-    style.fill: "#260a27"
-    style.stroke: "#C925D1"
-    style.stroke-width: 2
-    style.border-radius: 10
-    style.font-color: "#e58aeb"
+  orders_table: "DynamoDB" {
+    shape: image
+    icon: "/aws-icons/database/dynamodb.svg"
+    style.font-color: "#f0f6fc"
+    style.font-size: 18
+  }
 
-    orders_table: "DynamoDB" {
-      shape: image
-      icon: "/aws-icons/database/dynamodb.svg"
-      style.font-color: "#f0f6fc"
-      style.font-size: 18
-    }
-
-    assets_bucket: "S3" {
-      shape: image
-      icon: "/aws-icons/storage/s3.svg"
-      style.font-color: "#f0f6fc"
-      style.font-size: 18
-    }
+  assets_bucket: "S3" {
+    shape: image
+    icon: "/aws-icons/storage/s3.svg"
+    style.font-color: "#f0f6fc"
+    style.font-size: 18
   }
 }
 
 client -> aws.vpc_0abc.subnet_1a2b.app_alb__subnet_1a2b: "1 || POST /orders" { style.stroke: "#e6edf3"; style.stroke-width: 2; style.font-color: "#c9d1d9"; style.font-size: 15; style.fill: "#0d1117" }
 client -> aws.vpc_0abc.subnet_3c4d.app_alb__subnet_3c4d: "1 || POST /orders" { style.stroke: "#e6edf3"; style.stroke-width: 2; style.font-color: "#c9d1d9"; style.font-size: 15; style.fill: "#0d1117" }
-aws.vpc_0abc.subnet_1a2b.app_alb__subnet_1a2b -> aws.data.orders_table: "2 || Read/write orders || both" { style.stroke: "#e6edf3"; style.stroke-width: 2; style.font-color: "#c9d1d9"; style.font-size: 15; style.fill: "#0d1117" }
-aws.vpc_0abc.subnet_3c4d.app_alb__subnet_3c4d -> aws.data.orders_table: "2 || Read/write orders || both" { style.stroke: "#e6edf3"; style.stroke-width: 2; style.font-color: "#c9d1d9"; style.font-size: 15; style.fill: "#0d1117" }
-aws.vpc_0abc.subnet_1a2b.app_alb__subnet_1a2b -> aws.data.assets_bucket: "3 || Serve product images" { style.stroke: "#e6edf3"; style.stroke-width: 2; style.font-color: "#c9d1d9"; style.font-size: 15; style.fill: "#0d1117" }
-aws.vpc_0abc.subnet_3c4d.app_alb__subnet_3c4d -> aws.data.assets_bucket: "3 || Serve product images" { style.stroke: "#e6edf3"; style.stroke-width: 2; style.font-color: "#c9d1d9"; style.font-size: 15; style.fill: "#0d1117" }
+aws.vpc_0abc.subnet_1a2b.app_alb__subnet_1a2b -> aws.orders_table: "2 || Read/write orders || both" { style.stroke: "#e6edf3"; style.stroke-width: 2; style.font-color: "#c9d1d9"; style.font-size: 15; style.fill: "#0d1117" }
+aws.vpc_0abc.subnet_3c4d.app_alb__subnet_3c4d -> aws.orders_table: "2 || Read/write orders || both" { style.stroke: "#e6edf3"; style.stroke-width: 2; style.font-color: "#c9d1d9"; style.font-size: 15; style.fill: "#0d1117" }
+aws.vpc_0abc.subnet_1a2b.app_alb__subnet_1a2b -> aws.assets_bucket: "3 || Serve product images" { style.stroke: "#e6edf3"; style.stroke-width: 2; style.font-color: "#c9d1d9"; style.font-size: 15; style.fill: "#0d1117" }
+aws.vpc_0abc.subnet_3c4d.app_alb__subnet_3c4d -> aws.assets_bucket: "3 || Serve product images" { style.stroke: "#e6edf3"; style.stroke-width: 2; style.font-color: "#c9d1d9"; style.font-size: 15; style.fill: "#0d1117" }
 aws.vpc_0abc.subnet_1a2b.nat_0c1d -> aws.vpc_0abc.subnet_3c4d.app_alb__subnet_3c4d: "4 || Egress to internet || back" { style.stroke: "#e6edf3"; style.stroke-width: 2; style.font-color: "#c9d1d9"; style.font-size: 15; style.fill: "#0d1117" }
 ```
 
@@ -341,4 +318,4 @@ aws.vpc_0abc.subnet_1a2b.nat_0c1d -> aws.vpc_0abc.subnet_3c4d.app_alb__subnet_3c
 - **Declare ALL connections at the TOP LEVEL**, after the closing `}` of the `aws` block — never inside a container. Use full paths (`aws.x -> aws.y`), exactly like the example above.
 - **Do NOT write comments.** No `//` lines and no `#` lines — output only valid D2 declarations. (`//` is not a D2 comment and breaks the renderer.) Only if the inventory is completely EMPTY (no resources at all — not merely undeployed ones), output a single line: `# No resources yet`.
 
-Output a line containing exactly `===D2===`, followed by the COMPLETE D2 code and NOTHING else — raw D2 only, no markdown fences, no commentary before or after. Re-check before returning: (a) every VPC/subnet box uses the sanitized id of its own resource (never a generic `vpc`/`subnet`), every declared subnet holds the resources the inventory places in it, and every copy of a replicated resource draws ALL of its outgoing edges — and no semantic group holds a resource that has a `vpc` or `subnet`, (b) every connection endpoint is the full, exact path of a defined node, with EVERY container prefix (e.g. `aws.vpc_0abc.subnet_3c4d.i_0a1b2c`), and no endpoint is a box, (c) any semantic group is justified (clarifies the picture, holds ≥2 nodes) and its accent is neither `#3FB950` nor `#388BFD`, (d) no comment lines anywhere, (e) every icon-node label is a single clean service name (no ids, versions, sizes, names or `\n` detail lines), and (f) every `style.stroke-width` is an integer.
+Output a line containing exactly `===D2===`, followed by the COMPLETE D2 code and NOTHING else — raw D2 only, no markdown fences, no commentary before or after. Re-check before returning: (a) every VPC/subnet box uses the sanitized id of its own resource (never a generic `vpc`/`subnet`), every declared subnet holds the resources the inventory places in it, and every copy of a replicated resource draws ALL of its outgoing edges — and no invented grouping box exists at all, (b) every connection endpoint is the full, exact path of a defined node, with EVERY container prefix (e.g. `aws.vpc_0abc.subnet_3c4d.i_0a1b2c`), and no endpoint is a box, (d) no comment lines anywhere, (e) every icon-node label is a single clean service name (no ids, versions, sizes, names or `\n` detail lines), and (f) every `style.stroke-width` is an integer.

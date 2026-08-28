@@ -2,7 +2,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { renumberSteps, mapEdgeLabels, wrapLabel, wrapBoxLabels, composeLabel, nudgeCollidingLabels, applyLabelSlides, spreadCrowdedAttachments, shrinkPortInflatedNodes, isBothEndsLabel, isBackEdgeLabel } from './diagram.js';
+import { renumberSteps, mapEdgeLabels, wrapLabel, wrapBoxLabels, composeLabel, nudgeCollidingLabels, applyLabelSlides, spreadCrowdedAttachments, shrinkPortInflatedNodes, isBothEndsLabel, isBackEdgeLabel, dropCrossZoneReplicaEdges } from './diagram.js';
 
 const STYLE = '{ style.stroke: "#e6edf3"; style.stroke-width: 2 }';
 
@@ -639,4 +639,45 @@ test('both: isBothEndsLabel only fires on the third segment, and never alongside
     // An edge that somehow carries both markers is an egress first: one-way, and reversed.
     assert.equal(isBothEndsLabel(['1', 'Egress', 'back', 'both']), false);
     assert.equal(isBackEdgeLabel(['1', 'Egress', 'back', 'both']), true);
+});
+
+// --- cross-zone replica edges --------------------------------------------------------------------
+const ZONES = [
+    'direction: right',
+    '',
+    'aws.v.sa.ecs__sa -> aws.v.sa.efs__sa: "1 || Read/write state" ' + STYLE,
+    'aws.v.sa.ecs__sa -> aws.v.sb.efs__sb: "2 || Read/write state" ' + STYLE,
+    'aws.v.sb.ecs__sb -> aws.v.sa.efs__sa: "3 || Read/write state" ' + STYLE,
+    'aws.v.sb.ecs__sb -> aws.v.sb.efs__sb: "4 || Read/write state" ' + STYLE,
+].join('\n');
+
+test('zones: the two diagonals go, the two honest pairings stay', () => {
+    const out = dropCrossZoneReplicaEdges(ZONES).split('\n').filter((l) => l.includes('->'));
+    assert.deepEqual(out.map((l) => l.match(/(\S+) -> (\S+):/).slice(1, 3)), [
+        ['aws.v.sa.ecs__sa', 'aws.v.sa.efs__sa'],
+        ['aws.v.sb.ecs__sb', 'aws.v.sb.efs__sb'],
+    ]);
+});
+
+test('zones: a crossing edge with no same-zone twin is kept — it is the only record of it', () => {
+    const lonely = [
+        'direction: right',
+        '',
+        'aws.v.sa.ecs__sa -> aws.v.sb.other__sb: "1 || Replicate" ' + STYLE,
+    ].join('\n');
+    assert.equal(dropCrossZoneReplicaEdges(lonely), lonely);
+});
+
+test('zones: a diagram with no replicas at all is returned byte-identical', () => {
+    const plain = d2([['aws.fn', 'aws.table', '1 || Read/write orders']]);
+    assert.equal(dropCrossZoneReplicaEdges(plain), plain);
+});
+
+test('zones: an edge with only ONE replicated end is never touched', () => {
+    const half = [
+        'direction: right',
+        '',
+        'aws.v.sa.ecs__sa -> aws.table: "1 || Query orders" ' + STYLE,
+    ].join('\n');
+    assert.equal(dropCrossZoneReplicaEdges(half), half);
 });
