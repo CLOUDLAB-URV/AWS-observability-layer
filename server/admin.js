@@ -16,6 +16,7 @@
 import * as authStore from './authStore.js';
 import * as visualizerStore from './visualizerStore.js';
 import * as tokenStore from './tokenStore.js';
+import * as shareStore from './shareStore.js';
 import * as settingsStore from './settingsStore.js';
 import * as usageStore from './usageStore.js';
 import { requireSession } from './auth.js';
@@ -176,6 +177,8 @@ export function registerAdminRoutes(app) {
             }
             await visualizerStore.deleteAllForUser(target.userId);
             await tokenStore.revokeAllForUser(target.userId);
+            // A deleted account must not leave a public share link pointing at data that is gone.
+            await shareStore.revokeAllForUser(target.userId);
             await authStore.deleteAllSessionsForUser(target.userId);
             await authStore.deleteUser(target.userId);
             auditSafe({ action: 'delete_account', actor: req.userId, target: target.userId, targetEmail: target.email });

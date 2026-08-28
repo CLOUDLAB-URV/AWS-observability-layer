@@ -3330,3 +3330,95 @@ body {
     .admin-table th:nth-child(7),
     .admin-table .admin-row td:nth-child(7) { display: none; }
 }
+
+/* --- Public share link ------------------------------------------------------------------ */
+/* The Share pop-up: one link, one copy button, one way to stop. Deliberately plain — the only
+   thing worth reading here is the sentence explaining what the link keeps showing after a deploy. */
+.share-body {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    margin-top: 16px;
+}
+.share-note {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--text-secondary);
+}
+.share-note-dim {
+    color: var(--text-tertiary);
+    font-size: 12.5px;
+}
+.share-link-row {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+}
+.share-link {
+    flex: 1;
+    min-width: 0;
+    font-family: 'Geist Mono Variable', ui-monospace, monospace;
+    font-size: 12px;
+    padding: 9px 11px;
+    border-radius: 8px;
+    border: 1px solid var(--border-default);
+    background: var(--surface-sunken);
+    color: var(--text-primary);
+}
+.share-link:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
+.share-actions {
+    display: flex;
+    justify-content: flex-end;
+}
+.share-error {
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--danger, #ee8b9a);
+}
+
+/* The sigil name on a public page, where the owner gets the sigil selector. */
+.topbar-shared-name {
+    max-width: 42ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+/* Ask, on a public page: the invitation that replaces the chat. */
+.ask-panel-locked {
+    height: 100%;
+    display: flex;
+}
+.ask-locked {
+    margin: auto;
+    padding: 28px 26px;
+    max-width: 320px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    text-align: center;
+}
+.ask-locked-icon {
+    font-size: 20px;
+    color: var(--text-tertiary);
+}
+.ask-locked-title {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+.ask-locked-note {
+    margin: 0 0 6px;
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--text-secondary);
+}

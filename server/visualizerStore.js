@@ -116,7 +116,11 @@ function files(userId, chatId) {
         state: path.join(dir, 'state.json'),
         diagram: path.join(dir, 'diagram.d2'),
         meta: path.join(dir, 'meta.json'),
-        chat: path.join(dir, 'chat.json')
+        chat: path.join(dir, 'chat.json'),
+        // The frozen copy a PUBLIC share link serves once the sigil goes Live. Written once, at
+        // deploy time, from whatever `state`/`diagram` held at that instant — see snapshotForShare.
+        shareState: path.join(dir, 'share-state.json'),
+        shareDiagram: path.join(dir, 'share-diagram.d2')
     };
 }
 
@@ -155,6 +159,50 @@ export async function readDiagram(userId, chatId) {
     } catch {
         return '';
     }
+}
+
+// Freeze what a public share link may show, for good.
+//
+// A shared sigil follows its Design edits live. The instant it is deployed, everything it learns
+// afterwards is real AWS — account-bearing ARNs, instance ids — and must never reach the public
+// side. So the design state and its diagram are copied here, and from then on the share serves only
+// this copy.
+//
+// Written exactly once: a second call is a no-op. That matters because `teardown_sigil` puts a sigil
+// back into Design AFTER it has been deployed, with the real identifiers already merged into its
+// resources — re-snapshotting there would publish precisely what this exists to withhold.
+export function snapshotForShare(userId, chatId) {
+    return enqueue(`${userId}/${chatId}`, async () => {
+        await ensureChat(userId, chatId);
+        const f = files(userId, chatId);
+        try {
+            await fs.access(f.shareState);
+            return false; // already frozen — never re-taken
+        } catch {
+            // Not frozen yet: fall through and take it.
+        }
+        const [state, diagram] = await Promise.all([
+            readJsonObject(f.state),
+            fs.readFile(f.diagram, 'utf8').catch(() => '')
+        ]);
+        await fs.writeFile(f.shareState, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+        await fs.writeFile(f.shareDiagram, `${diagram}`, 'utf8');
+        return true;
+    });
+}
+
+// The state and diagram a share link should serve. While the sigil is in Design these are the live
+// files, so the public page tracks every push; once frozen they are the snapshot and nothing else.
+export async function readForShare(userId, chatId, frozen) {
+    const f = files(userId, chatId);
+    if (!frozen) {
+        return { state: await readJsonObject(f.state), d2: await readDiagram(userId, chatId) };
+    }
+    const [state, d2] = await Promise.all([
+        readJsonObject(f.shareState),
+        fs.readFile(f.shareDiagram, 'utf8').catch(() => '')
+    ]);
+    return { state, d2 };
 }
 
 // Read a session's meta, normalizing the `deployed` flag to a boolean (default

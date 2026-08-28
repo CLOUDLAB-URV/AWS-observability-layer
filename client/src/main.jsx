@@ -20,12 +20,29 @@ const resetToken = window.location.pathname === '/reset'
     ? new URLSearchParams(window.location.search).get('token')
     : null;
 
+// A public share link (`/s/<token>`). Like /reset it is a standalone page: it needs no session, so
+// it skips the login gate entirely and renders the ordinary workspace in share mode — same docking,
+// panels, zoom and export the owner gets, minus everything that needs an account.
+const shareToken = window.location.pathname.startsWith('/s/')
+    ? decodeURIComponent(window.location.pathname.slice(3)).trim()
+    : '';
+
 if (resetToken) {
     createRoot(document.getElementById('root')).render(
         <React.StrictMode>
             <ResetPassword token={resetToken} />
         </React.StrictMode>
     );
+} else if (shareToken) {
+    // Feature flags still apply (the backend gates the public routes the same way), but there is no
+    // session to fetch.
+    loadFeatures().then((features) => {
+        createRoot(document.getElementById('root')).render(
+            <React.StrictMode>
+                <App features={features} share={{ token: shareToken }} />
+            </React.StrictMode>
+        );
+    });
 } else {
     // Holds the session user in state so profile edits (username, avatar) refresh the whole UI
     // without a page reload — the Options modal pushes the updated user back via onUserChange.

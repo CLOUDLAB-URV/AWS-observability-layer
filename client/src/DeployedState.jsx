@@ -14,6 +14,7 @@ import SigilOptionsPanel from './panels/SigilOptionsPanel.jsx';
 import DevToolsPanel from './panels/DevToolsPanel.jsx';
 import ExportModal from './ExportModal.jsx';
 import ConnectAgentModal from './ConnectAgentModal.jsx';
+import ShareModal from './ShareModal.jsx';
 
 // dockview panel registry (id → component). The layout is a rigid VSCode-like model: the
 // diagram is the fixed, locked centre anchor (like the editor) and every other panel lives in
@@ -278,15 +279,30 @@ function findZoneGroup(api, zone, diagramGroup) {
 // The diagram + all side panels live in a VSCode-like dockview layout the user can rearrange
 // into the four zones (drag to stack / dock at an edge / resize); the arrangement and
 // per-zone sizes are persisted to localStorage.
-export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
+// A PUBLIC share link renders this very component, so the shared page keeps the real workspace —
+// docking, panels, zoom, export — instead of a thin copy that would drift from it. `share` is
+// `{ token }` there and null for the owner; everything below keys off it:
+//   · the detail fetch goes to /api/share/<token> and the socket carries ?share=<token>;
+//   · the socket subscribes to whatever sigil the token names, which is why the public payload
+//     never has to reveal a chat id (the token itself stands in as the local key);
+//   · the sigil selector, Connect agent, Options and the profile menu are not rendered at all —
+//     none of them has anything to act on without an account;
+//   · Ask shows an invitation to sign up (see AskPanel).
+export default function DeployedState({ user, onUserChange, onOpenAdmin, share = null }) {
     const [connected, setConnected] = useState(false);
     const [chats, setChats] = useState([]);
     // Whether /api/chats has answered at least once. `chats` starts empty, so without this the
     // first-run guide would briefly think an established user has no sigils and auto-open on them.
     const [chatsLoaded, setChatsLoaded] = useState(false);
+    // In share mode the token doubles as the local sigil key: it is truthy so every "a sigil is
+    // selected" effect runs, and it is never sent anywhere that expects a chat id.
     const [chatId, setChatId] = useState(() => {
+        if (share) return share.token;
         try { return localStorage.getItem(CHAT_KEY) || ''; } catch { return ''; }
     });
+    // The sigil's name on a share page. The owner reads it off the sigil list; a visitor has no
+    // list, so it comes from the public payload.
+    const [sharedName, setSharedName] = useState('');
     const [svg, setSvg] = useState('');
     // The step-numbered variant of the same diagram, rendered server-side from the same D2 and
     // sharing its exact geometry — see displaySvg below. `hasSteps` is false when the diagram has no
@@ -305,6 +321,7 @@ export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
     const [tokenInfo, setTokenInfo] = useState({ loading: true, dev: false, count: 0 });
     // "Export sigil" pop-up (PNG / JPG / SVG).
     const [exportOpen, setExportOpen] = useState(false);
+    const [shareOpen, setShareOpen] = useState(false);
     const [copied, setCopied] = useState('');
     const [renameValue, setRenameValue] = useState('');
     const [editingName, setEditingName] = useState(false);
@@ -374,10 +391,13 @@ export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
     }, [codeView]);
 
     useEffect(() => {
-        const socket = createSocket(handleMessage, setConnected, '/ws-visualizer');
+        const socket = createSocket(handleMessage, setConnected,
+            share ? `/ws-visualizer?share=${encodeURIComponent(share.token)}` : '/ws-visualizer');
         socketRef.current = socket;
-        loadChats();
-        loadTokens();
+        if (!share) {
+            loadChats();
+            loadTokens();
+        }
         return () => socket.close();
     }, []);
 
@@ -388,7 +408,7 @@ export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
         setRenderError(null);
         setActiveResourceId(null);
         if (connected && chatId) {
-            socketRef.current?.send({ type: 'subscribe', chatId });
+            socketRef.current?.send(share ? { type: 'subscribe' } : { type: 'subscribe', chatId });
         }
     }, [connected, chatId]);
 
@@ -404,11 +424,14 @@ export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
         let cancelled = false;
         (async () => {
             try {
-                const res = await fetch(`/api/chats/${encodeURIComponent(chatId)}`);
+                const res = await fetch(share
+                    ? `/api/share/${encodeURIComponent(share.token)}`
+                    : `/api/chats/${encodeURIComponent(chatId)}`);
                 const data = await res.json();
                 if (cancelled) return;
                 const list = Array.isArray(data.resources) ? data.resources : [];
                 setResources(list);
+                if (share) setSharedName(typeof data.name === 'string' ? data.name : '');
                 setDeployed(data.deployed === true);
                 // Drop any resource tab whose resource is no longer in the sigil.
                 const api = apiRef.current;
@@ -428,11 +451,14 @@ export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
 
     // Persist the selected sigil so a reload / revisit reopens it.
     useEffect(() => {
+        // Not on a share page: the "chat id" there is a share token, and remembering it would send
+        // the owner back to someone's public link the next time they open Sigilum.
+        if (share) return;
         try {
             if (chatId) localStorage.setItem(CHAT_KEY, chatId);
             else localStorage.removeItem(CHAT_KEY);
         } catch { /* quota / disabled storage */ }
-    }, [chatId]);
+    }, [chatId, share]);
 
     // Keep the rename field in sync with the selected chat's current name, and leave
     // edit mode whenever the selected chat changes.
@@ -454,8 +480,10 @@ export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
                 // Force a resource/mode refetch even if the SVG didn't change (e.g. a teardown keeps
                 // the same nodes but flips every resource to undeployed and the sigil to Design).
                 setSyncNonce((n) => n + 1);
-                // A push may have created/updated a chat — refresh the list.
-                loadChats();
+                // A push may have created/updated a chat — refresh the list. Never on a share page:
+                // there is no list there, and its reconciliation would drop the token that stands in
+                // for the chat id, blanking the whole view.
+                if (!share) loadChats();
                 break;
             case 'error':
                 setRenderError(message.message);
@@ -1235,7 +1263,10 @@ export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
         renameChat, cancelRename, startRename, formatDate, copy, copied,
         confirmDelete, setConfirmDelete, deleteChat, deleting,
         openConnectAgent,
-        vizPrefs, setVizPref
+        vizPrefs, setVizPref,
+        // Panels are rendered by dockview outside the React tree, so this is how they learn they
+        // are on a public page — AskPanel uses it to offer signing up instead of a chat.
+        share
     };
 
     const isOpen = (id) => openIds.includes(id);
@@ -1310,7 +1341,9 @@ export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
                     </div>
                 </div>
                 <div className="topbar-center">
-                    <SigilSelect
+                    {share ? (
+                        <span className="topbar-shared-name" title={sharedName}>{sharedName}</span>
+                    ) : <SigilSelect
                         chats={chats}
                         chatId={chatId}
                         onSelect={setChatId}
@@ -1318,10 +1351,10 @@ export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
                         chatLabel={chatLabel}
                         mixed={mixed}
                         deployed={deployed}
-                    />
+                    />}
                 </div>
                 <div className="topbar-right">
-                    <button
+                    {!share && <button
                         type="button"
                         className="btn btn-ghost"
                         onClick={() => togglePanel('settings')}
@@ -1335,7 +1368,7 @@ export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
                             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
                         </svg>
                         Options
-                    </button>
+                    </button>}
                     <button
                         type="button"
                         className="btn btn-ghost"
@@ -1350,7 +1383,7 @@ export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
                         </svg>
                         Ask
                     </button>
-                    <button
+                    {!share && <button
                         type="button"
                         className="btn btn-ghost btn-opencode"
                         onClick={() => togglePanel('devtools')}
@@ -1358,7 +1391,25 @@ export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
                         title="Show the opencode panel"
                     >
                         <img className="btn-opencode-logo" src="/opencode.png" alt="opencode" />
-                    </button>
+                    </button>}
+                    {!share && <button
+                        type="button"
+                        className="btn btn-ghost"
+                        onClick={() => setShareOpen(true)}
+                        aria-haspopup="dialog"
+                        disabled={!chatId}
+                        title="Create a public link to this sigil"
+                    >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <circle cx="18" cy="5" r="3" />
+                            <circle cx="6" cy="12" r="3" />
+                            <circle cx="18" cy="19" r="3" />
+                            <line x1="8.6" y1="13.5" x2="15.4" y2="17.5" />
+                            <line x1="15.4" y1="6.5" x2="8.6" y2="10.5" />
+                        </svg>
+                        Share
+                    </button>}
                     <button
                         type="button"
                         className="btn btn-ghost"
@@ -1376,7 +1427,9 @@ export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
                         Export
                     </button>
                     <span className="topbar-sep" aria-hidden="true" />
-                    {user && <UserMenu user={user} onUserChange={onUserChange} onOpenAdmin={onOpenAdmin} />}
+                    {share
+                        ? <a className="btn btn-primary" href="/">Sign in to Sigilum</a>
+                        : user && <UserMenu user={user} onUserChange={onUserChange} onOpenAdmin={onOpenAdmin} />}
                 </div>
             </header>
             <main id="main-content" className="layout layout-deployed" role="main">
@@ -1399,6 +1452,7 @@ export default function DeployedState({ user, onUserChange, onOpenAdmin }) {
             </main>
             {/* Refetch tokens on close so the guide's step 1 ticks as soon as one is generated. */}
             {connectOpen && <ConnectAgentModal onClose={() => { setConnectOpen(false); loadTokens(); }} />}
+            {shareOpen && <ShareModal chatId={chatId} deployed={deployed} onClose={() => setShareOpen(false)} />}
             {exportOpen && <ExportModal onClose={() => setExportOpen(false)} />}
         </DeployedContext.Provider>
     );

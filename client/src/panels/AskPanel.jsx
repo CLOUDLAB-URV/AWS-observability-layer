@@ -13,7 +13,25 @@ const SUGGESTIONS = [
 ];
 
 export default function AskPanel(props) {
-    const { chatId } = useDeployed();
+    const { chatId, share } = useDeployed();
+    // On a public share link there is no account to bill the model to and no history to keep, so the
+    // panel becomes the invitation instead of the chat. The API refuses it anyway (Ask is
+    // session-only) — this is what makes the refusal legible rather than a dead input box.
+    if (share) {
+        return (
+            <div className="ask-panel ask-panel-locked">
+                <div className="ask-locked">
+                    <span className="ask-locked-icon" aria-hidden="true">◇</span>
+                    <h3 className="ask-locked-title">Ask this sigil anything</h3>
+                    <p className="ask-locked-note">
+                        Create a free Sigilum account to ask questions about this architecture and get
+                        answers grounded in the diagram you are looking at.
+                    </p>
+                    <a className="btn btn-primary" href="/">Sign up — it's free</a>
+                </div>
+            </div>
+        );
+    }
     // messages: { role: 'user'|'assistant', text, pending?, error? } — a pending
     // assistant bubble streams in place; on failure it becomes an error bubble.
     const [messages, setMessages] = useState([]);

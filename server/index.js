@@ -19,6 +19,7 @@ import { WebSocketServer } from 'ws';
 import { renderDeployedDiagram } from './diagram.js';
 import * as visualizerStore from './visualizerStore.js';
 import * as tokenStore from './tokenStore.js';
+import * as shareStore from './shareStore.js';
 import { features } from './features.js';
 import * as auth from './auth.js';
 import * as authStore from './authStore.js';
@@ -52,18 +53,40 @@ server.on('upgrade', (req, socket, head) => {
             socket.destroy();
             return;
         }
-        // Resolve the logged-in user from the request's cookies; reject if not authenticated
-        // (when auth is on). The socket is then bound to that user's data.
-        auth.resolveUser(req).then((user) => {
-            if (!user) {
+        // Two ways in. Normally the logged-in user is resolved from the request's cookies and the
+        // socket is bound to their data. Failing that, a `?share=<token>` grants read-only access to
+        // exactly ONE sigil — the SVG only ever travels over this socket (see the subscribe handler
+        // below), so a public page cannot work without it.
+        const shareToken = new URL(req.url, 'http://localhost').searchParams.get('share');
+        (async () => {
+            // The TOKEN WINS over any session. A share link is a page of its own: someone who
+            // happens to be logged in — including the owner checking what visitors see — must get
+            // the same read-only, single-sigil socket as everyone else. Resolving the session first
+            // would hand them an owner socket bound to no chat, and the page would just sit empty.
+            let bind = null;
+            if (shareToken) {
+                const share = await shareStore.verify(shareToken);
+                if (share) {
+                    bind = { userId: share.userId, shareChatId: share.chatId, shareFrozen: share.frozen };
+                }
+            }
+            if (!bind) {
+                const user = await auth.resolveUser(req);
+                bind = user ? { userId: user.userId } : null;
+            }
+            if (!bind) {
                 socket.destroy();
                 return;
             }
             vizWss.handleUpgrade(req, socket, head, (ws) => {
-                ws._userId = user.userId;
+                ws._userId = bind.userId;
+                // Set only for public sockets: it is both the permission (this chat and no other)
+                // and the flag that keeps them out of owner-only broadcasts.
+                ws._shareChatId = bind.shareChatId || null;
+                ws._shareFrozen = bind.shareFrozen === true;
                 vizWss.emit('connection', ws, req);
             });
-        }).catch(() => socket.destroy());
+        })().catch(() => socket.destroy());
     } else {
         socket.destroy();
     }
@@ -77,8 +100,21 @@ server.on('upgrade', (req, socket, head) => {
 function broadcastToChat(userId, chatId, message) {
     const payload = JSON.stringify(message);
     for (const socket of vizWss.clients) {
-        if (socket.readyState === socket.OPEN && socket._userId === userId && socket._chatId === chatId) {
-            socket.send(payload);
+        if (socket.readyState !== socket.OPEN) continue;
+        if (socket._userId !== userId || socket._chatId !== chatId) continue;
+        // A frozen share is pinned to the design snapshot: it must not receive anything the sigil
+        // has learned since. Belt and braces — those sockets are also closed at freeze time.
+        if (socket._shareChatId && socket._shareFrozen) continue;
+        socket.send(payload);
+    }
+}
+
+// Hang up every public socket watching a sigil. Called when a share is frozen or revoked: the
+// viewer reconnects and is then served the frozen snapshot, or refused.
+function closeShareSockets(userId, chatId) {
+    for (const socket of vizWss.clients) {
+        if (socket._shareChatId === chatId && socket._userId === userId) {
+            socket.close();
         }
     }
 }
@@ -371,6 +407,11 @@ app.post('/api/chats/:chatId/deploy', agentGate, requireToken, async (req, res) 
         res.status(409).json({ error: 'This diagram is already Live (deployed to AWS).' });
         return;
     }
+    // Freeze the public side BEFORE the sigil becomes Live, so a share link can never observe the
+    // moment in between. Both are no-ops when the sigil was never shared.
+    await visualizerStore.snapshotForShare(req.userId, chatId);
+    await shareStore.freeze(req.userId, chatId);
+    closeShareSockets(req.userId, chatId);
     await visualizerStore.setDeployed(req.userId, chatId, true);
     res.json({ ok: true, chat: chatId, name: meta.name || meta.project || '', deployed: true, resources });
 });
@@ -446,6 +487,9 @@ app.delete('/api/chats/:chatId', agentGate, requireSession, async (req, res) => 
         return;
     }
     await visualizerStore.deleteChat(req.userId, chatId);
+    // A deleted sigil must not leave a live public link behind.
+    await shareStore.revoke(req.userId, chatId);
+    closeShareSockets(req.userId, chatId);
     res.json({ ok: true, chat: chatId });
 });
 
@@ -603,18 +647,96 @@ vizWss.on('connection', (socket) => {
             return;
         }
         if (message.type === 'subscribe') {
-            const chatId = visualizerStore.sanitizeChatId(message.chatId);
+            // socket._userId was bound at upgrade time. A PUBLIC socket ignores whatever it asked
+            // for and always gets the one sigil its token names — which is also why the public
+            // payload never has to reveal the chat id.
+            const chatId = socket._shareChatId || visualizerStore.sanitizeChatId(message.chatId);
             if (!chatId) {
                 socket.send(JSON.stringify({ type: 'error', message: 'Invalid chat id.' }));
                 return;
             }
-            // socket._userId was bound to the logged-in user at upgrade time.
             socket._chatId = chatId;
-            const d2 = await visualizerStore.readDiagram(socket._userId, chatId);
+            const d2 = socket._shareChatId
+                ? (await visualizerStore.readForShare(socket._userId, chatId, socket._shareFrozen)).d2
+                : await visualizerStore.readDiagram(socket._userId, chatId);
             const { svg, svgActionSteps, hasSteps, error } = await renderDeployedDiagram(d2);
             socket.send(JSON.stringify({ type: 'init', chat: chatId, svg, svgActionSteps, hasSteps, renderError: error }));
         }
     });
+});
+
+// --- Sharing -------------------------------------------------------------------------------
+// The public base a share link is built from. APP_URL is already set for the session cookie's
+// Secure flag; falling back to the request's own origin keeps local dev working with no config.
+function shareUrl(req, token) {
+    const base = String(process.env.APP_URL || '').trim().replace(/\/+$/, '')
+        || `${req.protocol}://${req.get('host')}`;
+    return `${base}/s/${token}`;
+}
+
+// What the owner sees about their own sigil's sharing state.
+app.get('/api/chats/:chatId/share', agentGate, requireSession, async (req, res) => {
+    const chatId = visualizerStore.sanitizeChatId(req.params.chatId);
+    if (!chatId) {
+        res.status(400).json({ error: 'Invalid chat id.' });
+        return;
+    }
+    const share = await shareStore.forSigil(req.userId, chatId);
+    res.json({ shared: Boolean(share), url: share ? shareUrl(req, share.token) : null, frozen: share?.frozen === true });
+});
+
+// Start sharing. A sigil that was born Live has no design to publish, so there is nothing to share:
+// everything it holds came back from AWS.
+app.post('/api/chats/:chatId/share', agentGate, requireSession, async (req, res) => {
+    const chatId = visualizerStore.sanitizeChatId(req.params.chatId);
+    if (!chatId) {
+        res.status(400).json({ error: 'Invalid chat id.' });
+        return;
+    }
+    const meta = await visualizerStore.readMeta(req.userId, chatId);
+    if (!meta.createdAt) {
+        res.status(404).json({ error: 'No such sigil.' });
+        return;
+    }
+    if (meta.deployed === true && !(await shareStore.forSigil(req.userId, chatId))) {
+        res.status(409).json({
+            error: 'This sigil is Live, so everything in it came back from AWS. Only a Design sigil can be shared.'
+        });
+        return;
+    }
+    const share = await shareStore.create(req.userId, chatId);
+    res.json({ shared: true, url: shareUrl(req, share.token), frozen: share.frozen });
+});
+
+app.delete('/api/chats/:chatId/share', agentGate, requireSession, async (req, res) => {
+    const chatId = visualizerStore.sanitizeChatId(req.params.chatId);
+    if (!chatId) {
+        res.status(400).json({ error: 'Invalid chat id.' });
+        return;
+    }
+    await shareStore.revoke(req.userId, chatId);
+    closeShareSockets(req.userId, chatId);
+    res.json({ shared: false });
+});
+
+// THE PUBLIC ROUTE. No session, no token — the URL is the credential. Same response shape as
+// GET /api/chats/:chatId so the workspace renders it without knowing it is in share mode. Still
+// behind agentGate: when the app is in standby, so is everything public.
+app.get('/api/share/:token', agentGate, async (req, res) => {
+    const share = await shareStore.verify(req.params.token);
+    if (!share) {
+        // Unknown and revoked are deliberately indistinguishable.
+        res.status(404).json({ error: 'This link is not available.' });
+        return;
+    }
+    const [meta, { state, d2 }] = await Promise.all([
+        visualizerStore.readMeta(share.userId, share.chatId),
+        visualizerStore.readForShare(share.userId, share.chatId, share.frozen)
+    ]);
+    // A shared sigil is always presented as the Design it was: the frozen copy predates the deploy,
+    // and an unfrozen one has not been deployed at all.
+    const resources = Object.values(state).map((r) => ({ ...r, deployed: false }));
+    res.json({ chat: null, name: meta.name || meta.project || '', deployed: false, frozen: share.frozen, resources, d2 });
 });
 
 app.get('/health', (_req, res) => {

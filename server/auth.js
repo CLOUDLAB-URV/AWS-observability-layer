@@ -15,6 +15,7 @@ import * as cookie from 'cookie';
 import * as authStore from './authStore.js';
 import { DEV, DEV_USER_ID } from './persistence.js';
 import * as tokenStore from './tokenStore.js';
+import * as shareStore from './shareStore.js';
 import * as visualizerStore from './visualizerStore.js';
 import { sendVerificationCode, sendPasswordReset, smtpConfigured } from './mailer.js';
 
@@ -339,6 +340,8 @@ export function registerRoutes(app) {
         // Wipe everything the user owns, then the account itself.
         await visualizerStore.deleteAllForUser(req.userId);
         await tokenStore.revokeAllForUser(req.userId);
+        // A deleted account must not leave a public share link pointing at data that is gone.
+        await shareStore.revokeAllForUser(req.userId);
         await authStore.deleteAllSessionsForUser(req.userId);
         await authStore.deleteUser(req.userId);
         clearSessionCookie(res);

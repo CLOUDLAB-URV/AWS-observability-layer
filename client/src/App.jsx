@@ -9,7 +9,7 @@ import Logo from './Logo.jsx';
 // backend at runtime (GET /api/config, fetched in main.jsx); when it's off the backend also
 // gates the API, so the UI shows an inert empty state. `user` is the logged-in account (or
 // the synthetic "dev" user when auth is disabled locally).
-export default function App({ features, user, onUserChange }) {
+export default function App({ features, user, onUserChange, share = null }) {
     const AGENT_ENABLED = features.agent;
 
     // 'deployed' | 'admin'. Admin is only reachable from the profile menu.
@@ -22,7 +22,7 @@ export default function App({ features, user, onUserChange }) {
     if (AGENT_ENABLED && view === 'deployed') {
         return (
             <div className="app">
-                <DeployedState user={user} onUserChange={onUserChange} onOpenAdmin={openAdmin} />
+                <DeployedState user={user} onUserChange={onUserChange} onOpenAdmin={openAdmin} share={share} />
             </div>
         );
     }

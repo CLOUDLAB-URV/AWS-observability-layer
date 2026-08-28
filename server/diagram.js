@@ -1,6 +1,8 @@
 'use strict';
 
 // Port of the extension's diagramService.js D2 pipeline (lazy-loaded WASM renderer).
+import { createHash } from 'node:crypto';
+
 let d2RendererPromise = null;
 
 function getD2Renderer() {
@@ -631,7 +633,38 @@ export function dropCrossZoneReplicaEdges(diagramText) {
         .join('\n');
 }
 
+// Renders are pure in their input — the same stored D2 always yields the same three strings — and
+// they are the most expensive thing this server does (a D2/WASM compile per label view). Public share
+// links make caching worth it: an owner opens their sigil now and then, but one link handed around
+// brings many strangers to the SAME diagram at once, each otherwise paying for a full compile.
+//
+// Keyed by the stored text itself, so a push invalidates it by simply not matching any more: nothing
+// to expire, and no way to serve a stale picture. Bounded and least-recently-used, because the
+// entries are megabyte-scale SVG strings.
+const RENDER_CACHE_MAX = 12;
+const renderCache = new Map();
+
 export async function renderDeployedDiagram(storedText) {
+    const key = createHash('sha1').update(String(storedText ?? '')).digest('hex');
+    const hit = renderCache.get(key);
+    if (hit) {
+        // Map keeps insertion order, so re-inserting moves this entry to the newest end.
+        renderCache.delete(key);
+        renderCache.set(key, hit);
+        return hit;
+    }
+    const result = await renderDeployedDiagramUncached(storedText);
+    // A failed render is never cached — the next caller deserves a real attempt, not a stored error.
+    if (!result.error) {
+        renderCache.set(key, result);
+        if (renderCache.size > RENDER_CACHE_MAX) {
+            renderCache.delete(renderCache.keys().next().value);
+        }
+    }
+    return result;
+}
+
+async function renderDeployedDiagramUncached(storedText) {
     // Steps are re-derived from the flow's shape at render time, never written back to the stored
     // diagram.d2 — so every diagram already on disk gets the structured numbering without being
     // regenerated, and what the model wrote stays intact.
