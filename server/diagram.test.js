@@ -2,7 +2,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { renumberSteps, mapEdgeLabels, wrapLabel, wrapBoxLabels, composeLabel, nudgeCollidingLabels, applyLabelSlides, spreadCrowdedAttachments, shrinkPortInflatedNodes } from './diagram.js';
+import { renumberSteps, mapEdgeLabels, wrapLabel, wrapBoxLabels, composeLabel, nudgeCollidingLabels, applyLabelSlides, spreadCrowdedAttachments, shrinkPortInflatedNodes, isBothEndsLabel, isBackEdgeLabel } from './diagram.js';
 
 const STYLE = '{ style.stroke: "#e6edf3"; style.stroke-width: 2 }';
 
@@ -609,4 +609,34 @@ test('spread: arrows to partners in one column never share a descent, so none hi
                 `two descents at x=${A.x} and x=${B.x} run together for ${overlap}px`);
         }
     }
+});
+
+// --- two-headed arrows ---------------------------------------------------------------------------
+const BOTH = [
+    'direction: right',
+    '',
+    'aws.fn -> aws.ecr: "1 || Pull image || both" ' + STYLE,
+    'aws.fn -> aws.ses: "2 || Send verification email" ' + STYLE,
+].join('\n');
+
+test('both: the marker never reaches the canvas, in either view', () => {
+    for (const steps of [false, true]) {
+        const out = composeLabel(BOTH, { steps });
+        assert.ok(!/both/.test(out), `the marker leaked into the ${steps ? 'step' : 'action'} view`);
+        assert.match(out, /Pull image/);
+    }
+});
+
+test('both: a marked edge is numbered exactly like an unmarked one', () => {
+    const plain = BOTH.replace(' || both', '');
+    assert.deepEqual(steps(renumberSteps(BOTH)), steps(renumberSteps(plain)));
+});
+
+test('both: isBothEndsLabel only fires on the third segment, and never alongside back', () => {
+    assert.equal(isBothEndsLabel(['1', 'Pull image', 'both']), true);
+    assert.equal(isBothEndsLabel(['1', 'Pull image']), false, 'a two-segment label is one-way');
+    assert.equal(isBothEndsLabel(['1', 'Egress to internet', 'back']), false);
+    // An edge that somehow carries both markers is an egress first: one-way, and reversed.
+    assert.equal(isBothEndsLabel(['1', 'Egress', 'back', 'both']), false);
+    assert.equal(isBackEdgeLabel(['1', 'Egress', 'back', 'both']), true);
 });

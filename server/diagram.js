@@ -60,8 +60,19 @@ export function mapEdgeLabels(diagramText, fn) {
 // the app can restore the true direction for numbering and flip the drawn arrowhead.
 const BACK_MARKER = 'back';
 
+// The other marker that can occupy that same third slot: this connection exists to bring something
+// BACK to whoever opened it — an image pulled, secrets fetched, rows queried — so it is drawn with a
+// head at both ends. Like `back` it never reaches the canvas, and the two are mutually exclusive: an
+// edge carrying both is treated as `back`, since a one-way egress is not an exchange.
+const BOTH_MARKER = 'both';
+
 export function isBackEdgeLabel(parts) {
     return Array.isArray(parts) && parts.length >= 3 && parts[2].trim() === BACK_MARKER;
+}
+
+export function isBothEndsLabel(parts) {
+    return Array.isArray(parts) && parts.length >= 3
+        && parts[2].trim() === BOTH_MARKER && !isBackEdgeLabel(parts);
 }
 
 function splitLabel(parts) {
@@ -718,7 +729,7 @@ async function _renderLabelViews(diagramText, hasSteps) {
     const views = hasSteps ? LABEL_VIEWS : LABEL_VIEWS.slice(0, 1);
     // Which connections were declared backwards on purpose; carried through every layout compile so
     // the arrowheads can be flipped back after ELK has run.
-    const backFlags = backEdgeFlags(diagramText);
+    const markers = edgeMarkerFlags(diagramText);
     try {
         // 1. Let D2 measure BOTH candidate forms of every label — one line and two lines (compile
         //    fills in labelWidth/labelHeight). The layouts these compiles produce are thrown away;
@@ -733,7 +744,7 @@ async function _renderLabelViews(diagramText, hasSteps) {
         }
 
         // 2. The tight, label-free layout every view will share.
-        let layout = await compileLaidOut(stripLabels(diagramText), backFlags);
+        let layout = await compileLaidOut(stripLabels(diagramText), markers);
         const connCount = (layout.diagram?.connections || []).length;
         if (singleHarvests.some((h) => h.length !== connCount)) {
             throw new Error('label/connection count mismatch — falling back to laid-out labels');
@@ -759,7 +770,7 @@ async function _renderLabelViews(diagramText, hasSteps) {
         const hasReplicas = diagramText.includes('__');
         if (stuck.misfits.size && !hasReplicas) {
             layout = await compileLaidOut(mapEdgeLabels(diagramText, (parts, i) =>
-                (stuck.misfits.has(i) ? toD2Label(stuck.widest[i]?.label) : '')), backFlags);
+                (stuck.misfits.has(i) ? toD2Label(stuck.widest[i]?.label) : '')), markers);
             // Geometry moved — re-pick on the layout that actually ships.
             picks = views.map((_, v) => chooseLabelForms(layout.diagram, singleHarvests[v], wrappedHarvests[v]));
         }
@@ -806,10 +817,28 @@ async function _renderLabelViewsPlain(diagramText, hasSteps, cause) {
 // to the text the canvas shows, so the `back` marker is long gone from `conn.label`. The index is
 // the same `edgeIndex` mapEdgeLabels hands out, which is the order the compiled connections come
 // back in — the correspondence harvestLabels already relies on.
-function backEdgeFlags(diagramText) {
-    const flags = [];
-    mapEdgeLabels(diagramText, (parts) => { flags.push(isBackEdgeLabel(parts)); return parts.join(LABEL_SEP); });
-    return flags;
+function edgeMarkerFlags(diagramText) {
+    const back = [];
+    const both = [];
+    mapEdgeLabels(diagramText, (parts) => {
+        back.push(isBackEdgeLabel(parts));
+        both.push(isBothEndsLabel(parts));
+        return parts.join(LABEL_SEP);
+    });
+    return { back, both };
+}
+
+// Draw a head at the SOURCE end too, for the connections whose whole point is what comes back.
+// srcArrow/dstArrow are the arrowhead NAMES D2 renders, not booleans — a plain edge comes back as
+// src `"none"` / dst `"triangle"` — so the source end is given the same head the destination already
+// carries, and the diagram keeps one arrowhead style throughout.
+const DEFAULT_ARROWHEAD = 'triangle';
+function showBothArrows(diagram, flags) {
+    if (!flags?.some(Boolean)) return;
+    (diagram?.connections || []).forEach((conn, i) => {
+        if (!flags[i]) return;
+        conn.srcArrow = conn.dstArrow && conn.dstArrow !== 'none' ? conn.dstArrow : DEFAULT_ARROWHEAD;
+    });
 }
 
 // Put the arrowhead back where the traffic really goes. A `back` connection was declared the wrong
@@ -828,7 +857,7 @@ function flipBackEdgeArrows(diagram, flags) {
     });
 }
 
-async function compileLaidOut(text, backFlags) {
+async function compileLaidOut(text, markers) {
     const d2 = await getD2Renderer();
     // ELK layout engine: orthogonal edge routing and tighter, more compact placement than
     // dagre — much cleaner for the left-to-right AWS architecture diagrams this app produces.
@@ -841,7 +870,8 @@ async function compileLaidOut(text, backFlags) {
     spreadCrowdedAttachments(compiled.diagram);
     centerConnectionEndpoints(compiled.diagram);
     orthogonalizeConnectionRoutes(compiled.diagram);
-    flipBackEdgeArrows(compiled.diagram, backFlags);
+    flipBackEdgeArrows(compiled.diagram, markers?.back);
+    showBothArrows(compiled.diagram, markers?.both);
     return compiled;
 }
 
@@ -894,7 +924,7 @@ async function _doRender(diagramText) {
     }
 
     try {
-        return { svg: await renderCompiled(await compileLaidOut(text, backEdgeFlags(text))), error: null };
+        return { svg: await renderCompiled(await compileLaidOut(text, edgeMarkerFlags(text))), error: null };
     } catch (error) {
         return { svg: '', error: error instanceof Error ? error.message : String(error) };
     }
